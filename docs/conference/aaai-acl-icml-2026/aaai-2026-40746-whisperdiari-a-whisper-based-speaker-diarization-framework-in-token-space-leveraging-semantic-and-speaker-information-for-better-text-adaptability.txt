@@ -1,0 +1,482 @@
+Title: WhisperDiari: A Whisper-Based Speaker Diarization Framework in Token Space Leveraging Semantic and Speaker Information for Better Text Adaptability
+
+URL Source: https://ojs.aaai.org/index.php/AAAI/article/download/40746/44707
+
+Number of Pages: 9
+
+Markdown Content:
+# WhisperDiari: A Whisper-Based Speaker Diarization Framework in Token Space Leveraging Semantic and Speaker Information for Better Text Adaptability 
+
+## Yongkang Yin 1,2 , Yuexian Zou 1,2,* 
+
+> 1
+
+Guangdong Provincial Key Laboratory of Ultra High Definition lmmersive Media Technology, Shenzhen Graduate School, Peking University 
+
+> 2
+
+ADSPLAB, School of ECE, Peking University, Shenzhen, China yinyongkang@stu.pku.edu.cn, zouyx@pku.edu.cn 
+
+Abstract 
+
+Speaker diarization is a fundamental task in speech process-ing aims to determine ’who speaks when’. When combined with ASR, it enables speaker-labeled transcription with broad practical value. Most existing methods rely on frame-level classification, but the high cost of annotating mixed-speaker audio limits the availability of large-scale, accurately labeled datasets. As a result, even state-of-the-art models struggle with imprecise speaker boundary detection and semantic seg-mentation errors, which degrade timestamp accuracy and downstream ASR performance. To address these challenges, we propose WhisperDiari, a unified framework for speaker diarization and ASR. We first construct LibriDiari, a dataset derived from LibriSpeech, containing 2–4 speaker mixed au-dio annotated with transcripts and speaker labels. Whisper-Diari builds on the Whisper model, incorporating speaker adapters and Speaker Similarity Matrix Supervision to en-hance speaker representation. In addition, a dedicated speaker decoder fuses speaker embeddings with contextual seman-tics from Whisper’s decoder, enabling token-level diariza-tion. This design effectively resolves segmentation ambigu-ity, aligns diarization with semantic units, and jointly mod-els ’who speaks what and when’, producing accurate, times-tamped transcripts. We train the model on LibriDiari and evaluate it on both LibriDiari and the real-world AMI corpus. Experimental results demonstrate that WhisperDiari consis-tently outperforms state-of-the-art open-source baselines. 
+
+## Introduction 
+
+Speaker diarization automatically determines “who speaks when” in multi-speaker audio (Anguera et al. 2012; Park et al. 2022). By segmenting speech and labeling speak-ers, it organizes audio data and improves downstream tasks like speech recognition and understanding (Kheddar, Hemis, and Himeur 2024; Cui et al. 2024). Traditional audio-based diarization methods typically assign speaker labels to short speech segments by first dividing the audio into frames. These methods are generally categorized into multi-stage and end-to-end approaches based on their process-ing pipelines. The multi-stage approach, one of the earli-est diarization strategies, usually consists of voice activ-ity detection (VAD) (Sharma, Rattan, and Sharma 2021), 
+
+> *
+
+indicates the corresponding author. Copyright © 2026, Association for the Advancement of Artificial Intelligence (www.aaai.org). All rights reserved. <|spk0|>Results are ready .<| spk1|>Any improvements?         
+
+> <|spk2|> DER dropped 2%. <| spk0|> Nice, let's update the paper.
+> Speaker
+> Diarization ASR
+> Sequential processing / Time alignment
+> Speaker
+> Diarization with
+> ASR
+> (Word -level
+> Speaker
+> Diarization)
+> SPEAKER 0 .00 1. 50<NA>speaker0<NA>
+> SPEAKER 1 .50 1. 00<NA>speaker1<NA>
+> SPEAKER 2.50 1. 50<NA>speaker2<NA>
+> SPEAKER 4.00 1. 50<NA>speaker0<NA>
+> Results are ready. Any
+> improvements? DER
+> dropped 2%. Nice, let‘s
+> update the paper.
+
+Figure 1: Combining speaker diarization and ASR or using word-Level diarization for speaker-labeled transcription speech segmentation (Sakran et al. 2017), speaker embed-ding extraction (Bai and Zhang 2021), and speaker cluster-ing. VAD detects speech regions, after which the audio is segmented into single-speaker regions. A speaker encoder then extracts embeddings from each segment, and cluster-ing assigns speaker labels based on these embeddings. The overall performance heavily depends on the quality of each module. Improvements in VAD (Medennikov et al. 2020), segmentation (Xia et al. 2022), embedding robustness (De-splanques, Thienpondt, and Demuynck 2020; Wang et al. 2023b), and clustering accuracy (Ajmera and Wooters 2003; Han, Kim, and Narayanan 2008; Ning et al. 2006) all con-tribute to better results. Effective coordination and param-eter tuning across modules have also led to the develop-ment of strong open-source diarization systems (Bredin et al. 2020; Chen et al. 2025). With the advancement of deep learning, end-to-end speaker diarization (EEND) methods have emerged (Fujita et al. 2019; Horiguchi et al. 2022). These methods aim to simplify the multi-stage pipeline by using a single deep neural network to directly classify each frame by speaker identity, thereby reducing error propaga-tion across separate modules. Although EEND systems may still slightly lag behind highly optimized multi-stage sys-tems, they show promising potential—particularly in sce-narios requiring real-time processing or handling overlap-ping speech—thanks to their flexibility and adaptable de-sign (Han, Lee, and Stolcke 2021; Xue et al. 2021). These methods typically generate segment-level speaker labels with timestamps, but this is often insufficient for applications like meeting summarization or transcription, The Fortieth AAAI Conference on Artificial Intelligence (AAAI-26) 
+
+34477 which require knowing ’who speaks when and what’. To ad-dress this, diarization results are often combined with au-tomatic speech recognition (ASR) in multi-module systems as shown in Figure 1. However, since diarization and ASR are usually developed separately, differences in timing and errors like frame loss or segmentation mistakes can dis-rupt semantic coherence and reduce overall output quality in complex scenarios. To address this issue, recent word-level diarization methods jointly model speaker diarization and ASR by assigning speaker labels directly to transcribed words (Park et al. 2020) (Huang et al. 2023), as shown in Figure 1. This simplifies the system and improves align-ment accuracy. However, these methods still have limita-tions. They lack deep integration of semantic and speaker information, and their weak long-range context modeling limits speaker identification performance. To address the following challenges: 1) misalignment and semantic disruption from separate modeling of speaker di-arization and ASR at different time scales; 2) limited inte-gration of speaker and semantic information; and 3) lack of high-quality labeled data with aligned text and speaker anno-tations, inspired by word-level diarization methods and the Whisper model, we propose a token-level speaker diariza-tion framework based on the Whisper architecture, along with a corresponding training and testing dataset. The main contributions are as follows: • We propose a speaker diarization framework based on the Whisper architecture, which jointly models speaker information and semantic context; • Our approach operates in token space while preserving timestamp outputs, and we explore a token-level evalua-tion metric called tDER. • We create a multi-speaker dataset, LibriDiari based on LibriSpeech, with aligned text and speaker labels. The construction method is generalizable to other ASR datasets. • Our method achieves competitive results on both the sim-ulated LibriDiari and real-world AMI datasets, compared to existing open-source state-of-the-art methods. 
+
+## Related Work 
+
+Whisper Model 
+
+Whisper (Radford et al. 2023) is a general-purpose speech recognition model by OpenAI. It uses a standard transformer encoder-decoder architecture (Vaswani et al. 2017) in an end-to-end pipeline. The model takes log Mel-filterbank fea-tures from raw audio as input X ∈ RTmel ×Dmel , covering 30 seconds of audio. The input first passes through two 1D convolutional layers for temporal downsampling, producing compressed features. These are then processed by a multi-layer transformer encoder to extract context-aware speech representations: 
+
+Hconv1d = Conv1DBlocks( X) ∈ RTh×Dh (1) 
+
+Hencode = Encoder( Hconv1d ) ∈ RTh×Dh (2) where Th and Dh denote the length and dimension of the hidden states after 2× downsampling. During decoding, the model generates the target token sequence autoregressively, with each token conditioned on the previously generated to-kens and the encoder outputs. 
+
+P (yl) = Decoder( y<l , H encode ) (3) where P (yl) represents the probability of the lth generated token. The training objective of the model is to minimize the standard cross-entropy loss: 
+
+Lwhisper = −
+
+> L
+
+X
+
+> l=1
+
+log P (yl | y<l , H encode ) (4) where N denotes the total number of generated tokens, yl
+
+represents the lth token, y<l refers to all tokens generated before the lth token. The Whisper model is trained with weak supervision on 680,000 hours of multilingual audio, showing strong cross-lingual transfer ability. The training data includes la-bels for tasks such as ASR, speech translation, and lan-guage identification. Whisper also introduces special tokens (e.g., <|en|> , <|transcribe|> , <|timestamps|> ,
+
+<|silence|> ) to support various output formats and tasks. This adaptable tokenizer supports standard ASR and can be extended to tasks like speaker diarization. 
+
+Speaker Diarization Combined ASR 
+
+Joint modeling methods (or word-level speaker diarization) produce transcriptions with speaker labels within a unified framework (Park et al. 2024; Huang et al. 2024; Ma et al. 2024; Wang et al. 2024; Cornell et al. 2024). They com-monly use multi-task learning or serialized output training to improve consistency between ASR and speaker labeling. However, most rely only on ASR encoder states for speaker attribution, lacking deeper fusion of semantic and speaker cues. Their complex architectures and limited open-source implementations also hinder practical adoption. Alternatively, a common approach performs speaker di-arization and ASR separately, then combines results via sequential processing or timestamp alignment. Traditional methods segment audio into single-speaker regions using diarization, then run ASR on each segment (Tranter and Reynolds 2006; Ben-Harush et al. 2012; Watanabe et al. 2020). While this reduces speaker overlap issues, it depends heavily on accurate segmentation. Recently, ASR models like Whisper provide precise timestamps, enabling more flexible strategies that align diarization and ASR outputs by timestamp for speaker labeling (Bai and Zhang 2021). Sup-ported by tools such as pyannote.audio and Whisper, this pipeline offers a robust and reproducible solution widely used in research and practice. 
+
+## Proposed Method 
+
+Data Simulation For LibriDiari 
+
+To enable end-to-end speaker diarization that jointly mod-els semantic and speaker information using deep neural networks, triplet data containing audio, transcriptions, and 34478 Algorithm 1: Mixture Speech Generation Algorithm 
+
+Input : M : Speech metadata 
+
+n: Number of speakers 
+
+C: Number of mixtures 
+
+Output : Speech mixtures x = {x1, . . . , x C } 
+
+> 1:
+
+Initialize count ← 0, x ← {}  
+
+> 2:
+
+while count < C do  
+
+> 3:
+
+Sample S = {s1, . . . , s n} from M 
+
+> 4:
+
+U ← {} , R ← 30 s 
+
+> 5:
+
+for si ∈ S do  
+
+> 6:
+
+ui ← Sample( si, R ) 
+
+> 7:
+
+U ← U ∪ { ui}, R ← R − length (ui) 
+
+> 8:
+
+end for  
+
+> 9:
+
+if P 
+
+> u∈U
+
+length (u) ≤ 30 s then  
+
+> 10:
+
+while true do  
+
+> 11:
+
+u ← Sample( S, R ) 
+
+> 12:
+
+if no such u exists then  
+
+> 13:
+
+break  
+
+> 14:
+
+end if  
+
+> 15:
+
+U ← U ∪ { u}, R ← R − length (u) 
+
+> 16:
+
+end while  
+
+> 17:
+
+U ← NormalizeLoudness( U ) 
+
+> 18:
+
+xcount ← Mix( U ) 
+
+> 19:
+
+x ← x ∪ { xcount }, count ← count + 1  
+
+> 20:
+
+end if  
+
+> 21:
+
+end while  
+
+> 22:
+
+return x
+
+speaker labels is required. However, such datasets are lim-ited. Additionally, due to Whisper’s architecture and posi-tional encoding design, the model can only process audio up to 30 seconds long. To address this, inspired by the con-struction method of LibriMix (Cosentino et al. 2020), we construct a dataset called LibriDiari, based on clean speech segments from LibriSpeech (Panayotov et al. 2015). Multi-speaker audio is synthesized by combining non-overlapping utterances from different speakers. Specifically, we ran-domly select N speakers and sample one utterance from each. If the total duration remains under 30 seconds, more utterances from the same speakers are added until the limit is nearly reached. The detailed procedure is shown in Algo-rithm 1 Using the same approach, corresponding noise data can be generated based on the WHAM! (Wichern et al. 2019). It is optional to add noise and perform loudness normaliza-tion of the speech segments. In addition to transcriptions and speaker IDs, the data annotations also include the duration of each utterance, as well as the silent intervals between seg-ments, computed using a VAD model (Team 2025) and inter-utterance silence detection algorithm. 
+
+Proposed WhisperDiari Model 
+
+The proposed model consists of four main components: an acoustic encoder, a semantic decoder, a speaker decoder, and a speaker adapter. It builds on a pretrained Whisper encoder that extracts two types of features: semantic features for transcription and speaker features for identification. Since ×4  
+
+> ×3
+> ×2×3
+> Pre -trained
+> Speaker Emb
+> Speaker Adapter
+> Hidden State
+> Similarity matrix
+> from speaker adapter Similarity matrix from
+> speaker Emb extractor
+> Speaker Similarity Matrix Supervision
+> Adapter hidden state
+
+Figure 2: Speaker Similarity Matrix Supervision illustration. Enhances speaker representation robustness by leveraging pre-trained speaker embeddings. intermediate layers of speech encoders anc capture speaker features (Zhang et al. 2024), the model uses hidden states from these layers as speaker representations, while seman-tic features are taken from the encoder’s final layer. The semantic decoder, following Whisper’s original design, au-toregressively generates tokens by combining semantic fea-tures with previously generated tokens. Simultaneously, the speaker decoder uses the full sequence of semantic tokens together with speaker representations to predict speaker la-bels for each token, enabling diarization directly in the token space. 
+
+Speaker Adapter The original Whisper encoder pro-cesses input audio and produces representations containing semantic information. Previous studies have shown that the hidden states from intermediate layers of speech encoders retain speaker-related features. Based on this insight, the in-termediate hidden states of the pretrained Whisper encoder are selected as the initial speaker representations. We intro-duce a trainable Speaker Adapter module to improve the distinctiveness of these representations. This module con-sists of a normalization layer and a bottleneck structure com-posed of two linear projection layers. The Speaker Adapter takes the intermediate hidden states as input and produces the final speaker representation as follows: 
+
+Hspk = W↑ (ReLU (W↓ (LN( Henc −mid )))) ∈ RTh×Dh
+
+(5) where the Hspk are then used as the final speaker represen-tations for the subsequent Speaker Decoder. 
+
+Speaker Similarity Matrix Supervision Although the pretrained Whisper encoder captures some speaker informa-tion, it is not explicitly optimized for speaker discrimina-tion, resulting in limited discriminability and robustness of 34479 2×Conv1d 
+
+> Transformer Decoder Block
+
+……       
+
+> Transformer Decoder Block
+> Transformer Decoder Block
+> Transformer Decoder Block
+> Speaker
+> Embedding
+> Extractor
+> Linear -down
+> ReLU
+> LayerNorm
+> Linear -up
+> Positional
+> Encoding
+> Bottleneck
+> Speaker Adapter
+> …The quick …
+> The quick brown …
+> Transformer Encoder Block
+
+……   
+
+> Transformer Encoder Block
+> Transformer Encoder Block
+> N×Encoder Blocks
+
+……         
+
+> N×Semantic
+> Decoder Blocks
+> N×Speaker
+> Decoder Blocks
+> <|spk1|> <|spk1|> <|spk1|> …
+> <|spk1|>…<|spk2|>…<|spk3|>…<|spk2|>…
+> …
+> …
+> (Inf. , GT. )Semantic
+> Frozen parameters Trainable parameters Inference stage Training stage
+
+……               
+
+> ……  ……
+> Positional
+> Encoding
+> Positional
+> Encoding
+> Cross -attention Cross -attention
+> 𝑥 ∈𝑅 𝑇 𝑚𝑒𝑙 ×𝐷 𝑚𝑒𝑙
+> 𝐻 𝑐𝑜𝑛𝑣1𝑑 ∈𝑅 𝑇 ℎ×𝐷 ℎ
+> 𝐻 𝑒𝑛𝑐𝑜𝑑𝑒 ∈𝑅 𝑇 ℎ×𝐷 ℎ
+> 𝐻 𝑒𝑛𝑐 −𝑚𝑖𝑑 ∈𝑅 𝑇 ℎ×𝐷 ℎ
+> 𝐻 𝑠𝑝𝑘 ∈𝑅 𝑇 ℎ×𝐷 ℎ
+> 𝐻 𝑠𝑒𝑚𝑎𝑡𝑖𝑐 ∈𝑅 (𝑙 −1)×𝐷 ℎ
+> 𝐻 𝑠𝑝𝑘 ∈𝑅 𝐿 ×𝐷 ℎ
+
+Figure 3: WhisperDiari: Extended from Whisper with a speaker adapter and decoder to enable speaker diarization in token space, using speaker and semantic information. extracted features. Additionally, frame-level speaker embed-dings often suffer from temporal instability, which can de-grade downstream decoding. To overcome these issues, we propose Speaker Similarity Matrix Supervision. Leveraging a pretrained speaker embedding model as a reference, our method guides the learning of more discriminative speaker representations. Due to differences in encoding spaces and feature distributions, direct alignment is challenging, so we focus on supervising similarity relationships among embed-dings to enhance discriminability while preserving the orig-inal feature distribution. Specifically, we use the pretrained speaker verification model from the open-source WeSpeaker toolkit to ex-tract reference speaker embeddings. Since embeddings from longer speech segments are generally more robust, we lever-age the timestamp information of each continuous segment in the LibriDiari dataset. The pretrained model extracts speaker embeddings for each segment, forming Fspk ∈
+
+RN ×Dspk , where N is the number of concatenated segments per sample. Each embedding is then temporally expanded according to its segment duration to produce the full se-quence F ′
+
+spk ∈ RTh×Dspk . The similarity matrices of the supervision features F ′ 
+
+> spk
+
+and the speaker adapter–adjusted intermediate hidden states Hspk from the encoder are re-spectively computed by calculating the pairwise similarities between frame-wise and normalized embeddings. Then two similarity matrices, M ′ and M , are obtained. 
+
+M ′ = cos (f ′ 
+
+> i
+
+, f ′ 
+
+> j
+
+), ∀i, j ∈ [1 , T h], f ′ 
+
+> i
+
+, f ′ 
+
+> j
+
+∈ norm (F ′
+
+> spk
+
+)
+
+(6) 
+
+M = cos (hi, h j ), ∀i, j ∈ [1 , T h], h i, h j ∈ norm (Hspk )
+
+(7) Finally, the mean squared error (MSE) loss between the elements of the two similarity matrices is calculated and used as the training objective. 
+
+Lsim = MSE( M ′, M ) = 1
+
+|M| 
+
+X
+
+> i,j
+
+ Mi,j − M ′
+
+> i,j
+
+2 · M i,j 
+
+(8) where M is the mask matrix that excludes silent parts from contributing to the loss calculation. 
+
+Speaker Decoder The another core innovation of the model is the introduction of a speaker decoder on top of the original Whisper encoder-decoder architecture. This module further processes the semantic tokens generated by the se-mantic decoder and predicts a speaker identity label for each token. In this way, speaker diarization is performed directly in the token space, enabling fine-grained speaker tracking. Each block of the speaker decoder follows a standard trans-former decoder structure, consisting of self-attention and cross-attention mechanisms. The inputs to the speaker de-coder consist of the speaker representation Hspk , obtained from intermediate encoder hidden states and adapted via a speaker adapter, and the complete sequence of semantic to-kens Y = {y1, y 2, . . . , y L} generated by the semantic de-coder: 
+
+yl = Logits(SemanticDec( y<l , H enc )) (9) where Henc ∈ RTh×Dh denotes the semantic representa-tions extracted from the final layer of the encoder. The out-put of the speaker decoder is Yspk = {yspk 1 , y spk 2 , . . . , y spk  
+
+> L
+
+},34480 which is generated through parallel decoding, where the speaker identity for each semantic token is predicted simul-taneously: 
+
+Yspk = Logits(SpeakerDec( Y, H spk )) ∈ RL (10) where, yspk  
+
+> l
+
+represents the speaker identity sequence cor-responding to each semantic token. To achieve this, the original tokenizer is extended with additional speaker-related special tokens, such as <|spk1|> ,<|spk2|> . . . , enabling token-level speaker labeling and thus realizing speaker diarization in the token space. 
+
+Optimization Targets The overall framework involves two optimization objectives. The first is the similarity-based supervision loss Lsim , derived from Speaker Similarity Ma-trix Supervision, which aims to enhance the discriminability of speaker representations. The second objective is a stan-dard cross-entropy loss Lspk , which follows the loss formu-lation commonly used in Whisper and ASR systems, and is computed between the predicted speaker tokens and the ground-truth tokens as follows: 
+
+Lspk = −
+
+> L
+
+X
+
+> l=1
+
+log P (yspk  
+
+> l
+
+| Y, H spk ) (11) The total loss is a weighted sum of the two losses: 
+
+L = Lspk + αLsim (12) 
+
+## Experimental Setups 
+
+Datasets 
+
+LibriDiari LibriDiari is a simulated multi-speaker dataset derived from LibriSpeech’s train-100h, train-360h, dev, and test subsets. It contains 2, 3, and 4 speakers speech samples, along with mixed multi-speaker training and testing data generated by randomly combining these samples. Each au-dio clip is 30 seconds long. Annotations include audio IDs, transcriptions, speaker labels, speech segment durations, and silence intervals. Speaker embeddings extracted from a pre-trained model are also provided to aid speaker differentia-tion. Speaker Num. train100h train360h dev test 2 / 3 / 4 / n 12,000 44,000 3,000 3,000 Table 1: Number of samples in LibriDiari dataset 
+
+AMI Meeting Corpus The AMI Meeting Corpus (Kraaij et al. 2005) is a widely used multi-speaker conversational dataset comprising over 100 hours of meeting recordings, including both natural and scenario-driven sessions. Each simulated meeting typically features four participants with distinct roles in a collaborative project. The dataset offers multi-channel audio, manual transcriptions, speaker identity annotations, and voice activity labels. To facilitate process-ing and enhance speaker separation accuracy, we minimize overlapping speech during preprocessing while preserving the original data structure. 
+
+Setups 
+
+Model Setups The model takes a 30-second audio clip sampled at 16 kHz as input. The audio is first processed with a 25ms window and 10ms hop size, producing 3,000 frames of 80-dimensional log Mel-filterbank features. These features are then passed through two convolutional layers with an overall downsampling factor of 2×, resulting in en-coder inputs with a feature dimension of 1024. Speaker la-bels are assigned at the token level. To ensure alignment with semantic tokens, each speaker label is duplicated based on the number of semantic tokens generated by the tokenizer for each speech segment. The overall model is built on the pre-trained Whisper-medium architecture. Both the encoder and the two decoders use a hidden state dimension of 1024, with 24 layers and 16 attention heads. The speaker decoder is initialized from the Whisper-medium decoder and fully fine-tuned. The speaker adapter consists of two linear layers with an intermediate hidden size of 512. For speaker embedding supervision, a pre-trained CAM++ model from the open-source Wes-peaker toolkit (Wang et al. 2023a) is used, generating 256-dimensional speaker embeddings. The model is trained us-ing the Adam optimizer (Kingma and Ba 2014) with a learn-ing rate of 10 −4, and the loss weight for the overall training objective is set to 0.5. 
+
+Baselines We select several widely used open-source speaker diarization methods trained on large-scale datasets as baselines. These include multi-stage approaches such as Pyannote-audio3.1, 3D-Speaker Diarization, and Di-ariZen (Han et al. 2024), which leverages the self-supervised WavLM model (Chen et al. 2022), as well as the end-to-end method DiaPer (Landini et al. 2023). To ensure a fair com-parison and evaluate the compatibility of each diarization method with ASR, we use Whisper-medium as a consistent ASR backend across all experiments. 
+
+Metrics 
+
+Diarization Error Rate Diarization Error Rate (DER) measures the overall proportion of errors in speaker segmen-tation and reflects the accuracy of a speaker diarization sys-tem. It is defined as: 
+
+DER = Tmiss + Tf a + Tconf 
+
+Ttotal 
+
+(13) where Tmiss , Tf a , and Tconf denote the durations of missed speech, false alarms, and speaker confusion, respectively, and Ttotal is the total reference speech duration. 
+
+Word Error Rate Word Error Rate(WER) evaluates the difference between the recognized text and the reference transcript, and is used to assess the impact of diarization on ASR performance. 
+
+W ER = S + D + IN (14) where S, D, and I denote the numbers of substitution, dele-tion, and insertion errors, respectively, and N is the total number of reference words. 34481 Diarization Model Diarization Style 2spk-LibriDiari 3spk-LibriDiari 4spk-LibriDiari nspk-LibriDiari 
+
+DER ↓ tDER ↓ DER ↓ tDER ↓ DER ↓ tDER ↓ DER ↓ tDER ↓
+
+Pyannote-audio Multi-Stage 10.8 15.1 11.5 18.1 14.3 14.7 11.9 16.7 3D-Speaker Multi-Stage 7.7 6.8 9.5 11.2 10.8 14.0 10.2 12.4 DiaZen Multi-Stage 13.7 16.2 17.1 20.8 23.3 28.1 17.9 25.1 DiariPer End-to-End 15.8 22.9 15.7 23.1 12.9 28.2 14.7 26.9 WhisperDiari End-to-End 12.7 9.9 10.3 8.6 11.3 8.7 11.9 8.9 
+
+–set speaker # 11.7 7.3 11.9 7.1 12.2 7.2 - -Table 2: Comparison of tDER and DER on the LibriDiari dataset. WhisperDiari is trained on the n-speaker set without spec-ifying the number of speakers, while ‘–set speaker #’ indicates training and evaluation on subsets with fixed speaker counts. For baseline methods, tDER is computed by aligning their diarization outputs with Whisper’s token-level timestamps. As all methods share the same ASR module, their WERs are identical and match the WhisperDiari results in Table 3. 
+
+Diarization Model Inference Time 
+
+(·/sample) 
+
+2spk-LibriDiari 3spk-LibriDiari 4spk-LibriDiari nspk-LibriDiari 
+
+WER ↓ tDER ↓ WER ↓ tDER ↓ WER ↓ tDER ↓ WER ↓ tDER ↓
+
+Pyannote-audio 6.3s 6.3 12.4 5.6 15.5 6.0 15.4 5.7 15.9 3D-Speaker 4.5s 5.8 8.9 5.2 10.9 6.0 10.6 5.5 12.2 DiaZen 4.6s 13.5 31.8 13.6 32.2 17.4 45.4 14.8 34.4 DiariPer 5.2s 23.5 48.6 17.4 35.4 23.6 42.2 23.8 42.4 WhisperDiari 4.3s 5.6 9.9 4.8 8.6 4.7 8.7 5.0 8.9 
+
+–set speaker # 5.6 7.3 4.8 7.1 4.7 7.2 - -Table 3: Comparison of tDER and WER on the LibriDiari dataset. Both WhisperDiari and ’–set speaker #’ are described in Table 2. The Baseline performs speaker diarization followed by ASR aligned to diarized timestamps to compute speaker-attributed tokens for tDER. As diarization methods match those in Table 2, DER results are omitted. 
+
+Token-level Diarization Error Rate Token-level Diariza-tion Error Rate (tDER) is a proposed metric for evaluating speaker label accuracy at the token level. Inspired by Word Error Rate (WER), it compares predicted and reference to-ken sequences based on speaker labels, considering substi-tution, deletion, and insertion errors. 
+
+tDER = Sspk + Dspk + Ispk 
+
+Nspk 
+
+(15) where Sspk , Dspk , and Ispk are the numbers of speaker to-ken substitutions, deletions, and insertions, respectively, and 
+
+Nspk is the number of reference tokens. 
+
+## Experimental Results 
+
+Results on LibriDiari 
+
+We evaluate WhisperDiari on the LibriDiari dataset using both the standard Diarization Error Rate (DER) and the pro-posed token-level Diarization Error Rate (tDER), and the re-sults remain highly consistent across multiple experiments. To ensure a fair comparison, all baseline methods perform speaker diarization and ASR separately, followed by times-tamp alignment to assign speaker labels to semantic to-kens. During inference, the same ASR decoding strategy is independently applied to each sample, resulting in identi-cal Word Error Rate (WER) across datasets (see Table 3). As shown in Table 2, WhisperDiari outperforms DiariZen and DiaPer on DER, and achieves performance comparable to Pyannote-audio 3.1 and the state-of-the-art 3D-Speaker system. Notably, WhisperDiari’s DER is computed from token-level timestamps generated by the decoder, which are less temporally precise than frame-level annotations used by baselines. Despite this limitation, WhisperDiari achieves significantly lower tDER, demonstrating its superior token-level speaker diarization accuracy. This improvement is at-tributed to direct speaker label prediction in token space and the joint modeling of diarization and ASR, which enhances temporal alignment across different granularities. Moreover, when the number of speakers is known in advance, Whisper-Diari shows more stable and accurate performance under the tDER metric, highlighting its robustness in controlled sce-narios. We further evaluate WhisperDiari on LibriDiari to show the advantage of joint modeling of speaker diarization and ASR for preserving semantic coherence. The baseline uses a typical pipeline: diarization to segment and label speak-ers, then Whisper ASR on each segment. Results are in Ta-ble 3. Because the diarization process remains unchanged, the DER values are consistent with those reported in Ta-ble 2, avoiding duplicate statistics. Results show Whisper-Diari outperforms the pipeline in both tDER and WER. The pipeline suffers from inaccurate segmentation and semantic misalignment, harming transcription coherence and raising WER. In contrast, WhisperDiari jointly optimizes speaker labels and text at the token level, reducing fragmentation and 34482 improving accuracy and coherence.We also measured the in-ference time per sample for each method. Compared to the baselines, our approach achieves the fastest inference speed. 
+
+Diarization Model Time-Align Sequential 
+
+DER ↓ tDER ↓ WER ↓ tDER ↓
+
+Pyannote-audio 22.3 25.3 18.1 29.9 3D-Speaker 18.9 21.4 19.9 27.4 DiaZen 18.4 19.8 19.6 26.4 DiariPer 27.7 31.2 27.6 31.0 WhisperDiari 22.7 19.5 16.9 19.5 
+
+Table 4: Results on AMI Corpus. Following the same evalu-ation protocol as on LibriDiari, we report DER and tDER computed via timestamp alignment of speaker diarization and ASR outputs, alongside WER and tDER for the sequen-tial pipeline method. 
+
+Results on AMI Copus 
+
+We further evaluated WhisperDiari on the real-world AMI meeting corpus as shown in Figure 4. To minimize the im-pact of overlapping speech on recognition, we applied ap-propriate audio preprocessing. Experiments followed the same setup as before, comparing WhisperDiari with base-lines that combine frame-level diarization and Whisper via timestamp alignment, as well as a sequential pipeline per-forming speaker segmentation followed by ASR on each segment. Results show that WhisperDiari remains robust in com-plex real-world conditions. While its DER is competitive with state-of-the-art open-source methods, it significantly outperforms all baselines on the token-level tDER met-ric. Compared to the sequential pipeline, WhisperDiari also achieves lower tDER and WER, demonstrating improved semantic coherence and speaker consistency. These results confirm that joint modeling effectively addresses challenges like overlapping speech and segmentation errors, yielding more accurate and coherent transcriptions in multi-speaker 2 Spks Mid Layer  3 Spks Mid Layer  4 Spks Mid Layer   
+
+> 2 Spks Adapter Layer 3 Spks Adapter Layer 4 Spks Adapter Layer
+> Spk 1
+> Spk 2
+> Spk 3
+> Spk 4
+> Spk 1
+> Spk 2
+> Spk 3
+> Spk 1
+> Spk 2
+> Spk 3
+> Spk 4
+> Spk 1
+> Spk 2
+> Spk 3
+> Spk 1
+> Spk 2
+> Spk 1
+> Spk 2
+
+Figure 4: Visualization of speaker representations with and without adapters.Intermediate layer outputs (top) and adapter outputs (bottom) for 2/3/4 speakers (left to right). conversations. 
+
+Ablation Study 
+
+In the ablation study, we examined the effects of the Speaker Adapter and Speaker Similarity Matrix Supervision ( Lsim )on model performance, as well as how varying the num-ber of similarity comparison steps influences effectiveness. Results show that both the Speaker Adapter and the cross-entropy loss substantially enhance performance and aid op-timization. However, increasing the number of comparison steps in the similarity module gradually reduces the positive impact of the Speaker Similarity Matrix Supervision, further confirming its effectiveness. In addition, we perform PCA-based (Ma´ ckiewicz and Ratajczak 1993) dimensionality reduction to 2D and visu-alize both the hidden states from the encoder’s intermedi-ate layer and the adapter-adjusted representations. As shown in Figure 4, the speaker characteristics become significantly more distinguishable. 
+
+Model nspk-LibriDiari 
+
+DER ↓ tDER ↓
+
+WhisperDiari 11.9 8.9 
+
+–Lsim −step = 3 12.6 9.4 –Lsim −step = 5 13.0 10.2 –No Lsim 13.1 10.5 –No Adapter 19.3 15.4 Table 5: Ablation results on the impact of the speaker adapter and similarity supervision ( Lsim ) on model perfor-mance. 
+
+## Conclusion 
+
+This paper proposes a novel token-level speaker diariza-tion method, WhisperDiari, based on the Whisper architec-ture. The method not only generates speaker labels along-side the transcribed text but also integrates speaker repre-sentations with semantic contextual information at the token level. Compared to traditional frame-level or word-level di-arization approaches, WhisperDiari achieves a more com-pact architecture and better semantic consistency. In addi-tion, we construct a simulated multi-speaker dataset, Lib-riDiari, which includes fully aligned text and speaker label annotations and can serve as a standard benchmark for train-ing and evaluating joint modeling approaches to speaker di-arization. The data construction methodology can also be ex-tended to other commonly used ASR datasets. Experimental results on both the simulated LibriDiari dataset and the real-world meeting dataset AMI Corpus demonstrate that Whis-perDiari delivers competitive performance across key met-rics such as DER, tDER, and WER when compared to typ-ical combinations of speaker diarization and ASR systems. Notably, it shows clear advantages in maintaining seman-tic coherence and speaker label consistency, further validat-ing the effectiveness and practical value of joint modeling in complex multi-speaker speech scenarios. 34483 Acknowledgments 
+
+This work is supported by Guangdong Provincial Key Lab-oratory of Ultra High Definition Immersive Media Technol-ogy (Grant No. 2024B1212010006). 
+
+## References 
+
+Ajmera, J.; and Wooters, C. 2003. A robust speaker cluster-ing algorithm. In 2003 IEEE Workshop on automatic speech recognition and understanding (IEEE Cat. No. 03EX721) ,411–416. IEEE. Anguera, X.; Bozonnet, S.; Evans, N.; Fredouille, C.; Fried-land, G.; and Vinyals, O. 2012. Speaker diarization: A review of recent research. IEEE Transactions on audio, speech, and language processing , 20(2): 356–370. Bai, Z.; and Zhang, X.-L. 2021. Speaker recognition based on deep learning: An overview. Neural Networks , 140: 65– 99. Ben-Harush, O.; Ben-Harush, O.; Lapidot, I.; and Guterman, H. 2012. Initialization of iterative-based speaker diarization systems for telephone conversations. IEEE transactions on audio, speech, and language processing , 20(2): 414–425. Bredin, H.; Yin, R.; Coria, J. M.; Gelly, G.; Korshunov, P.; Lavechin, M.; Fustes, D.; Titeux, H.; Bouaziz, W.; and Gill, M.-P. 2020. Pyannote. audio: neural building blocks for speaker diarization. In ICASSP 2020-2020 IEEE Interna-tional Conference on Acoustics, Speech and Signal Process-ing (ICASSP) , 7124–7128. IEEE. Chen, S.; Wang, C.; Chen, Z.; Wu, Y.; Liu, S.; Chen, Z.; Li, J.; Kanda, N.; Yoshioka, T.; Xiao, X.; et al. 2022. Wavlm: Large-scale self-supervised pre-training for full stack speech processing. IEEE Journal of Selected Topics in Signal Pro-cessing , 16(6): 1505–1518. Chen, Y.; Zheng, S.; Wang, H.; Cheng, L.; Zhu, T.; Huang, R.; Deng, C.; Chen, Q.; Zhang, S.; Wang, W.; et al. 2025. 3D-Speaker-Toolkit: An Open-Source Toolkit for Multi-modal Speaker Verification and Diarization. In ICASSP 2025-2025 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , 1–5. IEEE. Cornell, S.; Jung, J.-w.; Watanabe, S.; and Squartini, S. 2024. One model to rule them all? towards end-to-end joint speaker diarization and speech recognition. In ICASSP 2024-2024 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , 11856–11860. IEEE. Cosentino, J.; Pariente, M.; Cornell, S.; Deleforge, A.; and Vincent, E. 2020. Librimix: An open-source dataset for generalizable speech separation. arXiv preprint arXiv:2005.11262 .Cui, W.; Yu, D.; Jiao, X.; Meng, Z.; Zhang, G.; Wang, Q.; Guo, Y.; and King, I. 2024. Recent advances in speech lan-guage models: A survey. arXiv preprint arXiv:2410.03751 .Desplanques, B.; Thienpondt, J.; and Demuynck, K. 2020. Ecapa-tdnn: Emphasized channel attention, propagation and aggregation in tdnn based speaker verification. arXiv preprint arXiv:2005.07143 .Fujita, Y.; Kanda, N.; Horiguchi, S.; Xue, Y.; Nagamatsu, K.; and Watanabe, S. 2019. End-to-end neural speaker diarization with self-attention. In 2019 IEEE Automatic Speech Recognition and Understanding Workshop (ASRU) ,296–303. IEEE. Han, E.; Lee, C.; and Stolcke, A. 2021. BW-EDA-EEND: Streaming end-to-end neural speaker diarization for a vari-able number of speakers. In ICASSP 2021-2021 IEEE Inter-national Conference on Acoustics, Speech and Signal Pro-cessing (ICASSP) , 7193–7197. IEEE. Han, J.; Landini, F.; Rohdin, J.; Silnova, A.; Diez, M.; and Burget, L. 2024. Leveraging Self-Supervised Learning for Speaker Diarization. arXiv preprint arXiv:2409.09408 .Han, K. J.; Kim, S.; and Narayanan, S. S. 2008. Strategies to improve the robustness of agglomerative hierarchical clus-tering under data source variation for speaker diarization. 
+
+IEEE Transactions on Audio, Speech, and Language Pro-cessing , 16(8): 1590–1601. Horiguchi, S.; Fujita, Y.; Watanabe, S.; Xue, Y.; and Gar-cia, P. 2022. Encoder-decoder based attractors for end-to-end neural diarization. IEEE/ACM Transactions on Audio, Speech, and Language Processing , 30: 1493–1507. Huang, Y.; Wang, W.; Zhao, G.; Liao, H.; Xia, W.; and Wang, Q. 2023. Towards word-level end-to-end neural speaker diarization with auxiliary network. arXiv preprint arXiv:2309.08489 .Huang, Y.; Wang, W.; Zhao, G.; Liao, H.; Xia, W.; and Wang, Q. 2024. On the Success and Limitations of Auxiliary Network Based Word-Level End-to-End Neural Speaker Di-arization. In Proc. Interspeech 2024 , 32–36. Kheddar, H.; Hemis, M.; and Himeur, Y. 2024. Auto-matic speech recognition using advanced deep learning ap-proaches: A survey. Information fusion , 109: 102422. Kingma, D. P.; and Ba, J. 2014. Adam: A method for stochastic optimization. arXiv preprint arXiv:1412.6980 .Kraaij, W.; Hain, T.; Lincoln, M.; and Post, W. 2005. The AMI meeting corpus. In Proc. International Conference on Methods and Techniques in Behavioral Research , 1–4. Landini, F.; Diez, M.; Stafylakis, T.; and Burget, L. 2023. DiaPer: End-to-End Neural Diarization with Perceiver-Based Attractors. arXiv preprint arXiv:2312.04324 .Ma, F.; Tu, Y.; He, M.; Wang, R.; Niu, S.; Sun, L.; Ye, Z.; Du, J.; Pan, J.; and Lee, C.-H. 2024. A spatial long-term it-erative mask estimation approach for multi-channel speaker diarization and speech recognition. In ICASSP 2024-2024 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , 12331–12335. IEEE. Ma´ ckiewicz, A.; and Ratajczak, W. 1993. Principal com-ponents analysis (PCA). Computers & Geosciences , 19(3): 303–342. Medennikov, I.; Korenevsky, M.; Prisyach, T.; Khokhlov, Y.; Korenevskaya, M.; Sorokin, I.; Timofeeva, T.; Mitrofanov, A.; Andrusenko, A.; Podluzhny, I.; et al. 2020. Target-speaker voice activity detection: a novel approach for multi-speaker diarization in a dinner party scenario. arXiv preprint arXiv:2005.07272 .34484 Ning, H.; Liu, M.; Tang, H.; and Huang, T. S. 2006. Aspectral clustering approach to speaker diarization. In In-terspeech .Panayotov, V.; Chen, G.; Povey, D.; and Khudanpur, S. 2015. Librispeech: an asr corpus based on public domain audio books. In 2015 IEEE international conference on acoustics, speech and signal processing (ICASSP) , 5206–5210. IEEE. Park, T.; Medennikov, I.; Dhawan, K.; Wang, W.; Huang, H.; Koluguri, N. R.; Puvvada, K. C.; Balam, J.; and Gins-burg, B. 2024. Sortformer: Seamless integration of speaker diarization and asr by bridging timestamps and tokens. arXiv preprint arXiv:2409.06656 .Park, T. J.; Han, K. J.; Huang, J.; He, X.; Zhou, B.; Georgiou, P.; and Narayanan, S. 2020. Speaker diarization with lexical information. arXiv preprint arXiv:2004.06756 .Park, T. J.; Kanda, N.; Dimitriadis, D.; Han, K. J.; Watanabe, S.; and Narayanan, S. 2022. A review of speaker diarization: Recent advances with deep learning. Computer Speech & Language , 72: 101317. Radford, A.; Kim, J. W.; Xu, T.; Brockman, G.; McLeavey, C.; and Sutskever, I. 2023. Robust speech recognition via large-scale weak supervision. In International conference on machine learning , 28492–28518. PMLR. Sakran, A. E.; Abdou, S. M.; Hamid, S. E.; and Rashwan, M. 2017. A review: Automatic speech segmentation. Interna-tional Journal of Computer Science and Mobile Computing ,6(4): 308–315. Sharma, S.; Rattan, P.; and Sharma, A. 2021. Recent de-velopments, challenges, and future scope of voice activity detection schemes—a review. Information and Communi-cation Technology for Competitive Strategies (ICTCS 2020) Intelligent Strategies for ICT , 457–464. Team, T. 2025. TEN VAD: A Low-Latency, Lightweight and High-Performance Streaming Voice Activity Detector (VAD). https://github.com/TEN-framework/ten-vad.git. Tranter, S. E.; and Reynolds, D. A. 2006. An overview of automatic speaker diarization systems. IEEE Transactions on audio, speech, and language processing , 14(5): 1557– 1565. Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones, L.; Gomez, A. N.; Kaiser, Ł.; and Polosukhin, I. 2017. At-tention is all you need. Advances in neural information pro-cessing systems , 30. Wang, H.; Liang, C.; Wang, S.; Chen, Z.; Zhang, B.; Xi-ang, X.; Deng, Y.; and Qian, Y. 2023a. Wespeaker: A re-search and production oriented speaker embedding learning toolkit. In ICASSP 2023-2023 IEEE International Confer-ence on Acoustics, Speech and Signal Processing (ICASSP) ,1–5. IEEE. Wang, H.; Zheng, S.; Chen, Y.; Cheng, L.; and Chen, Q. 2023b. Cam++: A fast and efficient network for speaker verification using context-aware masking. arXiv preprint arXiv:2303.00332 .Wang, W.; Cai, D.; Cheng, M.; and Li, M. 2024. Joint In-ference of Speaker Diarization and ASR with Multi-Stage Information Sharing. In ICASSP 2024-2024 IEEE Interna-tional Conference on Acoustics, Speech and Signal Process-ing (ICASSP) , 11011–11015. IEEE. Watanabe, S.; Mandel, M.; Barker, J.; Vincent, E.; Arora, A.; Chang, X.; Khudanpur, S.; Manohar, V.; Povey, D.; Raj, D.; et al. 2020. CHiME-6 challenge: Tackling mul-tispeaker speech recognition for unsegmented recordings. 
+
+arXiv preprint arXiv:2004.09249 .Wichern, G.; Antognini, J.; Flynn, M.; Zhu, L. R.; McQuinn, E.; Crow, D.; Manilow, E.; and Roux, J. L. 2019. Wham!: Extending speech separation to noisy environments. arXiv preprint arXiv:1907.01160 .Xia, W.; Lu, H.; Wang, Q.; Tripathi, A.; Huang, Y.; Moreno, I. L.; and Sak, H. 2022. Turn-to-diarize: Online speaker diarization constrained by transformer transducer speaker turn detection. In ICASSP 2022-2022 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , 8077–8081. IEEE. Xue, Y.; Horiguchi, S.; Fujita, Y.; Watanabe, S.; Garc´ ıa, P.; and Nagamatsu, K. 2021. Online end-to-end neural diariza-tion with speaker-tracing buffer. In 2021 IEEE Spoken Lan-guage Technology Workshop (SLT) , 841–848. IEEE. Zhang, L.; Jiang, N.; Wang, Q.; Li, Y.; Lu, Q.; and Xie, L. 2024. Whisper-SV: Adapting Whisper for low-data-resource speaker verification. Speech Communication , 163: 103103. 34485

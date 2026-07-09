@@ -1,0 +1,560 @@
+Title: 2026.findings-acl.2147.pdf
+
+URL Source: https://aclanthology.org/2026.findings-acl.2147.pdf
+
+Published Time: Thu, 11 Jun 2026 02:36:58 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+> Findings of the Association for Computational Linguistics: ACL 2026 , pages 43276–43289 July 2-7, 2026 ©2026 Association for Computational Linguistics
+
+# Detecting Hallucinations in SpeechLLMs at Inference Time Using Attention Maps 
+
+Jonas Waldendorf 1,∗ Bashar Awwad Shiekh Hasan 2 Evgenii Tsymbalov 21University of Edinburgh 2Amazon AGI 
+
+jonas.waldendorf@ed.ac.uk etsymba@amazon.de 
+
+> *Work completed during an internship at Amazon AGI
+
+Abstract 
+
+Hallucinations in Speech Large Language Mod-els (SpeechLLMs) pose significant risks, yet ex-isting detection methods typically rely on gold-standard outputs that are costly or impractical to obtain. Moreover, hallucination detection methods developed for text-based LLMs do not directly capture audio-specific signals. We investigate four attention-derived metrics: A U-
+
+> DIO
+
+RATIO , A UDIO CONSISTENCY , A UDIO EN-
+
+> TROPY
+
+, and T EXT ENTROPY , designed to cap-ture pathological attention patterns associated with hallucination, and train lightweight logis-tic regression classifiers on these features for efficient inference-time detection. Across automatic speech recognition and speech-to-text translation tasks, evaluations on Qwen-2-Audio and Voxtral-3B show that our approach outperforms uncertainty-based and prior attention-based baselines on in-domain data, achieving improvements of up to +0.23 PR-AUC, and generalises to out-of-domain ASR settings. We further find that strong performance can be achieved with approxi-mately 100 attention heads, improving out-of-domain generalisation compared to using all heads. While effectiveness is model-dependent and task-specific training is required, our re-sults demonstrate that attention patterns pro-vide a valuable tool for hallucination detection in SpeechLLMs. 
+
+1 Introduction 
+
+Speech is a vital modality for many modern tech-nologies, including personal voice assistants (Hoy, 2018), automatic transcription services (Radford et al., 2023), and audio translation systems (Bar-rault et al., 2023). Despite recent advances, speech recognition and translation models can produce hal-lucinated content, fluent and plausible outputs that are not grounded in the input audio. While typical transcription errors often preserve semantic mean-ing and may still be interpretable by downstream users, hallucinations can introduce fabricated or misleading information, leading to critical failures. Consequently, identifying hallucinations and mod-els that are predisposed to hallucinate remains an important area of research. Hallucinations are pathological generations that are not grounded in the input and instead rely on distributional patterns learned from training data. Such outputs are often fluent, yet contain fabri-cations that alter the semantic content relative to the source audio (Koudounas et al., 2025; Atwany et al., 2025). Hallucination detection has been extensively studied in the text modality, for ex-ample, in retrieval-augmented generation (Shuster et al., 2021) and machine translation (Guerreiro et al., 2023a). In contrast, existing approaches for SpeechLLMs primarily compare model hypotheses against gold-standard outputs to identify halluci-nations (Frieske and Shi, 2024; Koudounas et al., 2025). While effective, such supervised methods require costly data annotation and often depend on external models to perform the comparison. Lightweight detection methods that leverage the internal representations of SpeechLLMs offer sev-eral advantages. First, they can be deployed at inference time for online filtering, preventing harm-ful outputs at the source, for example, by rerout-ing problematic inputs. Second, they enable low-cost flagging of pathological generations for offline analysis. Third, they can be combined with com-plementary signals such as uncertainty estimation (UE) metrics to capture a broader range of errors. Motivated by these benefits, we propose training lightweight classifiers on internal SpeechLLM rep-resentations to detect hallucinations at inference time. Our approach exploits patterns in attention heads as signals for hallucination detection. The underly-ing intuition is that when models generate outputs that are not grounded in the input, their attention exhibits distinctive patterns that can be detected 
+
+43276 automatically. Recent work has demonstrated the effectiveness of attention-based signals for halluci-nation detection in text LLMs (Chuang et al., 2024; Vazhentsev et al., 2025; Sriramanan et al., 2024a). However, these methods have not been adapted to SpeechLLMs, where the input modality introduces fundamentally different attention dynamics. Audio representations are substantially longer than text, and the alignment between input frames and output tokens differs from text-to-text generation. We address this gap by analysing attention pat-terns in two SpeechLLMs, Qwen-2-Audio (Chu et al., 2024) and Voxtral-3B (Liu et al., 2025), and training logistic regression classifiers on audio-specific attention features for hallucination detec-tion. 
+
+Contributions 
+
+• We propose four audio-focused attention met-rics, A UDIO RATIO , A UDIO CONSISTENCY ,AUDIO ENTROPY , and T EXT ENTROPY , de-signed to capture hallucination-related atten-tion patterns in SpeechLLMs. • We develop lightweight logistic regression classifiers trained on these attention-derived features. Our models outperform uncertainty estimation methods and existing attention-based baselines for hallucination detection, achieving improvements of up to +0.23 PR-AUC on in-domain ASR data. • We show that strong detection performance can be achieved using approximately 100 at-tention heads. This improves out-of-domain generalisation compared to using all heads, and we further demonstrate that effectiveness varies across models and tasks. 
+
+2 Related Work 
+
+Uncertainty Estimation. A common approach to hallucination detection relies on UE metrics. Metrics derived from the LLM logits provide a low-cost and effective signal for identifying when a model is uncertain in its generation, which in turn correlates strongly with hallucinated con-tent (Huang et al., 2024; Vashurin et al., 2025; Vazhentsev et al., 2025). Metrics such as S EQ -LOG PROB (the log probability of the entire output sequence), PERPLEXITY , and MEAN ENTROPY (de-fined as the average token-level entropy) have all been shown to be effective for hallucination de-tection (Malinin and Gales, 2021; Guerreiro et al., 2023b). 
+
+Hallucination Detection via Attention. Several approaches exploit attention patterns to detect hal-lucinations in text LLMs. Vazhentsev et al. (2025) analyse causal attention to the previous token, while Sriramanan et al. (2024b) average attention maps across layers. L OOKBACK -L ENS (Chuang et al., 2024) train a classifier on the ratio of atten-tion allocated to the input versus the auto-regressive prefix. We build on this line of work by adapting attention-based detection to SpeechLLMs using four audio-focused attention metrics. Related work in machine translation has shown that hallucinations correlate with reduced diagonal entropy in attention maps (Voita et al., 2021; Rau-nak et al., 2021). We incorporate entropy-based features in our approach, but compute them specifi-cally over audio attention, reflecting the substantial length disparity between audio frame sequences and output tokens. 
+
+Reference-Based Methods. An alternative class of approaches relies on gold-standard outputs to detect hallucinations. Frieske and Shi (2024) study hallucinations in ASR systems and identify them using a combination of semantic similarity between hypotheses and references, together with output fluency under a language model. Koudounas et al. (2025) introduce SHALLOW, a benchmark that categorises hallucinations into four types: lexical fabrications, phonetic fabrications, morphological hallucinations, and semantic hallucinations. While such reference-based methods enable fine-grained analysis, they require access to reference transcrip-tions that are often unavailable in deployment set-tings. This limitation motivates our reference-free detection approach. 
+
+3 Methodology 
+
+Attention to Input in SpeechLLMs. Based on recent findings (Vazhentsev et al., 2025; Wang et al., 2025), we hypothesise that certain attention heads exhibit distinctive patterns whilst generating hallucinated content, which can be exploited for detection at inference time. We focus on two such patterns. The first consists of diagonal attention structures that encode a temporal relationship be-tween the audio input and the generated text. These patterns often degrade when the model is uncertain, 43277 0 116  
+
+> Input Audio Tokens
+> (a)
+> V
+> ielen
+> Dank
+> .
+> Das
+> Wort
+> hat
+> im
+> Namen
+> der
+> Allianz
+> für
+> eine
+> in
+> halb
+> Minuten
+> Herr
+> Fl
+> ack
+> .
+> </s>
+> Generated Text Tokens
+> 077
+> Input Audio Tokens
+> (b)
+> Das
+> Weiß
+> buch
+> wird
+> uns
+> helfen
+> ,
+> die
+> Deb
+> atte
+> über
+> die
+> Zukunft
+> Europas
+> vor
+> anz
+> ub
+> ringen
+> .
+> </s>
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+
+Figure 1: Attention to audio tokens for Layer 25, Head 30 in Voxtral-3B . (a) Hallucination: attention collapses to early audio frames, losing temporal alignment. (b) Correct transcription: diagonal pattern reflects alignment between audio input and generated text. 
+
+with attention falling back to the early portion of the audio input. The second pattern involves heads that balance attention between the audio input and the auto-regressive text prefix. Figure 1 shows two attention maps from Layer 25, Head 30 of Voxtral-3B , comparing a hallucinated transcription with a correct one. The figure illustrates two effects. First, the diagonal attention pattern, which captures the alignment be-tween the audio input and the generated text, de-grades during hallucination. Second, attention falls back to the beginning of the audio input rather than shifting toward the text prompt or the auto-regressive prefix. 
+
+3.1 Metrics 
+
+We experiment with four metrics designed to cap-ture characteristic features of attention heads. Con-sider a SpeechLLM with L layers and H heads, an input sequence 
+
+X = {xa, 1, x a, 2, . . . , x a,N | xt, 1, x t, 2, . . . , x t,M }
+
+where xa,i denotes an audio input token and xt,j 
+
+denotes a text input token, and an output sequence 
+
+Y = {y1, y 2, . . . , y t−1}
+
+We define each metric at a given decoding step t
+
+and then describe a shared aggregation strategy. 
+
+AUDIO RATIO : The ratio of attention allocated to audio input tokens versus auto-regressive text to-kens. For A UDIO RATIO at decoding step t and head 
+
+(l, h ), where ART denotes the auto-regressive text prefix, we compute 
+
+Al,h t (Audio ) = 
+
+> N
+
+∑
+
+> i=1
+
+al,h t,i , (1) 
+
+Al,h t (ART ) =   
+
+> N+M+t−1
+
+∑  
+
+> j=N+M+1
+
+al,h t,j . (2) The audio ratio is then defined as 
+
+AR l,h t = Al,h t (Audio )
+
+Al,h t (Audio ) + Al,h t (ART ) . (3) This metric builds on L OOKBACK -L ENS by com-puting the ratio of attention allocated to input and output tokens, but restricts the input side to audio tokens only, since the text prompt in our tasks con-tains only instructions. 
+
+AUDIO CONSISTENCY : The Pearson correlation coefficient between audio attention vectors at con-secutive decoding steps. This metric is defined only after the first generation step and is computed as 
+
+AC l,h t = r
+
+(
+
+al,h,t  
+
+> 1: N
+
+, a l,h,t −11: N
+
+)
+
+(4) As illustrated in Figure 1, this metric aims to cap-ture attention fallback behaviour. When halluci-nating, the model often focuses attention at the beginning of the audio input, thereby increasing the similarity between consecutive attention distri-butions. An important limitation of A UDIO CON -
+
+SISTENCY is that it explicitly targets heads with diagonal attention patterns. Some heads may at-tend strongly to early audio positions even during correct generations. 43278 Both entropy-based metrics are computed by se-lecting the relevant attention weights at decoding step t, re-normalising them, and computing entropy as 
+
+AE l,h t = H
+
+(
+
+al,h,t 
+
+> 1: N
+
+∑Ni=1 al,h,t i
+
+)
+
+. (5) 
+
+AUDIO ENTROPY : The entropy of re-normalised attention weights over audio input tokens. AU-
+
+> DIO
+
+ENTROPY aims to capture uncertainty in the audio input and provides a useful signal even for heads that do not exhibit clear diagonal attention patterns. 
+
+TEXT ENTROPY : The entropy of re-normalised at-tention weights over text input tokens. The goal of this metric is to capture uncertainty in text-focused attention heads. For each metric, values are computed at every decoding step and then averaged across all time steps to obtain a single value per layer and head. These values are concatenated into a feature vector of dimension L × H for each metric. We then use these vectors as input features to train logistic regression models as hallucination detectors. 
+
+4 Experimental Setup 
+
+We evaluate our models across two speech-related tasks: ASR (automatic speech recognition) and S2TT (speech-to-text translation). 
+
+4.1 Evaluation Datasets 
+
+For ASR, we evaluate on two datasets: V OX POP - 
+
+> ULI 1
+
+Wang et al. (2021) and CALLHOME 2 Cana-van et al. (1997). For V OX POPULI , we experiment with the English, German, French, and Spanish language splits. When evaluating hallucination de-tection, we combine all V OX POPULI test sets for a total of 7,080 sentences. We pre-process CALL-HOME by removing sentences shorter than two words (tokenising on whitespace), leaving 3,916 examples. For S2TT, we evaluate on the English, German, French, and Spanish subsets of the F LEURS 3 Con-neau et al. (2022) multilingual speech translation dataset, totalling 4,613 examples. 
+
+> 1https://huggingface.co/datasets/facebook/ voxpopuli
+> 2https://catalog.ldc.upenn.edu/LDC97S42
+> 3https://huggingface.co/datasets/google/fleurs
+
+4.2 Labelling Hallucinations 
+
+Training and evaluating hallucination detection models requires binary labels. Since manual anno-tation is expensive, we first collect a small set of human annotations to calibrate automatic labelling thresholds, and then apply these thresholds to label the remaining data automatically. 
+
+Human Annotation. We manually annotated 1,950 examples sampled from the English and Ger-man V OX POPULI development sets, identifying 142 hallucinated outputs. An output was labelled as a hallucination if it contained fluent but fabri-cated content that was not grounded in the input audio. Dataset Language WER SHS Hal.% VOX POPULI De 13.09 11.47 5.7 En 7.01 8.29 1.1 Es 9.47 11.61 2.6 Fr 10.98 10.73 3.6 CALLHOME En 20.90 19.03 20.6   
+
+> Table 1: WER, SHS, and hallucination percentage for
+> Qwen-2-Audio on V OX POPULI and CALLHOME test sets.
+
+Automatic Labelling. To label hallucinations au-tomatically, we threshold on a combination of lex-ical and semantic information. This approach fol-lows prior findings that semantic content is critical for identifying ASR hallucinations Frieske and Shi (2024). We use WER (word error rate) to capture surface-level errors and the S EMANTIC HALLUCI - 
+
+> NATION
+
+SCORE (SHS) from the SHALLOW bench-mark (Koudounas et al., 2025) to capture semantic divergence (Appendix C): Hallucination = I[WER + SHS > 0.7] , (6) where I[·] denotes the indicator function. 
+
+Threshold Selection. The threshold was tuned using stratified five-fold cross-validation on the human-annotated subset. We prioritised high pre-cision (0.979) in order to obtain a clean training signal, accepting lower recall (0.443) as a trade-off. Tables 1 and 2 report hallucination rates for both models across evaluation datasets. Hallucination rates are consistently low on V OX POPULI test sets, but increase substantially, up to 20%, on the noisier 43279 Dataset Language WER SHS Hal.% VOX POPULI De 11.66 11.59 6.3 En 7.16 8.76 1.1 Es 8.59 11.27 2.5 Fr 10.46 10.60 3.3 CALLHOME En 18.72 16.52 15.8   
+
+> Table 2: WER, SHS, and hallucination percentage for
+> Voxtral-3B on V OX POPULI and CALLHOME test sets.
+
+CALLHOME dataset. Both models exhibit similar trends, although Voxtral-3B generally achieves lower error rates, with the exception of German. 
+
+4.3 Training Data 
+
+We train all logistic regression models on 40,000 ex-amples from the V OX POPULI training data: 10,000 each for English, German, Spanish, and French. This language mix exposes the model to vary-ing hallucination rates across languages (Tables 1 and 2), improving robustness to distribution shifts. Under this setup, Qwen-2-Audio produces 1,537 hallucinations (3.8%), while Voxtral-3B produces 1,178 hallucinations (2.9%). For the S2TT task, we train on the F LEURS train-ing set (16,776 examples), using hallucination la-bels derived from COMET scores, and evaluate on the held-out test set. 
+
+4.4 Logistic Regression Model Training 
+
+Using the attention-derived features described above, we train logistic regression models for hal-lucination detection. Model hyperparameters are reported in the Appendix (Table 9). We apply Min-Max scaling to A UDIO ENTROPY and T EXT EN- 
+
+> TROPY
+
+to ensure that all feature values lie within the range [0 , 1] .We employ two feature selection strategies. First, we train an L2-regularised model and rank atten-tion heads by the magnitude of their coefficients, scaled by the original feature standard deviation. Second, we train an L1-regularised model to per-form feature pruning. Specifically, we run five-fold cross-validation and retain heads with non-zero co-efficients in at least four of the five folds. We then retrain an L2-regularised model using only these re-tained heads. We refer to this variant as the Stable Features model. 
+
+4.5 Evaluation Metrics ASR Evaluation. For ASR, we report F1-score, precision, recall, and PR-AUC, computed using the predicted probabilities from the logistic regression models. In addition, we report the Prediction Rejection Ratio (PRR) (Malinin et al., 2017; Malinin and Gales, 2021), which measures the effectiveness of predicted probabilities in rejecting low-quality samples. Intuitively, PRR quantifies how closely probability-based rejection approaches oracle per-formance, where PRR = 1 corresponds to a perfect ordering with respect to a quality metric. We report PRR at 10% rejection for V OX POPULI and at 30% rejection for CALLHOME, using SHS as the qual-ity metric. These rejection rates reflect the approxi-mate prevalence of hallucinations in each dataset. Further details are provided in Appendix D. 
+
+S2TT Evaluation. For S2TT, we use XCOMET-XL 4 (Guerreiro et al., 2024), which has been shown to correlate strongly with hallucinations in machine translation. Based on the empirical distribution of COMET scores, we label the bottom 5% of exam-ples as hallucinations. We report F1-score, pre-cision, recall, and PR-AUC, following the same protocol as for ASR. We also report PRR@10%, using COMET as the quality metric. 
+
+4.6 Baselines 
+
+As baselines, we consider simple UE metrics, namely M EAN ENTROPY (the mean token-level en-tropy) and P ERPLEXITY , which have been shown to correlate with hallucinations in text summari-sation and machine translation. In addition, we include two attention-based baselines, RAUQ (E NTROPY ) and A TTENTION SCORE , as attention-based methods for hallucination detection. 
+
+5 Results 
+
+5.1 ASR Results 
+
+Tables 3 and 4 report hallucination detection per-formance for Qwen-2-Audio and Voxtral-3B , re-spectively, on the V OX POPULI and CALLHOME test sets. We present results for logistic regression models trained using the following feature configu-rations. 
+
+Combined concatenates all four attention met-rics across all layers and heads, yielding L × H fea-tures per metric. AUDIO RATIO Only uses only the 
+
+> 4https://huggingface.co/Unbabel/XCOMET-XL
+
+43280 AUDIO RATIO metric across all layers and heads, which was the best-performing single metric on the VOX POPULI validation set. Top N selects the top 
+
+N layer–head pairs per metric based on coefficient magnitude, with N tuned separately for each model on the validation set. Dataset Method Hal.% Acc F1 Prec Rec PR-AUC PRR@k BASELINES                                                                                                                         
+
+> VOX POPULI
+> Mean Entropy 3.33 0.97 0.50 0.50 0.50 0.49 0.43 Perplexity 3.18 0.97 0.50 0.51 0.49 0.49 0.43 RAUQ Entropy 3.42 0.96 0.46 0.45 0.47 0.47 0.46 Attention Score 1.23 0.96 0.08 0.15 0.06 0.04 0.30 Random 50.27 0.50 0.06 0.03 0.50 ––CALLHOME Mean Entropy 38.23 0.76 0.58 0.45 0.83 0.67 0.59 Perplexity 37.89 0.76 0.58 0.45 0.83 0.69 0.61 RAUQ Entropy 24.40 0.80 0.56 0.52 0.61 0.61 0.54 Attention Score 0.00 0.79 0.00 0.00 0.00 0.14 -0.13 Random 50.03 0.50 0.29 0.20 0.49 ––LOGISTIC REGRESSION
+> Combined (4096 features)
+> VOX POPULI LR 3.62 0.97 0.55 0.52 0.57 0.58 0.51 CALLHOME LR 75.99 0.43 0.41 0.26 0.96 0.61 0.53 AUDIO RATIO (1024 features)
+> VOX POPULI LR 3.57 0.97 0.56 0.54 0.58 0.56 0.49 CALLHOME LR 66.97 0.52 0.45 0.29 0.95 0.60 0.53
+> Top 75 (300 features)
+> VOX POPULI LR 3.87 0.97 0.52 0.49 0.57 0.58 0.49 CALLHOME LR 79.05 0.40 0.40 0.25 0.97 0.59 0.50
+
+Table 3: Hallucination detection performance (F1, Preci-sion, Recall, PR-AUC, and PRR@ k) for Qwen-2-Audio 
+
+on V OX POPULI and CALLHOME test sets, with 
+
+k=10% and k=30% respectively. 
+
+Attention-based features outperform baselines on in-domain data. On the V OX POPULI test set, logistic regression models consistently outperform uncertainty-based baselines for both SpeechLLMs. For Qwen-2-Audio , the strongest baseline, M EAN 
+
+ENTROPY , achieves an F1-score of 0.50 and a PR-AUC of 0.49, whereas logistic regression attains up to 0.56 F1 and 0.58 PR-AUC. The improve-ment is substantially larger for Voxtral-3B . Here, MEAN ENTROPY reaches 0.42 F1 and 0.44 PR-AUC, while A UDIO RATIO achieves 0.64 F1 and 0.67 PR-AUC, corresponding to a gain of 0.23 PR-AUC. Label-free evaluation supports these results. PRR@k improves by 0.05 for Qwen-2-Audio and by 0.13 for Voxtral-3B relative to the strongest baseline that does not use attention. Together, these findings demonstrate that attention-based features provide a strong discriminative signal for halluci-nation detection on in-domain data. Qualitative examples are provided in Appendix E. 
+
+Uncertainty baselines excel on noisy speech. 
+
+Baseline performance is notably stronger on CALLHOME than on V OX POPULI for both mod-Dataset Method Hal.% Acc F1 Prec Rec PR-AUC PRR@k BASELINES                                                                                                                         
+
+> VOX POPULI
+> Mean Entropy 2.10 0.97 0.42 0.55 0.34 0.44 0.43 Perplexity 3.12 0.96 0.40 0.42 0.39 0.41 0.40 RAUQ Entropy 2.03 0.96 0.35 0.47 0.28 0.32 0.43 Attention Score 7.12 0.91 0.17 0.12 0.26 0.09 0.10 Random 50.27 0.50 0.06 0.03 0.49 ––CALLHOME Mean Entropy 15.83 0.86 0.55 0.55 0.55 0.59 0.57 Perplexity 25.18 0.79 0.50 0.40 0.64 0.56 0.54 RAUQ Entropy 11.56 0.86 0.51 0.60 0.44 0.52 0.53 Attention Score 53.92 0.46 0.23 0.15 0.51 0.15 -0.01 Random 50.03 0.49 0.22 0.15 0.46 ––LOGISTIC REGRESSION
+> Combined (3840 features)
+> VOX POPULI LR 3.23 0.98 0.64 0.65 0.62 0.69 0.56 CALLHOME LR 32.80 0.76 0.50 0.37 0.77 0.55 0.52 AUDIO RATIO (960 features)
+> VOX POPULI LR 3.04 0.98 0.64 0.68 0.61 0.67 0.54 CALLHOME LR 29.13 0.79 0.52 0.40 0.74 0.58 0.55
+> Top 75 (300 features)
+> VOX POPULI LR 2.99 0.98 0.62 0.66 0.58 0.68 0.55 CALLHOME LR 27.26 0.80 0.55 0.43 0.74 0.61 0.57
+
+Table 4: Hallucination detection performance (F1, Pre-cision, Recall, PR-AUC, and PRR@ k) for Voxtral-3B 
+
+on V OX POPULI and CALLHOME test sets, with 
+
+k=10% and k=30% respectively. 
+
+els. For Qwen-2-Audio , P ERPLEXITY achieves a PR-AUC of 0.69 on CALLHOME compared to 0.49 on V OX POPULI , while for Voxtral-3B ,MEAN ENTROPY achieves 0.59 versus 0.44. We attribute this effect to the inherently noisy nature of CALLHOME. Conversational speech with over-lapping speakers and frequent disfluencies induces higher model uncertainty, making uncertainty-based metrics more effective. This interpreta-tion is supported by the average M EAN ENTROPY 
+
+values, which are approximately 0.10 for V OX -POPULI and 0.30 for CALLHOME. We observe a consistent pattern across models: Voxtral-3B 
+
+achieves stronger overall ASR performance, while uncertainty-based methods are comparatively more effective for Qwen-2-Audio . In contrast, our attention-based approach performs best for stronger models, cleaner data, and settings in which halluci-nations are relatively rare. 
+
+Out-of-domain generalization is model-dependent. Logistic regression performance on CALLHOME differs markedly between the two models. For Qwen-2-Audio , logistic regression predicts a large number of false positives, with predicted hallucination rates ranging from 66.97% to 79.05%, compared to an actual rate of 20.90%. As a result, the best logistic regression model achieves an F1-score of only 0.45 using A UDIO -RATIO , compared to 0.58 for both P ERPLEXITY 
+
+and M EAN ENTROPY . PRR@k similarly drops by 0.11 relative to the strongest baseline for the Top 43281 75 configuration. In contrast, Voxtral-3B maintains competitive out-of-domain performance. The Top 75 model achieves an F1-score of 0.55 and a PR-AUC of 0.61 on CALLHOME, matching or exceeding M EAN 
+
+ENTROPY . Notably, PRR@k is higher on CALL-HOME than on V OX POPULI for Voxtral-3B in all configurations except the Combined model. This suggests that, for Voxtral-3B , attention-based features generalise well despite the absence of comparable training data. Overall, these results indicate that out-of-domain performance benefits from combining multiple attention head metrics, but remains strongly model-dependent. 0 10 20 30 40 50 60 70 80 90 100 110 120 130 140 150 
+
+> Number of Attention Heads
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> PR-AUC
+> Audio Ratio
+> Audio Consistency
+> Audio Entropy
+> Text Entropy
+> Perplexity
+
+Figure 2: PR-AUC as a function of feature count for 
+
+Voxtral-3B on V OX POPULI . Each curve represents a different attention metric, with heads ranked inde-pendently by coefficient magnitude using L2 logistic regression. 
+
+Qwen-2-Audio performance gaps reflect thresh-old sensitivity. Despite Qwen-2-Audio ’s low F1-scores on CALLHOME, PR-AUC remains compa-rable to V OX POPULI , ranging from 0.61 to 0.62 on CALLHOME versus 0.56 to 0.58 on V OX POPULI .This indicates that the underlying attention features still contain discriminative information. The ele-vated false positive rate appears to be driven primar-ily by threshold miscalibration under distribution shift, rather than by fundamentally different atten-tion behaviour. PRR@k results also support that the gap between datasets is substantially smaller than that suggested by the F1-scores. The label-free metric confirms that the proposed approach can still prioritise semantically problematic outputs even when binary decision thresholds are poorly calibrated. 
+
+Fewer features improve out-of-domain gener-alization. Figure 2 plots PR-AUC as a function of feature count for Voxtral-3B for V OX POPULI .Performance improvements plateau after approxi-mately 100 attention heads per metric. With as few as five features, all metrics perform similarly to, or worse than, the P ERPLEXITY baseline, indicating that while individual heads may carry signal, com-bining multiple heads is necessary for robust perfor-mance. A UDIO CONSISTENCY performs well with relatively few heads but saturates earlier, which is expected given that it targets specific diagonal attention patterns. In contrast, A UDIO ENTROPY 
+
+requires aggregating signals from approximately 30 or more heads to reach comparable PR-AUC, after which performance scales more smoothly. Table 5 further shows that reducing the number of features trades a small amount of in-domain per-formance for improved generalisation. The Stable Features model (see Appendix: Table 10), which uses 99 features, shows a reduction of 0.02 PR-AUC on V OX POPULI compared to Top 75, which uses 300 features, but achieves the highest PR-AUC of any logistic regression model on CALLHOME at 0.64. Using only A UDIO RATIO features with an equivalent feature budget identifies fewer hallucina-tions, suggesting that combining metrics becomes increasingly important as the feature count is re-duced. Analysis of the selected features shows that the L1-regularised model prioritises A UDIO RATIO 
+
+and A UDIO CONSISTENCY heads, as reported in Appendix 10. This observation is consistent with the scaling trends shown in Figure 2. Dataset Method Hal.% Acc F1 Prec Rec PR-AUC PRR@k                                                  
+
+> Top 25 (100 features)
+> VOX POPULI LR 2.98 0.97 0.60 0.64 0.56 0.65 0.53 CALLHOME LR 25.08 0.81 0.54 0.44 0.70 0.61 0.56 AUDIO RATIO Only (100 features)
+> VOX POPULI LR 2.78 0.98 0.60 0.67 0.55 0.64 0.49 CALLHOME LR 21.44 0.83 0.55 0.47 0.64 0.58 0.58
+> Stable Features (99 features, threshold=0.8)
+> VOX POPULI LR 2.80 0.98 0.60 0.66 0.55 0.66 0.52 CALLHOME LR 29.96 0.79 0.53 0.41 0.77 0.64 0.58
+
+Table 5: Hallucination detection performance (F1, Pre-cision, Recall, PR-AUC, and PRR@ k) for Voxtral-3B 
+
+with reduced feature sets on V OX POPULI and CALL-HOME test sets, with k=10% and k=30% respectively. 
+
+5.2 S2TT Results Training on ASR data does not generalise to S2TT. We first evaluate whether logistic regres-sion models trained on ASR data can transfer to the S2TT task. Using the best-performing ASR 43282 configurations, namely Top 75 logistic regression for both Qwen-2-Audio and Voxtral-3B , we ob-serve PR-AUC scores of only 0.15 and 0.08, re-spectively, which is only marginally above ran-dom performance. PRR@k metrics corroborate this result, with values of 0.30 for Qwen-2-Audio 
+
+and 0.16 for Voxtral-3B , compared to baseline PRR@k scores of 0.46 and 0.44, confirming that attention-based hallucination detectors trained on ASR data do not generalise to S2TT. This raises the question of whether attention patterns differ fundamentally between tasks, or whether the use of different labelling schemes, WER and SHS for ASR versus COMET for S2TT, necessitates task-specific classifiers. Method Hal.% Acc F1 Prec Rec PR-AUC PRR@k TRAINED ON S2TT D ATA                                                                  
+
+> Baselines
+> Mean Entropy 0.21 0.95 0.08 1.00 0.04 0.25 0.45 Perplexity 0.23 0.95 0.08 0.90 0.04 0.23 0.39 RAUQ Entropy 0.18 0.95 0.07 1.00 0.04 0.25 0.46 Attention Score 14.06 0.84 0.14 0.10 0.27 0.08 0.15 Random 50.99 0.49 0.09 0.05 0.50 ––
+> Combined (4096 features)
+> LR 1.32 0.96 0.29 0.69 0.18 0.43 0.67 AUDIO RATIO (1024 features)
+> LR 1.30 0.95 0.23 0.56 0.15 0.39 0.64
+> Top 150 (600 features)
+> LR 1.51 0.95 0.28 0.61 0.18 0.44 0.67 TRAINED ON ASR D ATA
+> Top 75 (300 features)
+> LR 89.66 0.14 0.09 0.05 0.86 0.15 0.30
+
+Table 6: Hallucination detection performance (F1, Preci-sion, Recall, PR-AUC, and PRR@ k) for Qwen-2-Audio 
+
+on the F LEURS S2TT test set, with k=10% .
+
+Baselines struggle on S2TT. Baseline perfor-mance on S2TT is substantially weaker than on ASR. The strongest baseline achieves a PR-AUC of only 0.25 for Qwen-2-Audio and 0.17 for 
+
+Voxtral-3B , compared to 0.49 and 0.44, respec-tively, on the V OX POPULI ASR test set. This sug-gests that uncertainty-based metrics, while effec-tive for ASR, are less suited to detecting hallucina-tions in the speech-to-text translation setting. This finding is notable, given that such metrics are often strong baselines in text-based machine translation. 
+
+In-domain training yields substantial improve-ments over baselines. Training logistic regres-sion models directly on S2TT data yields sub-stantial performance gains over all baselines. For 
+
+Qwen-2-Audio , the Top 150 configuration achieves a PR-AUC of 0.44 and an F1-score of 0.28, corre-sponding to improvements of 0.19 PR-AUC and 0.20 F1 over RAUQ Entropy. For Voxtral-3B ,Top 300 reaches a PR-AUC of 0.44 and an F1-score of 0.37, improving on M EAN ENTROPY by 0.27 and 0.26, respectively. Label-free evaluation further supports these results. PRR@k scores reach 0.67 for Qwen-2-Audio and 0.68 for Voxtral-3B ,indicating that logistic regression effectively priori-tises low-quality translations. However, for both models, recall remains low, suggesting that while attention-based features reliably identify severe hal-lucinations, they are less sensitive to more subtle S2TT errors. Method Hal.% Acc F1 Prec Rec PR-AUC PRR@k TRAINED ON S2TT DATA                                                                  
+
+> Baselines
+> Mean Entropy 1.13 0.95 0.11 0.31 0.07 0.17 0.32 Perplexity 0.17 0.95 0.05 0.75 0.03 0.15 0.27 RAUQ Entropy 1.15 0.95 0.13 0.34 0.08 0.16 0.35 Attention Score 83.57 0.20 0.10 0.05 0.90 0.06 0.02 Random 49.04 0.51 0.09 0.05 0.51 ––
+> Combined (3840 features)
+> LR 2.25 0.95 0.37 0.60 0.27 0.43 0.66 AUDIO RATIO (960 features)
+> LR 1.80 0.97 0.35 0.45 0.29 0.38 0.66
+> Top 150 (600 features)
+> LR 2.51 0.95 0.37 0.55 0.28 0.44 0.68 TRAINED ON ASR D ATA
+> Top 75 (300 features)
+> LR 83.92 0.20 0.10 0.05 0.92 0.08 0.16
+
+Table 7: Hallucination detection performance (F1, Pre-cision, Recall, PR-AUC, and PRR@ k) for Voxtral-3B 
+
+on the F LEURS S2TT test set, with k=10% .
+
+Feature combination is important for S2TT. 
+
+S2TT performance benefits from combining mul-tiple attention-based metrics. For Voxtral-3B , us-ing only A UDIO RATIO features reduces the F1-score from 0.37 to 0.35 and the PR-AUC from 0.44 to 0.38, compared to the Top 300 configuration. 
+
+Qwen-2-Audio exhibits a similar trend, with drops of 0.05 in both F1-score and PR-AUC when com-paring A UDIO RATIO to Top 150. These results support that the S2TT task relies on complemen-tary signals captured by different attention metrics. Combining features is therefore particularly impor-tant for translation. 
+
+5.3 Task-specific attention heads dominate. 
+
+The observed lack of cross-task generalisation raises a fundamental question: does the logistic regression model rely on a universal set of atten-tion heads, or is head selection inherently task-dependent? To investigate this, we compute the 43283 intersection of the Top 50 most informative atten-tion heads for each metric across ASR and S2TT, as reported in Table 8. We select the Top 50 heads because they capture most of the discriminative sig-nal, as shown by the scaling behaviour in Figure 2. Across all metrics and both models, we observe limited overlap between selected heads. Combined with poor cross-task transfer, this suggests that hallucination-related attention features are largely task-specific. However, the low overlap may also reflect feature collinearity, in which redundant heads lead the model to select different yet func-tionally similar features across tasks.           
+
+> Common Heads Metric Qwen-2-Audio Voxtral-3B
+> AUDIO RATIO 22% 18% AUDIO CONSISTENCY 32% 26% AUDIO ENTROPY 10% 8% TEXT ENTROPY 14% 14%
+> Table 8: Intersection of the top-50 most important atten-tion heads for each metric for the ASR and S2TT tasks.
+
+Among the four metrics, A UDIO CONSISTENCY 
+
+shows the highest cross-task stability, followed by A UDIO RATIO , consistent with earlier results showing strong performance even with few heads. In contrast, both entropy-based metrics exhibit substantially lower consistency. This may be be-cause entropy-based regressors assign high weights to heads with weak alignment to their nominal input modality. For example, A UDIO ENTROPY 
+
+may select heads that primarily attend to the auto-regressive text prefix rather than audio, making the resulting features more sensitive to task-specific noise. 
+
+6 Conclusions 
+
+We presented an attention-based approach to hal-lucination detection in SpeechLLMs. We intro-duced four audio-focused attention metrics, A U-
+
+> DIO
+
+RATIO , AUDIO CONSISTENCY , AUDIO EN-
+
+> TROPY
+
+, and T EXT ENTROPY , and used them to train lightweight logistic regression classifiers. We evaluated the approach on two SpeechLLMs across automatic speech recognition and speech-to-text translation tasks. Our method outperforms all baselines on in-domain ASR, achieving improvements of up to +0.23 PR-AUC on V OX POPULI with Voxtral-3B ,with particularly strong gains on cleaner data. Re-ducing the feature set from over 1,000 attention heads to approximately 100 yields comparable in-domain performance while improving out-of-domain generalisation, indicating that larger fea-ture sets are prone to overfitting. Effectiveness varies across models: Voxtral-3B generalises well across settings, whereas Qwen-2-Audio ex-hibits weaker transfer to the noisier CALLHOME dataset. Models trained on ASR data do not generalise to S2TT, highlighting that hallucination patterns and their associated attention signals are task-specific. However, training on S2TT data yields comparable improvements over baselines, demonstrating that the approach is effective when task-appropriate su-pervision is available. Future work could combine attention-based features with uncertainty estima-tion metrics to capture complementary signals, ex-plore cross-model transfer, and extend the method to additional speech tasks such as speech summari-sation or spoken dialogue systems. 
+
+7 Limitations. 
+
+Our automatic labelling strategy achieves high pre-cision (0.979) but low recall (0.443), which means that many true hallucinations are excluded from training. Beyond threshold calibration, we do not perform direct human evaluation of the automat-ically labelled data. In addition, we focus exclu-sively on binary detection of severe hallucinations, rather than modelling finer-grained distinctions in hallucination type or severity. Our approach does not generalise across tasks. Classifiers trained on ASR data do not gener-alise to S2TT, necessitating task-specific training data. Effectiveness is also model-dependent, with 
+
+Voxtral-3B exhibiting more robust cross-domain generalisation than Qwen-2-Audio . Moreover, our evaluation is limited to two SpeechLLMs and four languages, which constrains the scope of our con-clusions. Finally, although the proposed method is lightweight compared to alternatives such as re-sampling or ensemble-based approaches, extracting attention patterns introduces additional inference-time computation and memory overhead. While this overhead remains modest relative to full SpeechLLM inference, it may still be relevant in latency-sensitive deployment settings. 43284 References 
+
+Hanin Atwany, Abdul Waheed, Rita Singh, Monojit Choudhury, and Bhiksha Raj. 2025. Lost in tran-scription, found in distribution shift: Demystifying hallucination in speech foundation models. In Find-ings of the Association for Computational Linguistics: ACL 2025 , pages 23181–23203, Vienna, Austria. As-sociation for Computational Linguistics. Loïc Barrault, Yu-An Chung, Mariano Cora Meglioli, David Dale, Ning Dong, Paul-Ambroise Duquenne, Hady Elsahar, Hongyu Gong, Kevin Heffernan, John Hoffman, and 1 others. 2023. Seamlessm4t: mas-sively multilingual & multimodal machine transla-tion. arXiv preprint arXiv:2308.11596 .Alexandra Canavan, David Graff, and George Zipperlen. 1997. CALLHOME American English Speech. LDC97S42, Web Download. Yunfei Chu, Jin Xu, Qian Yang, Haojie Wei, Xipin Wei, Zhifang Guo, Yichong Leng, Yuanjun Lv, Jinzheng He, Junyang Lin, Chang Zhou, and Jingren Zhou. 2024. Qwen2-audio technical report. Preprint ,arXiv:2407.10759. Yung-Sung Chuang, Linlu Qiu, Cheng-Yu Hsieh, Ran-jay Krishna, Yoon Kim, and James R. Glass. 2024. Lookback lens: Detecting and mitigating contextual hallucinations in large language models using only attention maps. In Proceedings of the 2024 Con-ference on Empirical Methods in Natural Language Processing , pages 1419–1436, Miami, Florida, USA. Association for Computational Linguistics. Alexis Conneau, Kartikay Khandelwal, Naman Goyal, Vishrav Chaudhary, Guillaume Wenzek, Francisco Guzmán, Edouard Grave, Myle Ott, Luke Zettle-moyer, and Veselin Stoyanov. 2020. Unsupervised cross-lingual representation learning at scale. In Pro-ceedings of the 58th Annual Meeting of the Asso-ciation for Computational Linguistics , pages 8440– 8451, Online. Association for Computational Lin-guistics. Alexis Conneau, Min Ma, Simran Khanuja, Yu Zhang, Vera Axelrod, Siddharth Dalmia, Jason Riesa, Clara Rivera, and Ankur Bapna. 2022. Fleurs: Few-shot learning evaluation of universal representations of speech. arXiv preprint arXiv:2205.12446 .Rita Frieske and Bertram E. Shi. 2024. Hallucina-tions in neural automatic speech recognition: Iden-tifying errors and hallucinatory models. Preprint ,arXiv:2401.01572. Nuno M. Guerreiro, Duarte M. Alves, Jonas Waldendorf, Barry Haddow, Alexandra Birch, Pierre Colombo, and André F. T. Martins. 2023a. Hallucinations in large multilingual translation models. Transactions of the Association for Computational Linguistics ,11:1500–1517. Nuno M. Guerreiro, Ricardo Rei, Daan van Stigt, Luisa Coheur, Pierre Colombo, and André F. T. Mar-tins. 2024. xCOMET: Transparent machine trans-lation evaluation through fine-grained error detection. 
+
+Transactions of the Association for Computational Linguistics , 12:979–995. Nuno M. Guerreiro, Elena Voita, and André Martins. 2023b. Looking for a needle in a haystack: A com-prehensive study of hallucinations in neural machine translation. In Proceedings of the 17th Conference of the European Chapter of the Association for Com-putational Linguistics , pages 1059–1075, Dubrovnik, Croatia. Association for Computational Linguistics. Matthew B Hoy. 2018. Alexa, siri, cortana, and more: an introduction to voice assistants. Medical reference services quarterly , 37(1):81–88. Hsiu-Yuan Huang, Yutong Yang, Zhaoxi Zhang, San-woo Lee, and Yunfang Wu. 2024. A survey of un-certainty estimation in llms: Theory meets practice. 
+
+Preprint , arXiv:2410.15326. Alkis Koudounas, Moreno La Quatra, Manuel Giollo, Sabato Marco Siniscalchi, and Elena Baralis. 2025. Hallucination benchmark for speech foundation mod-els. Preprint , arXiv:2510.16567. Moritz Laurer, Wouter van Atteveldt, Andreu Salleras Casas, and Kasper Welbers. 2022. Less Annotat-ing, More Classifying – Addressing the Data Scarcity Issue of Supervised Machine Learning with Deep Transfer Learning and BERT - NLI. Preprint . Pub-lisher: Open Science Framework. Alexander H. Liu, Andy Ehrenberg, Andy Lo, Clément Denoix, Corentin Barreau, Guillaume Lample, Jean-Malo Delignon, Khyathi Raghavi Chandu, Patrick von Platen, Pavankumar Reddy Muddireddy, Sanchit Gandhi, Soham Ghosh, Srijan Mishra, Thomas Fou-bert, Abhinav Rastogi, Adam Yang, Albert Q. Jiang, Alexandre Sablayrolles, Amélie Héliou, and 87 oth-ers. 2025. Voxtral. Preprint , arXiv:2507.13264. Andrey Malinin and Mark John Francis Gales. 2021. Uncertainty estimation in autoregressive structured prediction. In International Conference on Learning Representations .Andrey Malinin, Anton Ragni, Kate Knill, and Mark Gales. 2017. Incorporating uncertainty into deep learning for spoken language assessment. In Proceed-ings of the 55th Annual Meeting of the Association for Computational Linguistics (Volume 2: Short Pa-pers) , pages 45–50, Vancouver, Canada. Association for Computational Linguistics. F. Pedregosa, G. Varoquaux, A. Gramfort, V. Michel, B. Thirion, O. Grisel, M. Blondel, P. Prettenhofer, R. Weiss, V. Dubourg, J. Vanderplas, A. Passos, D. Cournapeau, M. Brucher, M. Perrot, and E. Duch-esnay. 2011. Scikit-learn: Machine learning in Python. Journal of Machine Learning Research ,12:2825–2830. 43285 Maja Popovi´ c. 2015. chrF: character n-gram F-score for automatic MT evaluation. In Proceedings of the Tenth Workshop on Statistical Machine Translation ,pages 392–395, Lisbon, Portugal. Association for Computational Linguistics. Alec Radford, Jong Wook Kim, Tao Xu, Greg Brock-man, Christine McLeavey, and Ilya Sutskever. 2023. Robust speech recognition via large-scale weak su-pervision. In International conference on machine learning , pages 28492–28518. PMLR. Vikas Raunak, Arul Menezes, and Marcin Junczys-Dowmunt. 2021. The curious case of hallucinations in neural machine translation. In Proceedings of the 2021 Conference of the North American Chap-ter of the Association for Computational Linguistics: Human Language Technologies , pages 1172–1183, Online. Association for Computational Linguistics. Nils Reimers and Iryna Gurevych. 2019. Sentence-BERT: Sentence embeddings using Siamese BERT-networks. In Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing and the 9th International Joint Conference on Natu-ral Language Processing (EMNLP-IJCNLP) , pages 3982–3992, Hong Kong, China. Association for Com-putational Linguistics. Kurt Shuster, Spencer Poff, Moya Chen, Douwe Kiela, and Jason Weston. 2021. Retrieval augmentation reduces hallucination in conversation. arXiv preprint arXiv:2104.07567 .Gaurang Sriramanan, Siddhant Bharti, Vinu Sankar Sadasivan, Shoumik Saha, Priyatham Kattakinda, and Soheil Feizi. 2024a. Llm-check: Investigating detection of hallucinations in large language mod-els. In Advances in Neural Information Processing Systems , volume 37, pages 34188–34216. Curran As-sociates, Inc. Gaurang Sriramanan, Siddhant Bharti, Vinu Sankar Sadasivan, Shoumik Saha, Priyatham Kattakinda, and Soheil Feizi. 2024b. LLM-check: Investigating detection of hallucinations in large language models. In The Thirty-eighth Annual Conference on Neural Information Processing Systems .Roman Vashurin, Ekaterina Fadeeva, Artem Vazhentsev, Lyudmila Rvanova, Daniil Vasilev, Akim Tsvigun, Sergey Petrakov, Rui Xing, Abdelrahman Sadallah, Kirill Grishchenkov, Alexander Panchenko, Timothy Baldwin, Preslav Nakov, Maxim Panov, and Artem Shelmanov. 2025. Benchmarking uncertainty quan-tification methods for large language models with LM-polygraph. Transactions of the Association for Computational Linguistics , 13:220–248. Artem Vazhentsev, Lyudmila Rvanova, Gleb Kuzmin, Ekaterina Fadeeva, Ivan Lazichny, Alexander Panchenko, Maxim Panov, Timothy Baldwin, Mrin-maya Sachan, Preslav Nakov, and Artem Shelmanov. 2025. Uncertainty-aware attention heads: Effi-cient unsupervised uncertainty quantification for llms. 
+
+Preprint , arXiv:2505.20045. Elena Voita, Rico Sennrich, and Ivan Titov. 2021. Ana-lyzing the source and target contributions to predic-tions in neural machine translation. In Proceedings of the 59th Annual Meeting of the Association for Computational Linguistics and the 11th International Joint Conference on Natural Language Processing (Volume 1: Long Papers) , pages 1126–1140, Online. Association for Computational Linguistics. Changhan Wang, Morgane Riviere, Ann Lee, Anne Wu, Chaitanya Talnikar, Daniel Haziza, Mary Williamson, Juan Pino, and Emmanuel Dupoux. 2021. VoxPop-uli: A large-scale multilingual speech corpus for rep-resentation learning, semi-supervised learning and interpretation. In Proceedings of the 59th Annual Meeting of the Association for Computational Lin-guistics and the 11th International Joint Conference on Natural Language Processing (Volume 1: Long Papers) , pages 993–1003, Online. Association for Computational Linguistics. Yingzhi Wang, Anas Alhmoud, Saad Alsahly, Muham-mad Alqurishi, and Mirco Ravanelli. 2025. Calm-whisper: Reduce whisper hallucination on non-speech by calming crazy heads down. ArXiv ,abs/2505.12969. 43286 A Logistic Regression 
+
+All logistic regression models are trained using 
+
+scikit-learn 5 (Pedregosa et al., 2011). 
+
+Hyperparameter L2 L1 
+
+Penalty L2 L1 
+
+Max iterations 5000 5000 Class weights 1:2 (positive) 1:5 (positive) C 1 0.005 Solver lbfgs liblinear  
+
+> Table 9: Hyperparameters for L2 logistic regression and L1 logistic regression, the latter used for stable feature selection. These parameters were selected on the V OX POPULI validation set.
+
+Table 9 lists the hyperparameters used to train our hallucination detection models, selected on the V OX POPULI validation set. Unless otherwise stated, these parameters are used for all logistic regression models. Metric Features AUDIO RATIO 39 AUDIO CONSISTENCY 36 AUDIO ENTROPY 20 TEXT ENTROPY 4Total 99  
+
+> Table 10: Distribution of stable features (threshold ≥
+> 0.8, selected in 4 out of 5 folds).
+
+Table 10 summarises the stable features selected using L1 regularisation. These are the heads present in 4 out of 5 folds after training on the VOX POPULI training data. The distribution shows that features are selected across all heads, with TEXT ENTROPY being a clear outlier, contributing only 4 features. 
+
+B S2TT Results 
+
+Tables 11 and 12 report chrF (Popovi´ c, 2015) and COMET scores, computed using XCOMET-XL. The results mirror those in Tables 3 and 4, with 
+
+Voxtral-3B outperforming Qwen-2-Audio across both metrics and all datasets. 
+
+C Semantic Hallucination Score 
+
+A defining property of hallucinations is substan-tial semantic divergence between the gold standard 
+
+> 5https://scikit-learn.org/stable/index.html
+
+Language Direction chrF COMET En →De 54.19 87.06 En →Es 47.42 82.26 En →Fr 49.72 76.74 De →En 60.29 90.33 Es →En 54.43 87.20 Fr →En 60.17 86.37    
+
+> Table 11: S2TT performance for Qwen-2-Audio on FLEURS .
+
+Language Direction chrF COMET En →De 57.73 90.65 En →Es 51.09 88.69 En →Fr 59.23 84.13 De →En 64.90 94.42 Es →En 59.11 92.07 Fr →En 63.25 90.82    
+
+> Table 12: S2TT performance for Voxtral-3B on FLEURS .
+
+transcription and the hypothesis. To capture this se-mantic change, we adopt the semantic hallucination score (SHS) from the SHALLOW ASR hallucina-tion benchmark (Koudounas et al., 2025). SHS combines local and global semantic error metrics to capture both fine-grained and utterance-level inconsistencies between hypothesis and reference transcriptions. Local semantic errors are computed using a multi-scale sliding window approach. Each hy-pothesis window is matched to reference win-dows via maximum cosine similarity of contex-tual embeddings, with higher weights assigned to smaller windows. This emphasises token-level dis-tortions while remaining sensitive to phrase-level mismatches. Global semantic errors comprise two components. The first is semantic distance, com-puted as the inverse cosine similarity of sentence embeddings. The second is semantic coherence, which combines BERTScore with an entailment probability derived from a natural language infer-ence model. As our data spans multiple languages, we replace the original monolingual models with multilingual alternatives. We use xlm-roberta-base (Con-neau et al., 2020) for local embeddings, 
+
+paraphrase-multilingual-MiniLM (Reimers and Gurevych, 2019) for sentence embeddings, and 43287 Lege nd: Subst itut ion (ref ) Subst itut ion (hyp ) Deletion  Ins ert ion                     
+
+> TP-Tru ePos itive
+> Pro b:0.98 |Mea nEntropy :0.17 |SHS :0.36 |WER :0.60 |Labe l:1|Pred :1
+
+REF : merci  le su d de la france a été
+
+∅ tou ché  dur ement  par les inon da tions pour la 15 e ann ée cons éc ut ive en
+
+15  ans  15  ca tastrop he s maje ur es
+
+∅
+
+HYP: mons ie ur le pr éside nt che rs coll èg ues le su d de la france a été dur ement  tou ché 
+
+∅ par les inon da tions pour la qu inz iè me ann ée cons éc ut ive en qu inz e ans  qu inz e ca tastrop he s maje ur es ont enge ndré la mort de 
+
+qu atr e vingt personn es et occa sionn é plus de ci nq ce nts mill ions d euros                     
+
+> TP-Tru ePos itive
+> Pro b:0.64 |Mea nEntropy :0.09 |SHS :0.50 |WER :0.89 |Labe l:1|Pred :1
+
+REF : da nke sch ön  he rr komm iss ar im namen de s rates he rr minist er lö ge r
+
+HYP: frau pr äside nt in he rr komm iss ar liebe mitgliede r de s europ äi sche n parl aments                     
+
+> FP -Fals ePos itive
+> Pro b:0.88 |Mea nEntropy :0.11 |SHS :0.39 |WER :0.27 |Labe l:0|Pred :1
+
+REF : merci m le pr éside nt je su is obligé comm e tout es les ann ée s de fai re un e
+
+∅
+
+HYP: mons ie ur  le pr éside nt je su is obligé comm e tout es les ann ée s de fai re un e déc laration tech niqu e                    
+
+> FN -Fals eNega tive
+> Pro b:0.02 |Mea nEntropy :0.15 |SHS :0.33 |WER :0.41 |Labe l:1|Pred :0
+
+REF :
+
+∅ it does mea n we need a mor e common pol itica l int erest all ov er the europ ea n un ion  to be  stron ge r
+
+HYP: from my po int of vie w it mea ns  we need a mor e common pol itica l int erest all ov er the europ ea n un ion  in
+
+bei ng stron ge r  
+
+> 12/22/25, 9:36 AM Selected Examples
+> fi le:///Users/jwaldend/Downloads/examples.html 1/1
+
+Figure 3: Examples of classifications using Top 75 with Voxtral-3B outputs on the V OX POPULI test set. 
+
+mDeBERTa-v3-base-xnli (Laurer et al., 2022) for natural language inference. 
+
+D PRR Metric 
+
+Equation 7 defines the predicted rejection ratio (PRR). For a corpus D = {(xj , y j )}, let pj =
+
+P (xj , y ∗
+
+j ) denote the logistic regression model’s predicted probability that hypothesis y∗
+
+j is a hal-lucination. The rejection curve plots the average quality Q(yj , y ∗
+
+j ) of the remaining samples after rejecting those with pj < α .PRR = AUC prob − AUC random 
+
+AUC oracle − AUC random 
+
+(7) PRR measures how much average quality im-proves when rejecting samples based on predicted probability, relative to oracle rejection. A PRR of 1 indicates rejection in exact oracle order. We report PRR over the first 10% of the rejection curve for VOX POPULI and the first 30% for CALLHOME, reflecting the proportion of hallucinations in each dataset. 
+
+E VOX POPULI Examples 
+
+Figure 3 presents four examples of Voxtral-3B 
+
+outputs classified using Top 75 on the V OX POPULI 
+
+test set. The first two are true positives that M EAN 
+
+ENTROPY misclassifies as non-hallucinations. The first contains both substitutions and insertions, while the second exhibits hallucination through 43288 substitution alone. We also include one false posi-tive and one false negative to illustrate typical fail-ure modes. Both cases lie close to the decision boundary of our automatic labelling pipeline, high-lighting the inherent difficulty of the task. Notably, MEAN ENTROPY also misclassifies both examples. 
+
+F GPU Usage and AI Statement 
+
+Inference and labelling are performed on eight 
+
+A100-40GB GPUs, processing approximately 4.5 samples per second. A single experimental run covers approximately 57,000 ASR sentences and 21,000 S2TT sentences, requiring around 38.5 GPU hours. Over development and evaluation, we conducted approximately six complete itera-tions, totalling around 230 GPU hours. Including XCOMET scoring and SHS computation, we esti-mate an upper bound of approximately 300 GPU hours. Code for this project was partially written with the assistance of an internal coding assistant. In-ternal AI tools were also used to assist with the language and presentation of the paper. 43289

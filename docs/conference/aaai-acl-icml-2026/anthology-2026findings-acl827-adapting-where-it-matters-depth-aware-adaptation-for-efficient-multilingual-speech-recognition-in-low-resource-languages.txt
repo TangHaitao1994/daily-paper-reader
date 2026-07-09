@@ -1,0 +1,349 @@
+Title: 2026.findings-acl.827.pdf
+
+URL Source: https://aclanthology.org/2026.findings-acl.827.pdf
+
+Published Time: Thu, 11 Jun 2026 02:31:26 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+> Findings of the Association for Computational Linguistics: ACL 2026 , pages 16776–16788 July 2-7, 2026 ©2026 Association for Computational Linguistics
+
+# Adapting Where It Matters: Depth-Aware Adaptation for Efficient Multilingual Speech Recognition in Low-Resource Languages 
+
+Yang Xiao, Eun-Jung Holden, Ting Dang 
+
+The University of Melbourne  
+
+> yxiao9550@student.unimelb.edu.au ,{eunjung.holden, ting.dang}@unimelb.edu.au
+
+Abstract 
+
+Recent speech foundation models excel at mul-tilingual automatic speech recognition (ASR) for high-resource languages, but adapting them to low-resource languages remains challeng-ing due to data scarcity and efficiency con-straints. Full-model fine-tuning is computation-ally expensive and prone to overfitting, while parameter-efficient methods like LoRA apply adaptation uniformly across layers, overlook-ing internal representations thus compromising effectiveness and efficiency. We analyze mul-tilingual ASR models and reveal a U-shaped adaptability pattern: early and late layers are language-specific and require more adaptation, while intermediate layers retain shared seman-tics and need less. Building on this obser-vation, we propose DAMA, a Depth-Aware Model Adaptation framework that allocates adaptation capacity according to each layer’s role. DAMA also introduces Singular Value Decomposition (SVD)-based initialization to constrain adaptation and preserve the U-shaped pattern, as well as a frozen middle-layer ba-sis for further efficiency. Evaluated on 18 low-resource languages across two benchmark datasets, DAMA matches or surpasses state-of-the-art accuracy with 80% fewer trainable parameters, achieves a 29% error reduction un-der extreme data scarcity, and significantly im-proves memory, training time, and computa-tional efficiency over baselines. These results highlight the benefits of structure-aware adap-tation for efficient, scalable multilingual ASR. 
+
+1 Introduction 
+
+Recent speech foundation models (Pratap et al., 2024; Cui et al., 2025) are pretrained on vast amounts of multilingual speech data and capable of performing a variety of tasks, such as multilingual automatic speech recognition (ASR), with partic-ular success in high-resource languages such as English. However, their performance drops sub-stantially on low-resource languages or local di-alects (Wang et al., 2024; Kwok et al., 2024), due to the limited data availability, resulting in substan-tial disparities for underrepresented languages. Efficiently adapting these models for low-resource languages with limited data remains a significant challenge. In many real-world scenar-ios, such as the rapid deployment of speech tech-nologies in emerging markets or for local dialects, there is a critical need for adaptation methods that are both accurate and highly efficient. These ap-proaches must enable fast adaptation to limited new data, operate within stringent memory and computational constraints, and maintain strong per-formance even in extremely low-data settings. Traditional full-parameter fine-tuning is compu-tationally and memory intensive, making it imprac-tical for many applications, especially on edge de-vices or with limited resources. The scarcity of la-beled data for low-resource languages further com-plicates adaptation, as full-parameter fine-tuning often suffer from overfitting or catastrophic forget-ting (Wang et al., 2024; Chang et al., 2021; Yang et al., 2022; Shi et al., 2026a). Recent work has shifted towards parameter-efficient fine-tuning (PEFT) (Ding et al., 2023), such as Low-Rank Adaptation (LoRA) (Hu et al., 2022), which freezes the original model parameters and updates only a small set of new weights for the target language. These methods enable faster and more memory-efficient adaptation. However, these methods adapt all layers uniformly in a brute-force manner, overlooking the structure of language rep-resentations and potentially limiting effectiveness and parameter efficiency, especially in extremely low-resource settings (Shi et al., 2026c). In large models, even standard LoRA may still require up-dating a significant number of parameters. Therefore, advancing efficient multilingual adap-tation in speech foundation models requires a nu-anced understanding of how these models represent and share multilingual knowledge internally. This 
+
+16776 study first conducts a layer-wise analysis of how multilingual speech representations are maintained and interact across different model layers, revealing a distinct U-shaped pattern of plasticity: early and late layers capture language-specific features and are more adaptable, while middle layers remain language-agnostic. This suggests that different lay-ers require varying degrees of adaptation to new languages, challenging the prevailing assumption in prior work that all layers are equally suitable for adaptation (Song et al., 2024; Kwok et al., 2025). Motivated by this U-shaped pattern, we propose Depth-Aware Model Adaptation (DAMA), which introduces three mechanisms to tune models for new languages with both effectiveness and effi-ciency. First, the Depth-Aware Rank Schedule allo-cates higher adaptation capacity to the more plastic early and late layers while restricting the rank in the middle layers, balancing parameter efficiency with preservation of the model structural properties. Second, to constrain adaptation in the middle lay-ers, we propose SVD-Based Initialization, which initializes adaptation weights in directions orthog-onal to the dominant weights of the model. This helps preserve shared language representations and maintain the U-shaped adaptability. Finally, to fur-ther improve efficiency, especially in low-resource settings, we introduce Basis-Protected Projection (BPP), where a subset of adaptation weights is frozen, thus reducing the number of trainable pa-rameters while preserving essential knowledge. We evaluated DAMA on 18 low-resource lan-guages using the Common Voice and FLEURS datasets. DAMA matches or outperforms state-of-the-art baselines while reducing parameters by about 80%. More importantly, in extremely low-resource settings (0.5 to 1 hour of data), it achieves up to 29% relative Word Error Rate (WER) im-provement. Efficiency analysis shows a 24% gain in GPU memory utilization and 36% faster training. These results highlight that adaptation aligned with model layer properties enables scalable, parameter-efficient multilingual systems without sacrificing accuracy. Our contribution is summarized below: • We are the first to systematically analyze layer-wise multilingual language representations in speech foundation models. We reveal a U-shaped distribution of language specificity, which demonstrates how these models main-tain and share cross-lingual knowledge. • We propose DAMA, a novel depth-aware multilingual ASR adaptation framework that achieves an effective balance between adapt-ability and parameter efficiency, while pre-serving essential multilingual knowledge. • Our experiments on 18 languages demonstrate a Pareto-optimal trade-off for the proposed DAMA. It exceeds or matches SOTA perfor-mance while significantly reducing trainable parameters, memory usage and training time. Most importantly, DAMA exhibits superior robustness in low-resource settings. 
+
+2 Related Work 
+
+Multilingual Automatic Speech Recognition (MASR). MASR (Yadav and Sitaram, 2022) aims to transcribe speech across diverse languages using a single, unified foundation model. Recent advancements have been driven by scaling up train-ing data and model capacity, such as Whisper (Rad-ford et al., 2023) and MMS (Pratap et al., 2024). While these models excel at recognizing high-resource languages, their performance degrades sig-nificantly when applied to low-resource languages unseen during pre-training. Due to the limited data availability, it necessitates the efficient adaptation to new languages without the prohibitive compu-tational cost of full retraining or the risk of catas-trophic forgetting (Li et al., 2022). 
+
+Efficient Multilingual Adaptation Strategies. 
+
+To adapt speech foundation models to new languages, fully fine-tuning has traditionally been the default approach. However, updating all parameters is computationally prohibitive for resource-constrained settings. More importantly, FFT often leads to catastrophic overfitting where the model memorizes sparse data at the expense of generalizable semantic knowledge (Xiao et al., 2022; Yang et al., 2022; Peng and Xiao, 2024; Shi et al., 2025). Some methods attempt to preserve prior knowledge by constraining updates to important parameters (Xiao et al., 2025; Xiao and Das, 2025). However, these methods often struggle to balance the plasticity-stability dilemma, limiting their ability to learn new tasks effectively. To enable efficient adaptation, PEFT has become the main paradigm. Methods such as Low-Rank Adaptation (LoRA) (Hu et al., 2022) and Adapters (Houlsby et al., 2019) freeze the pre-trained backbone and inject a small number of trainable parameters to capture task-specific shifts. 16777 Despite their success, standard PEFT methods in MASR overlook language representations and adapt all model layers uniformly, compromising both efficiency and effectiveness (Song et al., 2024; Li et al., 2025; Yang et al., 2025; Shi et al., 2026b). While methods like AdaLoRA (Zhang et al., 2023b) introduce dynamic rank allocation, they depend on sensitivity scores derived from training data. In few-shot or low-resource settings, insufficient data renders these sensitivity estimates unstable because they rely on computationally expensive searches. This highlights a critical gap in more effective and efficient adaptation mechanisms for low-resource speech data. 
+
+3 Analysis of Language Representations 
+
+To investigate how language representations are maintained and shared within the latent space, we conduct a layer-wise analysis utilizing linear prob-ing at each layer to perform a language identifica-tion (LID) task. If the representations at a given layer are language-specific, the LID accuracy will be high; conversely, lower accuracy suggests more language-agnostic representations. This analysis enables us to identify the extent to which language-specific information is preserved across layers. 
+
+3.1 Layer-wise Linear Probing 
+
+Specifically, we conduct our analysis within the encoder-decoder framework, which is commonly used in recent speech foundation models (Radford et al., 2023; Pasad et al., 2023; Omnilingual et al., 2025; Peng et al., 2023). Given a speech input se-quence xt, the encoder processes this input and gen-erates a sequence of latent representations, denoted as ht = Encoder( xt). These encoder outputs ht
+
+are then provided as input to the decoder, fθ, pa-rameterized by weights θ. The decoder consists of 
+
+L layers, with the intermediate activations at the 
+
+l-th layer denoted as z(l) 
+
+> t
+
+, where l ∈ { 1, . . . , L }.For each decoder layer l, we apply linear probing to the representations z(l) 
+
+> t
+
+. Specifically, we train a linear classifier g(l)(·) on the activations z(l) 
+
+> t
+
+to perform the LID task with cross-entropy loss. The classification accuracy provides a quantitative mea-sure of the degree to which language-specific infor-mation is encoded at the l-th layer. This provides a comprehensive view of how language representa-tions are maintained, diminished, or abstracted at different depths of the decoder network. 0.92                
+
+> 0.94
+> 0.96
+> 0.98
+> 1
+> 1.02
+> 1357911 13 15 17 19 21 23 25 27 29 31
+
+TEST_ACC                
+
+> (a) Linear Probing Accuracy of Five Seen Languages. 0.34
+> 0.36
+> 0.38
+> 0.4
+> 0.42
+> 0.44
+> 0.46
+> 1357911 13 15 17 19 21 23 25 27 29 31
+
+TEST_ACC_UNSEEN                
+
+> (b) Linear Probing Accuracy of Ten Unseen Languages. 0.6
+> 0.7
+> 0.8
+> 1357911 13 15 17 19 21 23 25 27 29 31
+
+TEST_ACC AFTER FT     
+
+> tr zh
+> (c) Linear Probing Accuracy of Five Seen Languages after Fine-tuning. 11.09
+> 99.61 93.74
+> 0
+> 50
+> 100
+> 150
+> Before FT After FT on zh After FT on tr
+
+English WER 
+
+> (d) WER after fine-tuning on English.
+
+Figure 1: Layer-wise probing for different languages before and after fine-tuning. 
+
+Dataset and Language Selection: To ensure the robustness of our analysis, we select a diverse set of languages from the Common Voice (Ardila et al., 2020) dataset. We construct two distinct evaluation groups to test the generalization capability of the model. The first group consists of five languages that were seen during the pre-training, which allows us to measure how the model represents known knowledge. The second group consists of ten unseen languages, which allows us to observe how the model handles completely new linguistic patterns. We provide the full list of these languages and their specific details in Appendix A. 16778 3.2 The U-Shaped Layer-wise Plasticity Analysis of Seen Languages: The results on seen languages, as illustrated in Figure 1a, reveal a distinct U-shaped pattern across the depth of the decoder. The early layers (layers 1 to 5) and the late layers (layers 28 to 32) achieve a near 100%. This indicates that the model retains strong language-specific markers. Conversely, the intermediate layers exhibit a noticeable drop in performance. Specifically, the accuracy falls to approximately 93% around layer 17. The relative decline forms a “ Semantic Valley ”, which suggests that the middle layers are less sensitive to language identity and focus more on language-agnostic semantic representations. 
+
+Analysis of Unseen Languages: Further anal-ysis of languages that were not seen during pre-training also reveals the same “Semantic Valley ”, despite the decreased accuracy. This consistent U-shaped behavior confirms that decoder naturally organizes information with depth-dependent plas-ticity. Regardless of the languages, the early and late layers capture language-specific linguistics fea-tures, while the middle layers relatively maintain a language-agnostic representation. It is interesting to note that this U-shaped pat-tern aligns with recent findings in text-based Large Language Models (Kojima et al., 2024; Tang et al., 2024; Wu et al.). Our results demonstrate that this hierarchical phenomenon is also evident in speech foundation models, even with the different end-to-end learning paradigm of speech training. 
+
+3.3 The Impact of Fine-tuning 
+
+We further investigate how the commonly used fine-tuning affects the U-shaped plasticity. We first per-form full parameter fine-tuning on two distinct lan-guages, Turkish (tr) and Mandarin (zh), and repeat the probing analysis. The results, presented in Fig-ure 1c, shows that the distinct U-shaped pattern has completely disappeared, where the “ Semantic Val-ley ” observed in the pre-trained model is disrupted by a continuous upward trend. The middle lay-ers, which captures language-agnostic representa-tions, have been forced to encode strong language-specific information. While it enables adaptation to new languages, the semantic collapse coincides with catastrophic forgetting of seen languages such as English, as shown in Figure 1d, where the WER on English surges from 11% to over 93% after fine-tuning. Further, it also results in significant computational costs, including increased memory footprint and longer training times. While standard LoRA improves adaptation effi-ciency and preserves the original model weights, it does not account for the specialized role of the middle layers. By uniformly adapting all layers, including those responsible for language-agnostic processing, LoRA may still disrupt critical seman-tic representations, eroding well-established struc-tures and undermining cross-lingual generalization and robustness. Preserving the U-shaped plasticity, particularly in the middle layers, is essential to safe-guard learned knowledge and improve efficiency, as adaptation should primarily target the early and late layers. 
+
+4 Proposed DAMA 
+
+To maintain the U-shaped structure during adapta-tion, we propose the efficient Depth-Aware Model Adaptation (DAMA). First, we introduce a Depth-Aware Rank Schedule assigning higher adapta-tion capacity to the early and late layers while restricting the lower adaptation in the middle lay-ers. Second, we propose SVD-based Initialization for LoRA in the middle layers to explicitly pre-serve language-agnostic representations, enabling efficient low-rank adaptation. Third, we design Basis-Protected Projection (BPP), which protects and freezes parameters in the middle layers to fur-ther improve adaptation efficiency and stability, especially in low-resource settings. 
+
+4.1 Depth-Aware Rank Allocation 
+
+Standard LoRA (Hu et al., 2022) adapts pre-trained models by fine-tuning a low-rank update to each weight matrix. Given a pre-trained model with weight matrix W0 ∈ Rd×k, LoRA constrains the update ∆W as the product of two low-rank matri-ces: B ∈ Rd×r and A ∈ Rr×k, where r ≪ d, k .The forward pass is then: 
+
+h = ( W0 + ∆ W )x = W0x + BAx, (1) During training, W0 is frozen. A is randomly ini-tialized and B is set to zero, so initially, the update has no effect. Standard LoRA assigns the same rank r to all layers, allocating uniform adaptation capacity to early, middle, and late layers. Instead, DAMA employs the Depth-Aware Rank 
+
+scheduling following the U-shaped distribution, with a layer-dependent rank function r(l) that flex-ibly adjusts the adaptation capacity based on the 16779 Figure 2: Overview of the DAMA Framework compared with LoRA. (a) The standard LoRA with uniform rank. (b) The DAMA Framework. Specifically, the Depth-Aware Rank schedule allocates high plasticity to the early and late layers, while the Basis-Protected Projection physically locks the middle layers to protect “Semantic Valley”. All layers mean all the layers from the decoder. The decoder processes acoustic embeddings from the encoder and transcribes them into output tokens. 
+
+position l of each decoder layer. Specifically, we divide the L decoder layers into three segments: 
+
+Early (learly : 1 ≤ l ≤ learly ), Mid (lmid : learly <l < l late ), and Late (llate : llate ≤ l ≤ Ltotal ), where learly = ⌊θ1Ltotal ⌋ and llate = ⌊θ2Ltotal ⌋
+
+for 0 < θ 1 < θ 2 < 1. We assign each layer a LoRA rank r(l) with a U-shaped schedule bounded by a maximum rank rhigh and a minimum rank rlow :
+
+r(learly ) = rhigh − l − 1
+
+learly − 1 (rhigh − rlow ), (2) 
+
+r(lmid ) = rlow , (3) 
+
+r(llate ) = rlow + l − llate 
+
+Ltotal − llate 
+
+(rhigh − rlow ), (4) As shown in Figure 2, this schedule allocates more adaptation capacity to the early layers where the model needs to adapt to the specific characteris-tics of new target languages, and late layers where the model transitions from processing semantic rep-resentations to generating specific lexical outputs in the target language, while minimizing adaptation in the middle to pre- serve the language-agnostic space. This improves efficiency and stability across all projection modules. 
+
+4.2 SVD-based Initialization 
+
+While a low rank r in the middle layers helps pre-serve the characteristic U-shaped representational structure, we further reinforce this by employing SVD-based initialization for adaptation. This ap-proach constrains LoRA updates to directions that minimally impact the language-agnostic semantic subspace, thereby preventing over-adaptation and semantic drift in these critical layers. Unlike stan-dard LoRA, which uses random Gaussian initial-ization and may introduce "geometric noise," SVD-based initialization helps maintain the integrity of the U-shaped representation. Given a weight matrix W ∈ Rm×n from the middle layers of the pre-trained speech foundation model, we perform SVD: 
+
+W = U Σ V T , (5) where Σ = diag( σ1, . . . , σ min( m,n )) contains the singular values in descending order. The leading 
+
+r principal components, corresponding to the top singular values σ1, . . . , σ r, capture the language-agnostic semantic knowledge that should be pre-served during adaptation. To constrain the adaptation to directions orthog-onal to this subspace, we select the residual com-ponents by taking the trailing singular vectors 
+
+Vtail = [ vr+1 , . . . , v min( m,n )]. We then initialize the LoRA adaptation matrix A (see Eq. (1)) as: 
+
+A = V T
+
+> tail
+
+, (6) This initialization restricts the LoRA updates to directions with minimal overlap with the language-agnostic semantic subspace. As a result, the core semantic structure of the pre-trained model is pre-served, reducing the risk of semantic drift during adaptation. 
+
+4.3 Basis-Protected Projection (BPP) 
+
+To further stabilize adaptation and improve compu-tational efficiency, we introduce the BPP module, which freezes the LoRA matrix A in the middle layers and updates only B. By freezing the SVD-initialized A, we ensure that training updates can-not inadvertently steer the adaptation back into the 16780 protected semantic subspace, thereby strictly pre-serving the core language-agnostic representations and making semantic drift virtually impossible. Un-like standard LoRA, which updates both A and 
+
+B, our approach constrains adaptation to a signifi-cantly lower-rank space by updating only B. This strategy is particularly advantageous in extremely low-resource settings, as it substantially reduces the number of trainable parameters. Consequently, the risk of overfitting is lowered and generalization may be improved, especially when the downstream task dataset is limited in size. 
+
+5 Experimental Setup 
+
+5.1 Datasets 
+
+We evaluate our approach using two multilin-gual datasets to ensure broad applicability: Com-mon Voice (Ardila et al., 2020) and FLEURS dataset (Conneau et al., 2023). Common Voice is a crowd-sourced collection providing validated tran-scriptions for a wide variety of languages. Follow-ing established protocols (Della Libera et al., 2024; Kwok et al., 2025), we select ten languages that are unseen during training, including Kinyarwanda, Esperanto, Kabyle, Luganda, Meadow Mari, Cen-tral Kurdish, Abkhaz, Kurmanji Kurdish, Frisian, and Interlingua . For these languages, we adopt a standard data split of ten hours for training, one hour for validation, and one hour for testing. FLEURS dataset (Conneau et al., 2023) is de-rived from the FLoRes machine translation bench-mark and contains parallel speech and text. From FLEURS, we construct two distinct evaluation groups. The first group consists of "Seen Weak" languages, such as Hindi and Welsh , which the model has encountered but still struggles to process effectively. The second group consists of “Unseen” languages, including Ganda and Sorani Kurdish ,which are completely new to the model. To ensure a fair and rigorous evaluation, we se-lected these languages based on three strict criteria. First, we maximized geographic diversity by in-cluding languages from Africa, Europe, and Asia. This prevents regional bias in our results. Second, we prioritized languages with limited resources. These languages often lack sufficient training data and pose a greater challenge than widely spoken languages like English. Finally, we selected lan-guages based on task difficulty. Notably, the base-line Whisper model fails to transcribe the “Unseen” group entirely, and can not perform well in the “Seen Weak” group. For the details of the dataset, please refer to Appendix B. 
+
+5.2 Implementation Details 
+
+We employ the Whisper large v2 model (Radford et al., 2023) as the backbone which utilizes a stan-dard encoder-decoder architecture and is a com-monly used multilingual speech foundation model. Following prior benchmark (Della Libera et al., 2024), we initialize and train new token embed-dings for unseen languages to ensure the model can identify them correctly. To assess performance, we compare our method against fine-tuning and SOTA PEFT methods, including standard LoRA (Hu et al., 2022) and its variants: DoRA (Liu et al., 2024), LoRA-FA (Zhang et al., 2023a), LoRA-XS (Bałazy et al., 2024), VB-LoRA (Li et al., 2024), and AdaLoRA (Zhang et al., 2023b). We selected these methods to cover a wide range of efficiency strate-gies, such as dynamic rank allocation and weight decomposition. For our method, we apply it to all linear pro-jection matrices, including the Query, Key, Value, Output, and the FFN layers. We optimize the rhigh 
+
+and alpha to 32 while rlow to 8. We set θ1 and θ2 to 0.3 and 0.7. Training proceeds for two epochs with a batch size of 6. We use the AdamW optimizer combined with a dynamic learning rate scheduler. Finally, we apply a greedy decoding strategy for all inference tasks. We assess the systems using both accuracy metric of WER and efficiency metrics in-cluding number of parameters, MACs (Multiply Accumulate operations) and GPU memory. The MACs specifically measure the additional floating-point operations introduced by the trainable adapter modules, excluding the frozen backbone. Complete configuration details and baseline settings can be referred to Appendix B. 
+
+6 Results and Discussion 
+
+6.1 Performance Comparison 
+
+Experiments on the Common Voice and FLEURS datasets (Table 1) show that DAMA achieves a su-perior trade off between accuracy and efficiency. DAMA attains an average WER of 39.73%, which effectively matches the strongest baseline, LoRA, at 39.71%. Importantly, DAMA exhibits stronger robustness across different languages: it success-fully avoids the significant performance drop seen with compression approaches like VB-LoRA on "Unseen" languages (43.20% vs. 59.81%), and it 16781 Table 1: Performance comparison using Average WER and parameter efficiency on Common Voice and FLEURS. The rightmost column separately reports additional MACs for each method. 
+
+Method Params (M) Unseen Languages Seen-Weak Average Extra MACs (G) Common Voice FLEURS FLEURS Fine-tuning 906.5 43.87 50.05 27.55 41.34 -LoRA (Hu et al., 2022) 68.2 43.25 47.13 25.19 39.71 102.2 DoRA (Liu et al., 2024) 68.7 43.61 46.46 25.24 39.73 1415.4 LoRA-FA (Zhang et al., 2023a) 34.1 46.00 48.56 25.65 41.55 51.1 LoRA-XS (Bałazy et al., 2024) 1.3 57.36 55.23 30.29 50.06 104.2 VB-LoRA (Li et al., 2024) 4.9 59.81 50.75 28.00 49.59 758.3 AdaLoRA (Zhang et al., 2023b) 51.1 51.66 52.36 28.41 46.02 76.7 DAMA (Ours) 14.9 43.20 47.25 25.26 39.73 22.3 
+
+Table 2: Avg WER on Common Voice (10 languages) in the 2-hour, 1-hour, and 0.5-hour low-resource setting.                            
+
+> Method Avg WER (0.5h) Avg WER (1h) Avg WER (2h) Fine-tuning 68.11 61.79 54.60 LoRA (Hu et al., 2022) 64.84 59.96 54.28 DoRA (Liu et al., 2024) 64.73 59.93 54.24 LoRA-FA (Zhang et al., 2023a) 68.63 63.23 57.48 LoRA-XS (Bałazy et al., 2024) 80.57 73.99 67.58 VB-LoRA (Li et al., 2024) 73.05 76.64 77.81 AdaLoRA (Zhang et al., 2023b) 90.16 72.73 65.94 DAMA (Ours) 64.11 58.80 54.20
+
+outperforms full fine-tuning on "Seen-Weak" lan-guages (47.25% vs. 50.05%). However, DAMA uses only 14.9 million parameters, around one-fifth as many as standard LoRA, which requires 68.2 million parameters. In contrast, full fine-tuning yields a significantly higher WER of 41.34% de-spite using over 900 million parameters, more than 60 times than ours. This suggests that updating all parameters is inefficient and likely degrades the source model with limited data. 
+
+6.2 Data Efficiency in Low-Resource Settings 
+
+We further investigate the Average WER of DAMA in data scarce scenarios, with 0.5 hours to 2 hours of per unseen languages from Common Voice, as shown in Table 2. DAMA maintains remarkable generalization capabilities while other methods suf-fer significant degradation. Specifically, DAMA achieves an average WER of 58.80% in the 1 hour setting. This score surpasses the fine-tuning base-line, which reaches 61.79%. This suggests that up-dating all parameters in the low data regime leads to severe overfitting. The robustness of DAMA becomes evident when comparing it to methods like AdaLoRA and LoRA-XS. These baselines fail to adapt effectively, with error rates spiking above 72%. While AdaLoRA employs dynamic rank al-location, it relies on data driven sensitivity scores to prune parameters. In extremely low resource settings, these scores become unreliable due to data sparsity, leading to poor architectural deci-28.32            
+
+> 22.60 22.22 22.00 21.70 21.63 21.51
+> 15
+> 18
+> 21
+> 24
+> 27
+> FT DoRA LoRA LoRA-FA LoRA-XS DAMA VB-LoRA
+
+GPU peak memory (GB) 
+
+Figure 3: Average Peak GPU memory usage for dif-ferent adaptation methods across all 10 languages on Common Voice. 240 260 280 300 320 340 360 380  
+
+> Pure Training Time (seconds)
+> 60.0
+> 62.5
+> 65.0
+> 67.5
+> 70.0
+> 72.5
+> 75.0
+> 77.5
+> WER (%)
+> LoRA DoRA
+> AdaLoRA
+> LoRA-FA
+> DAMA
+> VB-LoRA
+> LoRA-XS
+> Pareto Frontier: Training Time vs. Performance
+> DAMA (Ours)
+> Other PEFT Methods
+> Pareto Frontier
+
+Figure 4: Pareto Frontier analysis of one-epoch adapta-tion time versus overall average WER. 
+
+sions. In contrast, DAMA uses a structural rank schedule based on the hierarchical nature of speech. This fixed prior guides the adaptation process with-out overfitting to the limited data. Consequently, DAMA consistently delivers high accuracy com-parable to robust methods like LoRA and DoRA, proving its reliability even under challenging train-ing conditions. 
+
+6.3 Computational Efficiency MACs. We further evaluate the computational overhead using Extra MACs. As shown in Table 1, DAMA achieves the lowest overhead among all methods, requiring only 22.3G MACs. In strong contrast, standard LoRA demands 102.2G MACs, which is nearly five times higher. Furthermore, ad-16782 vanced methods like DoRA and VB-LoRA incur a massive computational cost, reaching 1415.4G and 758.3G MACs, respectively. While LoRA-FA and AdaLoRA achieve lower MACs compared to standard baselines, their MACs remain higher than ours. Additionally, both methods exhibit worse WER, especially on unseen languages. This con-firms that our sparse, protected basis design is the most suitable candidate for real-time applications. 
+
+GPU Peak Memory. Figure 3 illustrates the peak GPU memory usage across different adapta-tion strategies. Compared to the resource-intensive fine-tuning, our approach significantly reduces the GPU peak memory usage from 28.32 GB to 21.63 GB, a substantial reduce of approximately 24%, which makes our method much more accessible for resource-constrained settings. When compared to other parameter-efficient methods, DAMA continues to demonstrate supe-rior efficiency. It requires less memory than both standard LoRA and DoRA. This efficiency stems from our adaptive ranking strategy, which avoids unnecessary gradient updates. While VB LoRA achieves a comparable memory usage of 21.51 GB, it comes at a severe cost to accuracy with signifi-cantly worse WER. Consequently, DAMA offers the most favorable balance between memory cost and performance across all evaluated methods. 
+
+Training-time Efficiency Analysis. We further compare the adaptation time of a single epoch as shown in Figure 4. The Pareto figure shows the training time in seconds on the horizontal axis and WER on the vertical axis. DAMA occupies the op-timal position at the bottom left corner, indicating it is the most efficient method among all baselines. Specifically, DAMA achieves the fastest training time of 242.11 seconds while simultaneously main-taining the lowest WER of 58.80%. In contrast, while LoRA FA matches our speed with 242.43 seconds, it suffers from a significantly higher WER of 63.23%. This shows that simplifications made by LoRA FA compromise the model quality. Con-versely, DoRA achieves a competitive error rate of 59.93% but requires a much longer training time of 377.93 seconds. This 56% increase in time makes DoRA less suitable for rapid adaptation. Fi-nally, methods like AdaLoRA and VB-LoRA fall far behind the frontier, as they exhibit both slower training speeds and higher error rates. Therefore, DAMA offers the best balance of speed and accu-racy for real time applications. 
+
+Table 3: Ablation study on the three key components of DAMA using the Common Voice dataset.             
+
+> Depth-Aware (U-shaped) Basis-Protected (BPP) SVD-based Initialization Avg WER Uniform ✓✓43.67
+> ✓Full Adaptation ✓42.98
+> ✓✓Random 43.95
+
+6.4 Ablation Study 
+
+We investigate the contribution of the three designs in DAMA: the Depth-Aware Rank Schedule, the SVD-based Initialization and BSP in Table 3. First, we replace our depth-aware schedule with a uni-form rank distribution, which increases the WER to 43.67% even with more complex adapter. This re-sult confirms the “U-shaped” plasticity hypothesis: the model requires high adaptability at the early and late layers, but strictly limited interventions in the middle layers to preserve performance. Second, we compare our SVD-based initializa-tion method against a standard random initializa-tion. The random approach yields a higher error rate of 43.95%, proving that SVD constrains LoRA updates to directions that minimally impact the language-agnostic semantic subspace and main-tains the u-shape for improved performance. We finally replace the proposed BSP with full adapta-tion, yielding a negligible accuracy gain of only 0.22% (43.20% vs. 42.98%). However, this minor gain comes at the cost of structural safety and more parameters in the middle layers. 
+
+7 Conclusions 
+
+This work presents the first systematic investiga-tion of layer-wise plasticity in MASR and reveals a distinctive U-shaped pattern. Building on this finding, we introduce DAMA, a novel adaptation framework that leverages this U-shaped structure for more efficient and effective adaptation to new languages. Experimental results show that DAMA achieves strong performance across languages, es-pecially in low-resource settings, while signifi-cantly reducing the number of trainable parame-ters and improving efficiency in memory usage, training time, and floating-point operations. These results highlight the importance of tailoring adapta-tion strategies to the internal organization of foun-dation models. Our findings open new avenues for developing scalable and robust multilingual and low-resource adaptation methods by harnessing model-internal representations, paving the way for more accessible and efficient speech technologies. 16783 Limitations 
+
+While DAMA demonstrates strong robustness, there are several avenues for future improvement. First, although our approach has been validated on 18 linguistically diverse languages, expanding evaluation to an even broader range, including ex-tremely rare dialects, will further test the gener-alizability of the "U-shaped" prior. Second, our method is specifically optimized for low-resource adaptation by ensuring structural integrity; in high-resource scenarios, relaxing the constraints on the Semantic Valley may unlock even greater perfor-mance gains. Finally, extending this work to ex-plore whether the Semantic Valley phenomenon supports other downstream tasks beyond ASR presents an exciting direction for future research. 
+
+Ethics Statement 
+
+All the data used in this paper are publicly avail-able and are used under the following licenses: the Creative Commons BY-NC-ND 4.0 License and Creative Commons Attribution 4.0 International License, the TED Terms of Use, the YouTube’s Terms of Service, and the BBC’s Terms of Use. 
+
+References 
+
+Rosana Ardila, Megan Branson, Kelly Davis, Michael Kohler, Josh Meyer, Michael Henretty, Reuben Morais, Lindsay Saunders, Francis Tyers, and Gre-gor Weber. 2020. Common voice: A massively-multilingual speech corpus. In Proc. Language Re-sources and Evaluation Conference .Klaudia Bałazy, Mohammadreza Banaei, Karl Aberer, and Jacek Tabor. 2024. LoRA-XS: Low-Rank Adap-tation with Extremely Small Number of Parameters. 
+
+arXiv preprint arXiv:2405.17604 .Heng-Jui Chang, Hung-yi Lee, and Lin-shan Lee. 2021. Towards lifelong learning of end-to-end asr. In Proc. Interspeech 2021 , pages 2551–2555. Alexis Conneau, Min Ma, Simran Khanuja, Yu Zhang, Vera Axelrod, Siddharth Dalmia, Jason Riesa, Clara Rivera, and Ankur Bapna. 2023. Fleurs: Few-shot learning evaluation of universal representations of speech. In Proc. IEEE Spoken Language Technology Workshop (SLT) , pages 798–805. Wenqian Cui, Dianzhi Yu, Xiaoqi Jiao, Ziqiao Meng, Guangyan Zhang, Qichao Wang, Steven Y Guo, and Irwin King. 2025. Recent advances in speech lan-guage models: A survey. In Proc. Annual Meeting of the Association for Computational Linguistics (ACL) ,pages 13943–13970. Luca Della Libera, Pooneh Mousavi, Salah Zaiem, Cem Subakan, and Mirco Ravanelli. 2024. CL-MASR: A continual learning benchmark for multilingual ASR. 
+
+IEEE/ACM Transactions on Audio, Speech, and Lan-guage Processing .Ning Ding, Yujia Qin, Guang Yang, Fuchao Wei, Zonghan Yang, Yusheng Su, Shengding Hu, Yulin Chen, Chi-Min Chan, Weize Chen, et al. 2023. Parameter-efficient fine-tuning of large-scale pre-trained language models. Nature machine intelli-gence , 5(3):220–235. Neil Houlsby, Andrei Giurgiu, Stanislaw Jastrzebski, Bruna Morrone, Quentin De Laroussilhe, Andrea Gesmundo, Mona Attariyan, and Sylvain Gelly. 2019. Parameter-efficient transfer learning for nlp. In 
+
+Proc. International Conference on Machine Learning ,pages 2790–2799. Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, Weizhu Chen, et al. 2022. Lora: Low-rank adap-tation of large language models. ICLR .Takeshi Kojima, Itsuki Okimura, Yusuke Iwasawa, Hit-omi Yanaka, and Yutaka Matsuo. 2024. On the multi-lingual ability of decoder-based pre-trained language models: Finding and controlling language-specific neurons. In Proc. the Conference of the North Amer-ican Chapter of the Association for Computational Linguistics (NAACL) , pages 6919–6971. Chin Yuen Kwok, Hexin Liu, Jia Qi Yip, Sheng Li, and Eng Siong Chng. 2025. A two-stage lora strategy for expanding language capabilities in multilingual asr models. IEEE Transactions on Audio, Speech and Language Processing .Chin Yuen Kwok, Jia Qi Yip, and Eng Siong Chng. 2024. Continual learning optimizations for auto-regressive decoder of multilingual asr systems. In Proc. Inter-speech 2024 , pages 1225–1229. Bo Li, Ruoming Pang, Yu Zhang, Tara N Sainath, Trevor Strohman, Parisa Haghani, Yun Zhu, Brian Farris, Neeraj Gaur, and Manasa Prasad. 2022. Massively multilingual asr: A lifelong learning solution. In 
+
+International Conference on Acoustics, Speech and Signal Processing (ICASSP) , pages 6397–6401. Jiahong Li, Yiwen Shao, Jianheng Zhuo, Chenda Li, Liliang Tang, Dong Yu, and Yanmin Qian. 2025. Ef-ficient Multilingual ASR Finetuning via LoRA Lan-guage Experts. In Interspeech , pages 1138–1142. Yang Li, Shaobo Han, and Shihao Ji. 2024. Vb-lora: Extreme parameter efficient fine-tuning with vector banks. Advances in Neural Information Processing Systems , 37:16724–16751. Shih-Yang Liu, Chien-Yi Wang, Hongxu Yin, Pavlo Molchanov, Yu-Chiang Frank Wang, Kwang-Ting Cheng, and Min-Hung Chen. 2024. Dora: Weight-decomposed low-rank adaptation. In Forty-first In-ternational Conference on Machine Learning .16784 ASR Omnilingual, Gil Keren, Artyom Kozhevnikov, Yen Meng, Christophe Ropers, Matthew Setzler, Skyler Wang, Ife Adebara, Michael Auli, Can Bali-oglu, et al. 2025. Omnilingual asr: Open-source multilingual speech recognition for 1600+ languages. 
+
+arXiv preprint arXiv:2511.09690 .Ankita Pasad, Bowen Shi, and Karen Livescu. 2023. Comparative layer-wise analysis of self-supervised speech models. In IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) ,pages 1–5. Tianyi Peng and Yang Xiao. 2024. Dark experi-ence for incremental keyword spotting. arXiv preprint:2409.08153 .Yifan Peng, Jinchuan Tian, Brian Yan, Dan Berrebbi, Xuankai Chang, Xinjian Li, Jiatong Shi, Siddhant Arora, William Chen, Roshan Sharma, et al. 2023. Reproducing whisper-style training using an open-source toolkit and publicly available data. In 2023 IEEE Automatic Speech Recognition and Understand-ing Workshop (ASRU) , pages 1–8. IEEE. Vineel Pratap, Andros Tjandra, Bowen Shi, Paden Tomasello, Arun Babu, Sayani Kundu, Ali Elkahky, Zhaoheng Ni, Apoorv Vyas, Maryam Fazel-Zarandi, et al. 2024. Scaling speech technology to 1,000+ languages. Journal of Machine Learning Research ,25(97):1–52. Alec Radford, Jong Wook Kim, Tao Xu, Greg Brock-man, Christine McLeavey, and Ilya Sutskever. 2023. Robust speech recognition via large-scale weak su-pervision. In International conference on machine learning , pages 28492–28518. PMLR. Jiacheng Shi, Hongfei Du, Y Alicia Hong, and Ye Gao. 2026a. Emo-tta: Improving test-time adaptation of audio-language models for speech emotion recogni-tion. In IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) .Jiacheng Shi, Hongfei Du, Y Alicia Hong, and Ye Gao. 2026b. Plug-and-play emotion graphs for composi-tional prompting in zero-shot speech emotion recog-nition. In International Conference on Acoustics, Speech and Signal Processing (ICASSP) .Jiacheng Shi, Yanfu Zhang, and Ye Gao. 2025. CLEP-DG: Contrastive Learning for Speech Emotion Do-main Generalization via Soft Prompt Tuning. In 
+
+Interspeech 2025 , pages 4498–4502. Jiacheng Shi, Yanfu Zhang, Huajie Shao, and Ashley Gao. 2026c. Explore the vulnerability of black-box models via diffusion models. In International Con-ference on Acoustics, Speech and Signal Processing (ICASSP) .Zheshu Song, Jianheng Zhuo, Yifan Yang, Ziyang Ma, Shixiong Zhang, and Xie Chen. 2024. Lora-whisper: Parameter-efficient and extensible multilingual asr. In Proc. Interspeech 2024 , pages 3934–3938. Tianyi Tang, Wenyang Luo, Haoyang Huang, Dongdong Zhang, Xiaolei Wang, Wayne Xin Zhao, Furu Wei, and Ji-Rong Wen. 2024. Language-specific neurons: The key to multilingual capabilities in large language models. In Proceedings of the 62nd Annual Meet-ing of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 5701–5715. Liyuan Wang, Xingxing Zhang, Hang Su, and Jun Zhu. 2024. A comprehensive survey of continual learn-ing: Theory, method and application. IEEE transac-tions on pattern analysis and machine intelligence ,46(8):5362–5383. Zhaofeng Wu, Dani Yogatama, Jiasen Lu, Yoon Kim, et al. The semantic hub hypothesis: Language mod-els share semantic representations across languages and modalities. In The Thirteenth International Con-ference on Learning Representations .Yang Xiao and Rohan Kumar Das. 2025. Listen, Ana-lyze, and Adapt to Learn New Attacks: An Exemplar-Free Class Incremental Learning Method for Au-dio Deepfake Source Tracing. In Interspeech 2025 ,pages 1563–1567. Yang Xiao, Nana Hou, and Eng Siong Chng. 2022. Rainbow Keywords: Efficient Incremental Learning for Online Spoken Keyword Spotting. In Proc. Inter-speech , pages 3764–3768. Yang Xiao, Peng Tianyi, Rohan Kumar Das, Yuchen Hu, and Huiping Zhuang. 2025. Analytickws: towards exemplar-free analytic class incremental learning for small-footprint keyword spotting. In Findings of the Association for Computational Linguistics: ACL 2025 , pages 14147–14158. Hemant Yadav and Sunayana Sitaram. 2022. A survey of multilingual models for automatic speech recog-nition. In Proceedings of the Thirteenth Language Resources and Evaluation Conference , pages 5071– 5079. Hongli Yang, Sheng Li, Hao Huang, Ayiduosi Tuohan, and Yizhou Peng. 2025. Language-Aware Prompt Tuning for Parameter-Efficient Seamless Language Expansion in Multilingual ASR. In Interspeech ,pages 1133–1137. Muqiao Yang, Ian Lane, and Shinji Watanabe. 2022. On-line continual learning of end-to-end speech recog-nition models. In Proc. Interspeech 2022 , pages 2668–2672. Longteng Zhang, Lin Zhang, Shaohuai Shi, Xiaowen Chu, and Bo Li. 2023a. Lora-fa: Memory-efficient low-rank adaptation for large language models fine-tuning. arXiv preprint arXiv:2308.03303 .Qingru Zhang, Minshuo Chen, Alexander Bukharin, Pengcheng He, Yu Cheng, Weizhu Chen, and Tuo Zhao. 2023b. Adaptive budget allocation for parameter-efficient fine-tuning. In The Eleventh In-ternational Conference on Learning Representations .16785 A Details of the Depth-aware Analysis 
+
+A.1 Probing Methodology 
+
+To ensure that our analysis reflects the intrinsic representations of the model rather than the capac-ity of the probe, we employed a lightweight linear probing protocol. For probing, we keep the Whis-per backbone completely frozen and only train a lightweight linear classifier on top of its hidden states. For a chosen layer l in decoder, we extract the full sequence of hidden states for each utter-ance, then apply a mean temporal pooling strategy to obtain a single dimensional representation per example. These pooled representations are passed to a single linear layer that predicts the language ID, with locales mapped to integer labels via a nor-malized locale vocabulary. We optimize only this linear probe using AdamW with a learning rate of 
+
+1 × 10 −3, cross-entropy loss for language identi-fication, with batch size 256 and 5 epochs in our experiments, selecting the best model by validation loss before reporting final accuracy on the test set. 
+
+A.2 Analyzed Languages 
+
+To validate the universality of the U-shaped plastic-ity profile, we selected a diverse set of languages from the Common Voice dataset. • Seen Languages: English, Turkish, Russian, German, and Chinese. • Unseen Languages: Kinyarwanda, Es-peranto, Kabyle, Luganda, Meadow Mari, Central Kurdish, Abkhaz, Kurmanji Kurdish, Frisian, and Interlingua. 
+
+A.3 Linguistic Rationale for Language Selection 
+
+To prevent selection bias, we selected the languages to maximize typological diversity. We chose lan-guages that diverge from English across three struc-tural dimensions, ensuring that the observed “Se-mantic Valley” is a universal phenomenon. • Syntactic Order: We included SOV languages (e.g., Turkish) to contrast with the SVO struc-ture of English, testing the model’s robustness to significant word-order shifts. • Morphology: We selected fusional languages (e.g., Russian, German) to challenge the plas-tic early layers with complex inflections and token sparsity. • Information Density: We included Chinese to validate the semantic valley’s stability even when processing high-density characters that differ radically from alphabetic subwords. Consequently, for the "Unseen" target languages, we adhered to the established CL-MASR bench-mark (Della Libera et al., 2024) (e.g., Kinyarwanda, Luganda) to ensure fair, reproducible comparisons with baselines. 
+
+B Experiments 
+
+B.1 Datasets and Language Statistics 
+
+In this subsection, we introduce how we design the dataset for experiment. For the Common Voice ‘Unseen’ languages, we adopted the standard CL-MASR benchmark (Della Libera et al., 2024) in-cluding languages such as Kinyarwanda and Lu-ganda—to guarantee fair and reproducible baseline comparisons. For the FLEURS dataset. We selected the Whis-per Seen-Weak set (Hindi, Welsh, Belarusian, Per-sian, Swahili) by looking for languages where WER drops clearly from Whisper-tiny to larger checkpoints, but where there is still visible room for improvement. This pattern suggests that scaling helps, so these languages are suitable for PEFT be-cause they are not “stuck” at an extreme error level even at larger models. We also selected by geo-graphic diversity under the FLEURS grouping and diversity in writing systems and linguistic structure, so that any gains we see are less likely to be specific to one region or one script. The priority was to cover multiple FLEURS re-gions and to include both a near-neighbor transfer case (Asturian) and structurally diverse languages: Luganda as a Bantu language from Sub-Saharan Africa, Central Kurdish from the Middle East with morphologically rich structure and Perso-Arabic script, Oriya with Odia script from South Asia, and Cebuano as an Austronesian language from South-East Asia, so improvements are informative across different linguistic and geographic conditions. 
+
+B.2 Baseline methods 
+
+To comprehensively validate the proposed DAMA framework, we compared it against three categories of adaptation methods. This selection covers the spectrum from standard uniform approaches to ad-vanced dynamic allocation strategies. 16786 Language ISO 639-1 Duration (minutes) Training Validation Test Common Voice                                                                                 
+
+> Kinyarwanda rw 600 60 60 Esperanto eo 600 60 60 Kabyle kab 600 60 60 Luganda lg 600 60 60 Meadow Mari mhr 600 60 60 Central Kurdish ckb 484 60 60 Abkhaz ab 600 60 60 Kurmanji Kurdish kmr 296 60 60 Frisian fy-NL 330 60 60 Interlingua ia 313 60 60
+> FLEURS
+> Hindi hi 399 60 60 Welsh cy 600 60 60 Belarusian be 571 60 60 Persian fa 600 60 60 Swahili sw 600 60 60 Luganda lg 600 60 60 Central Kurdish ckb 584 60 60 Asturian ast 452 60 60 Cebuano ceb 600 60 60 Oriya or 206 60 60
+
+Table 4: Data duration (minutes) per language split into training, validation, and test sets. 
+
+1. Uniform Adaptation Baselines: These meth-ods apply a fixed rank across all layers, treating the model as a homogeneous structure. • LoRA (Hu et al., 2022): The most widely used PEFT method. It injects trainable low-rank matrices ( A and B) into every layer with a uniform rank. • DoRA (Liu et al., 2024): A robust variant of LoRA that decomposes weights into magni-tude and direction. 
+
+2. Data-Driven Dynamic Baselines: These methods attempt to allocate parameters based on data sensitivity, which contrasts with our structure-driven approach. • AdaLoRA (Zhang et al., 2023b): It dynam-ically allocates the rank budget among lay-ers based on importance scores derived from gradients and often struggles when gradient signals are noisy. 
+
+3. Efficiency-Focused Variants: These methods prioritize parameter or memory efficiency. • LoRA-FA (Zhang et al., 2023a): Freezes the projection-down matrix A (randomly initial-ized) and only trains B.• LoRA-XS (Bałazy et al., 2024): Utilizes Sin-gular Value Decomposition (SVD) to perform static compression of the weight updates. • VB-LoRA (Li et al., 2024): Employs a shared “Vector Bank"" to construct low-rank matrices. 
+
+B.3 Baseline methods hyperparameter setting Common Training Settings: All methods use a training batch size of 6, a validation batch size is 16, and a sample rate is 16000 Hz.The maximum target sequence length is 448. All methods train for 2 epochs with AdamW optimizer, maximum gradient norm of 5.0, FP16 precision, and learning rate scheduling via NewBobScheduler (improve-ment threshold 0.0025, annealing factor 0.8). For the Common Voice dataset, utterances longer than 10 seconds are filtered, the maximum generation tokens is 80. For the FLEURS dataset, utterances longer than 30 seconds are filtered, the maximum generation tokens is 120. 
+
+Uniform Low-Rank Methods For uniform low-rank methods, we maintained consistent structural constraints across all layers. Specifically, both LoRA and DoRA were configured with a fixed rank of r = 64 and alpha α = 64 . The primary dis-tinction lies in their optimization approach: DoRA applies weight decomposition without dropout to isolate magnitude updates, whereas LoRA utilizes a dropout rate of 0.1. 
+
+Advanced & Efficiency Variants Regarding ad-vanced efficiency variants, we adopted specific con-figurations tailored to their dynamic architectures. AdaLoRA utilized an adaptive budget allocation strategy, initializing with a rank of 48 and gradually pruning to a target rank of 32 based on sensitivity scores smoothed by an EMA factor of 0.85. In contrast, VB-LoRA employed an extreme compres-sion approach using a vector bank of 90 vectors (di-mension 1280) with Top-2 selection; notably, this required a higher learning rate of 1e−3 to ensure convergence within the restricted parameter space. Finally, LoRA-XS was constructed via SVD de-composition (10 iterations) of a pre-trained LoRA module ( r = 64 ), where we froze the resulting low-rank matrices and only trained the intermedi-ate r × r latent mapping matrix. We also evaluated LoRA-FA, which initializes the projection-down matrix A randomly and freezes it, exclusively up-dating the projection-up matrix B. This variant similarly employed rank r = 64 , serving as a base-line for static subspace constraints. 16787 Table 5: Results of the Common Voice dataset by language for different adaptation methods.                                                                                         
+
+> Lang FT LoRA DoRA LoRA-FA LoRA-XS VB-LoRA AdaLoRA DAMA
+> ab 60.12 61.59 61.79 64.58 81.09 73.91 73.35 62.01 ckb 51.42 50.64 51.04 51.04 63.81 58.77 59.03 50.97 eo 19.64 15.36 15.51 16.11 20.92 22.36 18.61 15.36 fy-NL 28.92 26.45 25.63 29.87 40.94 36.17 34.27 26.41 ia 16.49 9.04 9.31 10.25 13.60 12.74 11.52 9.33 kab 63.73 68.29 68.75 72.91 85.34 79.29 79.71 67.14 kmr 39.97 39.40 39.52 42.19 55.13 45.36 48.97 38.61 lg 58.37 59.42 60.51 63.81 77.84 68.67 69.59 60.07 mhr 32.26 33.06 33.19 36.56 50.32 44.67 43.33 32.93 rw 67.81 69.24 70.89 72.66 84.65 77.48 78.19 69.13
+
+Table 6: Results of the FLEURS dataset by language for different adaptation methods.‘*’ means seen languages.                                                                                         
+
+> Lang FT LoRA DoRA LoRA-FA LoRA-XS VB-LoRA AdaLoRA DAMA
+> ast 22.69 17.28 17.32 19.17 24.56 19.93 21.06 17.64 be* 23.23 19.43 19.53 20.03 27.91 22.88 22.78 18.69 ceb 21.45 18.91 17.80 19.52 23.37 20.67 20.16 18.70 ckb 57.12 58.29 58.18 60.47 71.79 66.43 66.76 58.83 cy* 28.98 27.73 27.52 27.77 28.96 27.90 29.47 27.77 fa* 23.16 19.95 19.91 20.05 22.87 22.30 21.53 20.15 hi* 25.64 24.78 24.78 24.90 27.38 26.15 26.90 24.82 lg 58.81 62.95 60.72 63.85 72.21 64.92 68.97 61.71 or 90.18 78.22 78.28 79.77 84.22 81.78 84.89 79.37 sw* 36.76 34.08 34.46 35.50 44.37 40.79 41.35 34.88
+
+Table 7: Singular Vector Similarity Analysis across Different Languages.     
+
+> Head Tail Head-Tail Gap
+> 0.9823 0.9382 +0.0441
+
+C Additional results 
+
+C.1 Results by different languages. 
+
+The detailed performance on the Common Voice and FLEURS datasets is presented in Table 5 and Table 6. This evaluation encompasses a diverse set of low-resource languages, categorized into “Un-seen” targets and “Seen-Weak” languages (with ‘*’ in the table). While standard methods suffer from degradation on unseen languages due to overfit-ting, DAMA consistently maintains high accuracy across both categories. 
+
+C.2 Latent space analysis 
+
+We perform SVD on the identified middle-layer weights and project latent features from English, Central Kurdish, and Swahili onto the principal axes. We then compare the Head (top 25%) and Tail (bottom 25%) subspaces using centroid cosine similarity across language clusters. The Head direc-tions are highly aligned across languages (0.9823), whereas the Tail shows notably lower similarity (0.9382), yielding a clear Head–Tail gap. This sug-gests that dominant singular vectors encode shared, language-agnostic semantics, while linguistic vari-
+
+Table 8: Comparison of Catastrophic Forgetting on En-glish (Seen) after adapting to Kinyarwanda (Unseen).                
+
+> Lang Base FT LoRA DoRA DAMA
+> English 11.09 105.50 12.93 13.09 12.56 Kinyarwanda –67.81 69.24 70.89 69.13
+
+ation resides in the residual subspace. 
+
+C.3 Forgetting estimation 
+
+To evaluate whether the adaptation process dam-ages the model’s existing knowledge, we analyzed the performance on the source language (English) after training on a target low-resource language (Kinyarwanda). The results are presented in Ta-ble 8. Specifically, the data reveals the severe risk of Catastrophic Forgetting associated with un-constrained updates. As shown in the table, Fine-Tuning (FT) causes the WER on English to spike dramatically from the baseline 11.09% to 105.5%. This indicates that while FT adapts to the new lan-guage, it completely overwrites the model’s pre-trained semantic core. In stark contrast, DAMA demonstrates superior stability then . It maintains an English WER of 12.56%, which is significantly closer to the origi-nal baseline and outperforms both LoRA (12.93%) and DoRA (13.09%). Consequently, this confirms that our Basis-Protected Projection (BPP) success-fully locks the "Semantic Valley," ensuring that the model learns new languages without sacrificing its intrinsic capabilities. 16788

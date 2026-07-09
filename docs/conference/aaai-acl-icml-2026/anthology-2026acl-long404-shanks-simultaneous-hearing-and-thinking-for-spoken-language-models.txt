@@ -1,0 +1,525 @@
+Title: 2026.acl-long.404.pdf
+
+URL Source: https://aclanthology.org/2026.acl-long.404.pdf
+
+Published Time: Thu, 11 Jun 2026 01:09:36 GMT
+
+Number of Pages: 22
+
+Markdown Content:
+Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 8951–8972 July 2-7, 2026 ©2026 Association for Computational Linguistics SHANKS : Simultaneous Hearing and Thinking for Spoken Language Models 
+
+Cheng-Han Chiang 1,2 *, Xiaofei Wang 2†, Linjie Li 2, Chung-Ching Lin 2, Kevin Lin 2,Shujie Liu 2, Zhendong Wang 2, Zhengyuan Yang 2, Hung-yi Lee 1,3 , Lijuan Wang 2
+
+> 1
+
+National Taiwan University, 2Microsoft, 
+
+> 3
+
+NTU Artificial Intelligence Center of Research Excellence (NTU AI-CoRE) 
+
+Abstract 
+
+Current large language models (LLMs) and spo-ken language models (SLMs) begin thinking and taking actions only after the user has fin-ished their turn. This disables the model from interacting with the user during the user’s turn and can lead to a high response latency when the model is thinking. To address the above issue, we draw inspiration from the “think-ing while listening” of humans and propose 
+
+SHANKS , a general inference framework that enables SLMs to generate unspoken chain-of-thought reasoning when listening to the user input. SHANKS streams the input speech in fixed-duration chunks and, as soon as a chunk is received, generates unspoken reasoning based on all previous speech and reasoning, while the user continues speaking. We demonstrate that S HANKS enhances the real-time user-SLM interaction in two scenarios: (1) S HANKS can listen to the user’s speech, generate unspoken reasoning to determine whether to interrupt the user, and make an interruption when the user makes a mistake. (2) In a tool-augmented di-alogue scenario, S HANKS can make tool calls in their unspoken CoT when the user is still speaking and complete 56.9% of the tool calls before the user even ends their turn. Overall, SHANKS is a step toward models that not only think after a turn ends. Demos can be found on the project page: https://d223302.github. io/SHANKS/ .
+
+1 Introduction 
+
+The thinking process has been used to improve Large Language Models (LLMs), where the LLM first generates a hidden chain-of-thought (CoT) rea-soning (Wei et al., 2022; Kojima et al., 2022) invis-ible to the users, and then generates the final output response (OpenAI, 2024c; Guo et al., 2025). This 
+
+> *
+
+Work done during an internship at Microsoft GenAI. dcml0714@gmail.com 
+
+> †
+
+xiaofei.wang@microsoft.com User speaking     
+
+> timeline
+> SLM input
+> timeline
+> User start speaking SLM interrupts user
+> Spoken Language Model
+> SLM token
+> output timeline
+> Thinking tokens Response tokens
+> Legends
+> Speech features Speech encoder
+
+Figure 1: The timing diagram of S HANKS . As the user speaks, their speech is segmented into chunks for ev-ery tchunk seconds and streamed to the SLM. After receiving an input chunk, S HANKS generates the think-ing tokens, which might include calling external tools or determining to interrupt the user. When the user is speaking the i-th speech chunk Si, S HANKS generates the (i − 1) -th thinking chunk Ri−1, achieving thinking while listening. When the current speech chunk Si is fully spoken by the user, S HANKS stops the thinking for Ri−1, adds the latest speech Si and the previous rea-soning Ri−1 to its context, and begins the i-th thinking chunk Ri.
+
+thinking process improves LLMs on reasoning-intensive tasks (Lightman et al., 2024; Chen et al., 2021) and questions that involve significant domain knowledge (Rein et al., 2024). However, reasoning LLMs only start to think after receiving the com-plete user input, which is reasonable for turn-based interactions, i.e., the model processes the user’s message after it is fully composed and sent. In contrast, human behavior in spoken com-munication is different. Humans naturally think 
+
+while listening, far before the speaker finishes their turn (Bögels et al., 2015; Corps et al., 2018; Bögels et al., 2018). Thinking during listening offers two key advantages: (1) It enables timely and well-founded reactions, including interruption, even be-fore the speaker’s turn ends. (2) It reduces response latency by allowing answer preparation to begin 
+
+8951 before the speaker finishes speaking. Motivated by these observations, we propose a method to enable spoken language models (SLMs) to think while listening to input speech. In this paper, we introduce SHANKS :
+
+Simultaneous Hearing and Thi nk ing with Chunked Input Speech. SHANKS is a general inference framework for both end-to-end (E2E) and cascade SLMs to achieve thinking while listening. At inference time, S HANKS processes the user input in a fixed-size chunk. Once an input speech chunk is received, S HANKS generates a chunk of unspoken thinking tokens based on all previous input speech and previous thinking. SHANKS alternates between receiving the input speech chunk and generating an unspoken CoT reasoning when the user is still speaking, achieving the thinking while listening . The inference workflow of S HANKS is depicted in Figure 1. The unspoken reasoning of S HANKS can have diverse applications, and we use two scenarios to show how thinking while listening can improve real-time user-SLM interaction. First, we aim to use S HANKS to enable the SLM to interrupt the user in a more reasonable way. Precisely, we study a scenario where the user first states a math ques-tion and then describes their step-by-step solution. SHANKS can listen to the user’s problem-solving process and perform internal thinking in the mean-time to interrupt the user when the user makes a mistake in their solution. Compared to a base-line that makes an interruption without thinking, SHANKS interrupts 71% more when the user makes a mistake, while the interruption made by S HANKS 
+
+is 37.1% more valid. Next, we focus on a task-oriented dialogue set-ting, where the user requests the SLMs to assist with a travel plan, and the model needs to call Booking.com APIs to complete the user’s request. Without S HANKS , all the tool calls can only be made after the user’s speech ends, resulting in a higher response latency. We use S HANKS to make tool calls when the user is still speaking. S HANKS 
+
+enables the model to successfully complete 56.9% of API calls while the user is still speaking, reduc-ing the latency of the final response. We summarize our contribution as follows: 1. We propose S HANKS , a general framework for SLMs that enables thinking while listen-ing . To the best of our knowledge, we are the first to explore generating unspoken CoT reasoning when the user is still speaking. 2. We show that S HANKS can interrupt the user more accurately compared to a baseline that interrupts without thinking. 3. Using S HANKS , the SLM can make tool calls 
+
+before the user even finishes talking .
+
+2 Method: Simultaneous Hearing and Thinking with Chunked Input Speech 
+
+Humans can think while listening (Bögels et al., 2015; Corps et al., 2018; Bögels et al., 2018), where we reason over what we just heard and prepare the necessary information for a good response. Think-ing while listening also allows us to interact with the speaker better when the speaker is still speak-ing. In this section, we introduce S HANKS , a gen-eral framework to make SLMs capable of thinking while listening. Here, we only discuss its basic form and defer the more advanced usages, includ-ing interruption or tool call, to later sections. 
+
+2.1 Inference 
+
+During inference, SHANKS requires that the user’s input speech comes in a streaming manner. SHANKS processes the streaming user input speech by a fixed chunk size of tchunk seconds. We use Si
+
+to denote the i-th user input speech chunk, where 
+
+Si is an audio chunk of tchunk seconds, except for the last chunk SN , which may be shorter. When the user is still speaking, S HANKS alternately takes the user speech Si and generates the thinking chunks 
+
+Ri conditioning on all previous user speech and all previous thinking chunks. The thinking chunks Ri
+
+are not spoken by the SLM ; they only serve as the internal reasoning process of the SLM. We walk through the inference pipeline of SHANKS ; the following contents are best read with Figure 1. At t = 0 , the user begins to talk. When 
+
+t = tchunk , the user speech from 0 to tchunk , i.e., 
+
+S1, is sent to the SLM. We append a special token 
+
+[EOPA] (end of partial audio) after S1 to let the SLM know that this is the end of a chunk of par-tial user speech. Based on S1, the SLM generates the first thinking chunk R1, which is enclosed in two special tokens <think> and </think> . The SLM generates R1 during the interval t = tchunk 
+
+to t = 2 tchunk , and the user is still speaking the second chunk S2 at the same time. Since tchunk is the time for the SLM to gener-ate its thinking, the duration of tchunk cannot be 8952 selected too small; otherwise, the SLM may not be able to produce meaningful thinking chunks. The number of thinking tokens in Ri is restricted to no more than tchunk × ntps , where ntps is the num-ber of tokens the model can generate per second. Unless specified, we select tchunk = 4 .0s in our paper; a 7B model can generate around 320 tokens on a single A100 GPU in this duration. At the end of tchunk , if the thinking chunk has not finished generating, i.e., the </think> token has not been emitted, we directly stop generating and append the 
+
+</think> token at the end of the thinking chunk. At t = 2 tchunk , we take the freshly obtained user speech chunk S2 (from t = tchunk to t = 2 tchunk )and pass this chunk to the SLM, and again append-ing the [EOPA] after this chunk to generate the next thinking chunk. (Assume that the user still has not ended their turn at t = 2 tchunk .) When generating the next thinking chunk R2, the SLM conditions on 
+
+S1, R1, and S2. The SLM will continue the process of taking user input speech chunks and generating the thinking chunks until the user ends their speech in the N -th chunk of speech, SN .After the user ends their speech, we feed the last speech chunk SN into the SLM, while this time we append a different special to-ken [EOA] (end of audio), indicating that the user’s speech has ended. Based on SN and all the previous interleaved speech/thinking chunks 
+
+{S1, R 1, · · · , S N −1, R N −1}, the SLM generates the thinking chunk RN and then generates a fi-nal response chunk O. Only the final response O
+
+will be spoken by the SLM. 
+
+2.2 Training 
+
+During inference, S HANKS requires the SLM to generate thinking chunks based on all previous user input speech chunks and the model’s own thinking chunks. During training, we prepare datasets to make the SLM learn this behavior. Given a com-plete user speech S, we segment it into N chunks 
+
+{S1, · · · , S N } with a fixed duration tchunk . Next, assume that we use some method to obtain the thinking chunks {R1, · · · , R N } and the output re-sponse O; we will explain how to obtain them in later sections. After preparing the training data, we use the standard language modeling cross-entropy loss to train the SLM to predict R1 given {S1}, pre-dict R2 given {S1, R 1, S 2}, etc., and predict RN
+
+and O given {S1, R 1, · · · , S N }.
+
+3 Task Introduction 
+
+After introducing the basics of S HANKS , we use two tasks to demonstrate how S HANKS can be ap-plied. We will explain the setup of the two scenar-ios and how S HANKS works at inference time. 
+
+3.1 Scenario 1: Interrupting User Turn 
+
+In the first scenario, we aim to utilize S HANKS 
+
+to enable SLMs to interrupt the user based on the user’s (partial) speech. The motivation is that in-terruptions occur naturally during human conversa-tions. However, in our preliminary experiments, we found that open-source and closed-source SLMs are not good at interrupting the user. As a result, making SLMs capable of interrupting the user may make the SLM more human-like. 1
+
+3.1.1 Task Description 
+
+To evaluate whether SLMs can interrupt the user at the correct timing, we need to have a scenario where we can define the ground truth interruption timing. To this end, we focus on a problem-solving process with an error, and the SLM needs to inter-rupt at the error step. Precisely, in this task, the user describes a math problem and then solves the prob-lem. The user’s solution does not simply state the answer; the user describes a step-by-step problem-solving process, which might be correct or wrong. The SLM needs to interrupt the user when they are making a mistake, but not when the solution is correct. As this is a novel task and there is no available data, we built the evaluation data ourselves. First, we construct the user speech. A single user speech includes (1) a math question and (2) a step-by-step solution. We source the math questions from the testing data of GSM8K (Cobbe et al., 2021), a grade-school math word problem dataset com-monly used for evaluating mathematical reasoning ability (Wei et al., 2022; Kojima et al., 2022; Wang et al., 2023). Next, we use two LLMs, Llama-2-7B (Touvron et al., 2023) and Llama3.1-8B (Grattafiori et al., 2024), to generate step-by-step answers for those questions, and use GPT-4o (OpenAI, 2024a) to de-termine if the answer generated by the two models matches the ground truth answer in the dataset. We  
+
+> 1Importantly, we do not advocate that it is good to have a model that interrupts the user. Some users might find it an-noying and unpleasant when interrupted. S HANKS is merely a modeling mechanism that enables interruption. Model de-ployer and users can decide whether to turn it on.
+
+8953 select these two models since they can generate CoT reasoning to solve the math problem, and their performance on GSM8K is very different: Llama-2-7B is a weaker model and prone to generating wrong solutions, while Llama-3.1-8B is a stronger model, which can generate more accurate solutions. After we have the texts for the step-by-step so-lution, we convert them into speech. We use GPT-4o to rewrite the answers to make the solution more colloquial. Next, we concatenate the orig-inal question, the colloquial step-by-step answer, and prepend a prefix "I want to solve the follow-ing question." to form the transcription of a test-ing instance. We use GPT-4o-mini-TTS (OpenAI, 2024b) to synthesize the speech. The final testing dataset includes 1280 instances with correct solutions and 1140 with incorrect solu-tions. We call the former the " correct subset " and the latter the "incorrect subset . The average dura-tion of the user’s speech is around 49.25 seconds. 
+
+3.1.2 Training Data for Interruption 
+
+To teach the model to think while listening and determine whether to interrupt, the training data in this task include two types of instances: (1) The user provides a correct step-by-step solution, and the model does not interrupt the user. After the user finishes the speech, the output response acknowl-edges the correctness of the answer. (2) The user makes a mistake, and the model interrupts the user when the user makes the first mistake and clearly explains what is wrong. To construct such a training dataset, we use the math questions in Tulu3-Persona-Math-Grade (Lambert et al., 2024) to construct the user speech S (including the question and the step-by-step solution) following the previously de-scribed procedure, and then segment the speech by 
+
+tchunk = 4 seconds to obtain {S1, · · · , S N }.Next, we use GPT-4o to generate the thinking chunk Ri. When generating the i-th thinking chunk 
+
+Ri, the input to GPT-4o includes the transcriptions of all previous user speech chunks {S1, · · · , S i}
+
+and all previous thinking chunks {R1, · · · , R i−1}.GPT-4o is required to do the following in the thinking chunk: (1) Track the information already known and calculate intermediate variables when they are available. (2) Identify if any errors are in the current user’s transcription. If there is an error, GPT-4o should generate an [INTERRUPT] token at the end of the thinking chunk. We give GPT-4o four in-context examples to make it understand the task. The prompt to GPT-4o is in Table 4 and 5. After generating the thinking chunks, we gener-ate the final output response O. When the user is correct, we prompt GPT-4o to generate a response that lets the user know that their solution is correct. We can form a training data sequence by interleav-ing Si and Ri and then putting O in the end. For those user speeches with a wrong solution, the output response will be an interruption to the user’s speech. Assume that based on our previous process for generating the Ri’s, GPT-4o decides to interrupt the user after the user speech chunk Sk,i.e., the thinking chunk Rk includes the interruption token [INTERRUPT] . To generate a response for interruption, we give GPT-4o the user’s speech up to the k-th user speech chunk and all the previous thinking, and ask GPT-4o to generate a response 
+
+O to interrupt the user. The interruption should be precise on what error is made by the user and how to correct it. After this process, we can interleave 
+
+S1 to Sk with R1 to Rk and append O in the end to form a training sequence. 
+
+3.1.3 Inference and Evaluation 
+
+During inference, we stream the user speech to the SLM by a fixed chunk size tchunk , and follow the inference procedure elaborated in Section 2.1. If the SLM generates the special token [INTERRUPT] 
+
+in a thinking chunk Rk and outputs a response chunk O (when the user is emitting speech chunk 
+
+Sk+1 ), we send the response to the user to interrupt the user. Once an interruption happens, the future user speech chunks will not be streamed to the SLM. We evaluate a model on the testing dataset con-structed in Section 3.1.1. We use the following metrics: 1. Interrupt ratio : The ratio of total interrupted instances among the total instances. 2. Valid interrupt ratio : This is used to evaluate whether an interruption is valid, and the valid interrupt ratio is defined as the ratio of valid 
+
+interruptions among the total interruptions. To judge whether an interruption response O is valid or not, we use LLM-as-a-judge (Chiang and Lee, 2023; Zheng et al., 2023). The details are in Appendix C.1. 3. Interruption latency : The time of the model interruption compared to the time when the 8954 first error happens in the user’s speech , de-noted as terror . This metric is only used to evaluate the incorrect subset. For samples in the incorrect subset, we use GPT-4o to de-termine terror . The details on determining 
+
+terror are included in Appendix C.1. Assume that the model interrupts the user at tinterrupt ,then the interruption latency is calculated as 
+
+tinterrupt − terror , where tinterrupt is the time when the model starts to emit the interruption output O.
+
+3.2 Scenario 2: Making Tool Calls When Listening 
+
+In the previous scenario, we use S HANKS to inter-rupt the user when necessary. However, the " think-ing " of a model can not only include the reasoning generated by the model itself; the model can use external tools in their thinking process to complete the user’s request and improve the answer qual-ity (Schick et al., 2023; Qin et al., 2024b,a; Gao et al., 2024; Wang et al., 2024). In the second sce-nario, the SLMs will use external tools in their thinking process to achieve the user’s request. This kind of tool-augmented generation has been widely explored in text-in-text-out LLMs (Qin et al., 2024a). Given a user request, the LLM se-lects relevant tools and integrates the tool execu-tion results into its reasoning process (Schick et al., 2023; Qin et al., 2024b). However, current tool-augmented LLMs begin calling the tools after the full user input is received, which adds delay while the model invokes tools, waits for results, parses them, and composes a response. In spoken dia-logue, this latency breaks conversational flow. In the second task, we will use S HANKS to make tool calls when the user is still speaking, thus reduc-ing the response latency due to making tool calls. As a proof of concept, we consider a task-oriented dialogue where the SLM serves as a travel-agency agent and makes relevant API calls to complete the task. An example user query is, "Help me check the details of the cheapest flight from Hangzhou to Seoul on December 10, 2024, and the car rental information near Seoul airport. " The SLM makes API calls to resolve airport names or codes, search for flights, and then query car-rental options, and finally composes the results into a single reply. Given a user query like the example above, once the destination and date are clear, the flight search API can be called even when the user is only halfway through speaking. This is where S HANKS 
+
+can be useful: processing partial user input and performing early actions. 
+
+3.2.1 Task Description 
+
+To show that SLMs can make tool calls when lis-tening to the user request, we adopt Complex-FuncBench (Zhong et al., 2025), an evaluation dataset that assesses LLMs’ ability to make multi-step API calls. An instance in ComplexFuncBench includes a user query in text specifying some re-quirements for a travel plan and a list of tool de-scriptions that are required to complete the task. An evaluated model needs to make relevant API calls and provide the resulting information to the user. A single user query typically requires mul-tiple API calls, and these calls may have depen-dencies in which the output of one call becomes an argument to a subsequent call, so the call order matters. For each instance, the dataset provides the ground truth API calls and their correspond-ing API responses, which can be used to evaluate whether the model’s API call is correct. To adapt ComplexFuncBench to our spoken-dialogue set-ting, we use GPT-4o-mini-TTS to synthesize the user’s spoken query from the text instructions from ComplexFuncBench. 
+
+3.2.2 Training Data for Tool Call 
+
+To train S HANKS to perform tool calls when listen-ing, we need to teach the model to make API calls in their thinking process Ri based on user input speech chunk Si. We split half of the instances in ComplexFuncBench for the training data and the remaining as the testing data. 2 The speech chunks 
+
+Si in the training data can simply be obtained from segmenting the audio of the user query speech. The next step is to construct the thinking chunks 
+
+Ri. In this task, the thinking chunk Ri is the API calls and call responses . For each user query, ComplexFuncBench already provides the ground truth API calls to complete the task, and we only need to determine which API calls can be made after a speech chunk Si. This involves determin-ing whether the information in Si (and previous speech) is already sufficient to make the API call, and this can be easily done by prompting an LLM, as detailed in Appendix B.3. A thinking chunk Ri  
+
+> 2ComplexFuncBench is originally designed as an evalua-tion dataset. Here, we train the model directly on this dataset since the models we use were not trained to perform tool call. Since our training data has the exactly same distribution as the testing data, our results should not be compared with other models that are not trained on this dataset.
+
+8955 can have more than one API call and response. If no API calls can be made in Ri, we put a template message that says there are no additional tool calls to make now. The final response O is generated using GPT-4 based on the user query, all the ground truth API calls, and the corresponding responses. During training, the descriptions of the API calls necessary to complete the user’s request will be included in the system prompt to let the model know what APIs can be used. During fine-tuning, the loss for the API call re-sponse in Ri is masked. Training on this dataset will teach the model to make API calls based on incomplete user queries as long as the information for an API call is sufficient. 
+
+3.2.3 Inference and Evaluation 
+
+During inference, for a testing instance, the model is given (1) the user’s speech in a streaming man-ner, and (2) the descriptions of the APIs that can be used. When the model makes an API call, we use GPT-4o as a judge to determine if the API call matches one of the ground truth API calls. If a match is found, we return the response; otherwise, we return a generic error message. Using GPT-4o to match the API call against the ground truth fol-lows one of the evaluation protocols in the original ComplexFuncBench (Zhong et al., 2025). The testing set includes 500 instances, and each testing instance requires 5.1 API calls to complete on average. The average duration of the audio of the user’s speech is 18.71 seconds. We evaluate the performance using five metrics: 1. Call accuracy : The number of ground truth API calls that are successfully made by the model, divided by the total number of ground truth API calls. We also calculate the early call accuracy , defined as the ground truth API calls that are successfully made when the user is still speaking , divided by the total number of ground truth API calls. Similarly, we calcu-late the late call accuracy , where the dividend is the ground truth API calls that are success-fully made after the user finishes speaking. 
+
+2. Success rate : The percentage of user queries that are successfully completed. If all the ground truth API calls for a user query are successfully made, the task is considered suc-cessful. 3. Latency : We evaluate the response latency by the number of tokens the model generates before it emits the final response O and after the user has finished their turn. We choose to report the token count instead of the exact time since the precise time to emit these tokens depends on hardware and implementation. We also evaluate the quality of the final response 
+
+O using LLM-as-a-judge, following Zhong et al. (2025). Due to limited space, we do not report them in the main content and leave them in the appendix. 
+
+4 Compared Methods 
+
+We introduce the models in our experiments, in-cluding two variants of the S HANKS models. Ad-ditionally, for each task in Section 3.1 and 3.2, we include a scenario-specific baseline model. 
+
+4.1 SHANKS -E2E 
+
+We fine-tune an end-to-end (E2E) SLM, Qwen-2.5-Omni (Qwen-omni for short) (Xu et al., 2025a), to make it able to think while listening. We prepare the training data in the format stated in the previous sections. The fine-tuning details are introduced in Section B.1. As stated in Section 2.1, S HANKS uses the time when the user is speaking the next speech chunk 
+
+Si+1 to generate the thinking chunk Ri, so the number of thinking tokens in Ri cannot exceed 
+
+tchunk × ntps , where ntps is the number of tokens the model can generate per second. 3
+
+Note that the current model is speech-to-text ;we do not fine-tune the talker model of Qwen-2.5-Omni due to the unavailability of the model’s speech decoder. However, this is not a limitation of SHANKS ; one can easily fine-tune a talker model as long as the speech decoder is available. 
+
+4.2 SHANKS -Cascade 
+
+We set up a cascade version of S HANKS by cascading an ASR (Whisper-large-v3 (Radford et al., 2023)) with a text-only LLM, Qwen-2.5-7B-Instruct (Qwen et al., 2025), to make the LLM generate thinking chunks while reading the partial transcription. Qwen-2.5-7B-Instruct and Qwen-omni are fine-tuned from the same base model, while Qwen-2.5-7B-Instruct is fine-tuned on a     
+
+> 3The tokens in the API call responses are not included in the tchunk ×ntps limit since these are not the tokens generated by the SLM itself. For simplicity, we do not consider the API call latency, as our environment already prepares all the ground truth API responses.
+
+8956 much larger reasoning dataset. The training data of S HANKS -E2E and Cascade are almost the same, only differing in the input modality. 
+
+4.3 Scenario-Specific Baselines 4.3.1 Baseline for Interruption 
+
+We fine-tune a baseline model using Qwen-omni, which we name " No-thinking ". We fine-tune it to predict whether it should interrupt the user with-out any thinking. The model is trained to predict special tokens, [NO_INTERRUPT] or [INTERRUPT] ,to indicate whether the model should interrupt the user after each chunk of input speech. We do not compare with other models since there are no other models that can interrupt the user, no matter open-source ones (e.g., Moshi (Défossez et al., 2024)) or closed-source ones (like GPT-4o). 
+
+4.3.2 Baseline for Tool Call 
+
+We fine-tune a model called " Call-after -listen " us-ing Qwen-omni that takes the full user speech and then makes all the API calls. This is how existing tool-augmented models operate. During inference, this model takes the full user query and then itera-tively makes API calls and receives the responses, and then generates the final response. 
+
+5 Experiment Results 
+
+5.1 Results for Scenario 1: Interrupting User 
+
+The results for interrupting the user are shown in Table 1. We also show a qualitative result in Fig-ure 3 in the Appendix. We have the following observations. 
+
+SHANKS is more likely to interrupt on the wrong subset. Comparing the interruption ratio of S HANKS on the correct and wrong subsets, the interruption ratio is 54.2% higher on the wrong sub-set. This shows that S HANKS is indeed capable of capturing the errors in the user’s speech and inter-rupt appropriately. Based on the valid interruption ratio for the wrong subset, about 2 out of 3 inter-ruptions made by S HANKS are valid. Interesting, on the correct subset, the valid interruption ratio is non-zero. By looking into the instances in the cor-rect subset, we find that even if their final answers are correct, sometimes their intermediate reasoning may be unclear, and the model will interrupt and ask for clarification. The LLM judge considers this type of interruption valid. 
+
+SHANKS ’ interruption latency shows that the model mostly interrupts after the error occurs.                                         
+
+> Correct Subset (1280) Wrong Subset (1140) Methods Interrupt Valid interrupt Interrupt Valid interrupt Interruption ratio (%) ( ↓)ratio (%) ( ↑)ratio (%) ( ↑)ratio (%) ( ↑)latency (s) No-thinking 1.4% 16.7% 13.8% 26.8% 6.46 SHANKS -E2E 30.6% 25.7% 84.8% 63.9% 5.08 SHANKS -Cas. 24.9% 40.3% 86.1% 78.3% 6.90
+> Ablations for SHANKS -E2E
+> tchunk = 3 41.1% 21.4% 88.7% 60.3% 1.56
+> tchunk = 5 26.9% 36.9% 83.1% 66.2% 8.19
+
+Table 1: Results for interrupting the user. We report the interruption ratio and valid interruption ratio in percentage, and the interruption latency in seconds. 
+
+tchunk = 4 .0 in the top three rows. 
+
+On the wrong subset, the interruption latency of SHANKS -E2E is 5.08 seconds on average. In Fig-ure 5 in the Appendix, we further plot the distri-bution of the interruption latency. We find that the interruption latency on the wrong dataset is left-skewed, where more samples fall on the right proportion of the distribution and have a positive interruption latency. This indicates that most inter-ruption happens later than the first error. 
+
+Interruption without thinking leads to much poorer performance. The performance of the no-thinking baseline is much worse than S HANKS ,which performs reasoning before interrupting. The no-thinking baseline has a much lower interruption ratio on the wrong subset, and the valid interrupt ratio is also much lower than S HANKS . This shows that thinking before interruption is important, justi-fying the design of S HANKS .
+
+Cascade version of S HANKS with stronger LLM leads to the best performance. When us-ing Qwen-2.5-7B-Instruct as the backbone model for S HANKS , the interruption ratio on the correct subset is lower, and the valid interruption ratio on the wrong subset also grows higher. This shows that the interruption ability of S HANKS is mostly related to the reasoning ability of the backbone model, and using a stronger reasoning LLM can improve the performance. 
+
+Varying tchunk at inference time does not sig-nificantly affect the performance. When con-structing the training data, we fix tchunk = 4 sec-onds. Here, we ask whether we can vary tchunk 
+
+at inference time. Since the thinking of S HANKS 
+
+always lags behind the latest user speech by tchunk 
+
+seconds, changing tchunk can affect how soon the SLM can hear the latest user speech and affect the response latency. As an ablation, we change 
+
+tchunk to 3 and 5 during inference without retrain-ing S HANKS -E2E. The results are shown in the 8957 bottom two rows in Table 1. On the wrong subset, we do not find the interrupt ratio and valid inter-rupt ratio to change significantly compared with 
+
+tchunk = 4 . Interestingly, we find that the inter-rupt latency on the wrong subset for tchunk = 3 is the smallest, while the tchunk = 5 has the largest interrupt latency. 
+
+Human Evaluation shows that LLM-as-a-Judge is mostly accurate. To assess the reliabil-ity of the LLM-as-a-judge for computing the valid interrupt ratio, we manually reviewed a random subset of 120 samples. The LLM-judge achieves a 95.0% agreement with humans in determining whether an interruption was valid (i.e., the user was indeed making a mistake and the assistant at-tempted a correction). In particular, when the LLM judge considers an interruption as invalid, humans also consider it invalid 96.9% of the time. This sug-gests the LLM-as-a-judge is a sufficiently accurate proxy for human evaluation of interruption validity. 
+
+5.2 Results for Scenario 2: Making Tool Calls When Listening 
+
+Next, we move on to the second scenario: making tool calls when listening. The experiment results are presented in Table 2. We summarize the main findings as follows: 
+
+SHANKS successfully makes at least 56.9% of API calls when the user is still speaking. 
+
+Among the successful API calls made by the two SHANKS models, about 80% to 90% of the API calls are made during the user speech. In the ex-ample in Figure 4, S HANKS -E2E makes four out of six API calls when the user is still speaking. Compared to the call-after-listen baseline, which makes all the API calls after the user turn finishes, SHANKS can significantly reduce the response la-tency by using the time the user is speaking to make tool calls. 
+
+Call-after-listen has a higher success rate and response quality. While S HANKS elegantly uses the user speaking time to make API calls, the suc-cess rate and response quality (correctness and com-pleteness) lag behind call-after listen. We find that this is because during inference, if the API call fails during Ri, S HANKS seldom retries the failed API call in future Rj , where j > i . On the other hand, the call-after-listen baseline is more likely to retry failed API calls. 
+
+Combining SHANKS and call-after-listen yields the best performance . To solve the pre-viously observed issue, a simple method is to use Method Call accuracy (%) Success rate Latency                         
+
+> Early Late Total (%) (token)
+> Call-after-listen 0.0 86.5 86.5 63.2 313 SHANKS -E2E 56.9 14.4 71.3 35.2 54 SHANKS -C ASCADE 63.9 5.4 69.3 34.9 153 SHANKS +Call-after-listen 57.3 32.8 90.0 62.3 117
+
+Table 2: Results for API calls. “Early” and “Late” are computed over the total set of ground-truth API calls; they need not sum to 100% because some calls may be incorrect. 
+
+SHANKS when the user is still speaking and back off to call-after-listening when the user’s speech ends. Precisely, when the user is still speaking, we use S HANKS to call APIs while listening, and only keep the successful API calls and their responses. When the user finishes their speech, we switch to the call-after-listening mode, where the input to the SLM is the complete user speech. We also feed the success API calls and responses previously made by S HANKS to the model, as if the call-after-listen model had made those API calls by itself. Based on the full input speech and previous success API calls and responses, the model continues to make the remaining API calls. Since some API calls have already been made by S HANKS when the user speaks, this combined method enjoys the thinking-while-listening advantage of S HANKS .In the last row in Table 2, we show the result of combining S HANKS -E2E with call-after-listening. This combined method has a high number of early call accuracy while also having a higher task suc-cess rate and response quality. Among the API calls that are successful, over 60% of API calls are made during the user speech, while only 40% of the API calls are made after the user finishes. This is in stark contrast to call-after-listen, where 100% of the successful API calls are made after the user finishes, resulting in a much higher latency. As a result, the combined method only needs to generate on average 117 tokens after the user has finished, while the call-after-listen baseline needs to gener-ate on average 313 tokens after the user’s turn ends. So thinking while listening reduce the response by 62.3%. 
+
+6 Related Works 
+
+6.1 Reasoning in SLMs 
+
+Thinking before responding is widely explored in text-only LLMs (OpenAI, 2024c; Guo et al., 2025). However, " thinking " is only introduced to SLM very recently. Concurrent to us, Chiang et al. 8958 (2025) introduce thinking to SLMs by a thinking-while-speaking method called S TITCH , where the SLM takes the full user input and thinking while speaking the response. While both S HANKS and STITCH explore unspoken thinking processes for SLMs, the main distinction is when the thinking happens: SHANKS thinks when listening , and STITCH thinks when responding ( after listening ). While from a methodological view, thinking while listening or speaking does share some similarity, a major distinction between STITCH and S HANKS is the application enabled by the two different meth-ods: by allowing SLMs to think while listening, SHANKS can use the listening time to perform in-terruptions and execute actions in the background; these abilities cannot be achieved by STITCH. This important distinction results in different application scenarios. Similar to S HANKS , Shih et al. (2026), a con-current paper, proposes to make SLMs think while listening. S HANKS and Shih et al. (2026) share the core design, while the main difference is the SLM adopted. Shih et al. (2026) uses a full-duplex SLM (Moshi (Défossez et al., 2024)) and inserts the thinking into the SLM response chan-nel, while S HANKS adopts Qwen-2.5-Omni, which can only take a single stream of input, making the interleaved input/thinking in S HANKS a necessary choice. Wu et al. (2026), another concurrent work, also explores making the SLMs think while listening, and its model architecture is more similar to that of Shih et al. (2026). Aside from the model ar-chitecture, the applications we use to demonstrate the usefulness of thinking-while-listening are also different from the two concurrent works: we show that S HANKS can be used to enable real-time inter-action during the user’s turn and tool call during the user’s turn. 
+
+6.2 Full-Duplex SLMs 
+
+The interruption task is highly related to the full-duplex ability of an SLM (Zhang et al., 2025; ByteDance, 2026). However, almost all prior works on SLM that involve interruption only focus on “user interruption ”, where the user interrupts the SLM when the SLM is speaking (Défossez et al., 2024; Zhang et al., 2024; Lin et al., 2025). On the contrary, our focus is to enable the SLM to interrupt the user when they are instructed to do so. Whether allowing SLMs to interrupt the user is desirable depends on the user, and S HANKS is only providing a methodological way to achieve this goal. 
+
+6.3 Incremental Processing 
+
+SHANKS is related to a broader research field called “incremental processing”, where the model pro-cesses the received information incrementally and on-the-fly (Köhn, 2018; Kennington et al., 2025). Different from text-only interaction, speech inter-action enables a natural interface for incremental processing, including streaming ASR (Macháˇ cek et al., 2023), speech translation (Barrault et al., 2023), and a spoken dialogue system (Likhoma-nenko et al., 2025; Ethiraj et al., 2025). The core idea is to stream the input speech by chunking it into smaller pieces and processing a chunk once it is received by the model. S HANKS is also a form of incremental processing, where we incrementally process the input user speech and perform inter-nal reasoning or tool calls. Our distinction with prior work on incremental processing is that we are among the very first to apply incremental process-ing to generate internal thinking in an end-to-end SLM. 
+
+7 Conclusion 
+
+This paper introduces S HANKS , a framework that enables SLMs to think while listening. S HANKS 
+
+achieves thinking-while-listening by chunking the user input speech and progressively reasoning over the available user inputs when the user is still speak-ing. We demonstrate the potential of S HANKS on two scenarios: First, S HANKS can interrupt the user when they are making a mistake. Second, in a tool-augmented task-oriented dialogue setting, textscShanks can make tool calls while listening to the user speaking, reducing the response latency. Overall, S HANKS provides a novel, well-motivated, and useful approach to using the SLM listening time for thinking. 
+
+Limitations 
+
+While S HANKS shows great potential in improving the user-SLM interaction, we see the following limitations of the method. First, S HANKS requires the user’s speech to have certain structures: the user’s speech needs to be long enough to allow the model to perform meaningful reasoning when listening, and the information in the user’s speech needs to be able to be processed in a sequential 8959 order. This kind of speech can naturally occur, as shown in the two scenarios we studied. Next, S HANKS uses a fixed chunk size to seg-ment the user input speech. The chunking nature of SHANKS means that S HANKS always lags behind the user’s speech by tchunk seconds, incurring la-tency in the thinking process. If the user’s speech is less than tchunk , S HANKS cannot think while listen-ing. However, since long speech can easily happen in real-world interaction, this limitation might not be a significant weakness of S HANKS . Moreover, if an utterance is already very short, starting to think before the utterance finishes may not substan-tially reduce latency compared to thinking after the utterance ends. For example, when the utterance is " what is the weather today? ", the assistant can only start to think after the word “weather”. In this case, starting to think after “weather” and after the word “today” may only differ by 100 milliseconds. Still, we encourage future work to reduce the la-tency between thinking and listening by using more sophisticated chunking methods. Last, the goal of the user might be unclear when the user’s speech is not completed, and the thinking tokens generated during listening may be redundant and not always be useful to address the goal of the user. In some cases, the user might even correct what they have just said, making previous reason-ing less useful. While thinking during listening does not incur additional latency after the user’s speech ends, S HANKS still significantly increases the compute cost during inference. This is essen-tially a trade-off between inference budget and in-ference latency: using S HANKS risk for a higher inference cost but lower latency. The model deploy-ers should consider whether the benefits brought by S HANKS is more favorable compared to the ad-ditional inference compute. We do not claim that SHANKS can be universally useful in all circum-stances, and in future work, we plan to investigate how to make the SLMs adaptively think when lis-tening when necessary. Although S HANKS has some limitations, we be-lieve that our effort in proposing a novel model-ing method, thinking while listening, together with the reasonable scenarios and convincing results, already contributes greatly to the research com-munity by shedding light on a potentially fruitful research direction. We do not identify any specific harms or poten-tial risks in this paper. 
+
+References 
+
+Loïc Barrault, Yu-An Chung, Mariano Coria Megli-oli, David Dale, Ning Dong, Mark Duppenthaler, Paul-Ambroise Duquenne, Brian Ellis, Hady Elsahar, Justin Haaheim, and 1 others. 2023. Seamless: Mul-tilingual expressive and streaming speech translation. 
+
+arXiv preprint arXiv:2312.05187 .Sara Bögels, Marisa Casillas, and Stephen C Levinson. 2018. Planning versus comprehension in turn-taking: Fast responders show reduced anticipatory process-ing of the question. Neuropsychologia , 109:295–310. Sara Bögels, Lilla Magyari, and Stephen C Levinson. 2015. Neural signatures of response planning occur midway through an incoming question in conversa-tion. Scientific reports , 5(1):12881. ByteDance. 2026. Seeduplex: Native full-duplex speech llm. Accessed on April 18, 2026. Mark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan, Henrique Ponde de Oliveira Pinto, Jared Kaplan, Harri Edwards, Yuri Burda, Nicholas Joseph, Greg Brockman, Alex Ray, Raul Puri, Gretchen Krueger, Michael Petrov, Heidy Khlaaf, Girish Sastry, Pamela Mishkin, Brooke Chan, Scott Gray, and 39 others. 2021. Evaluating large language models trained on code. Cheng-Han Chiang and Hung-yi Lee. 2023. Can large language models be an alternative to human evalua-tions? In Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Vol-ume 1: Long Papers) , pages 15607–15631, Toronto, Canada. Association for Computational Linguistics. Cheng-Han Chiang, Xiaofei Wang, Linjie Li, Chung-Ching Lin, Kevin Lin, Shujie Liu, Zhendong Wang, Zhengyuan Yang, Hung-yi Lee, and Lijuan Wang. 2025. Stitch: Simultaneous thinking and talking with chunked reasoning for spoken language models. 
+
+arXiv preprint arXiv:2507.15375 .Yunfei Chu, Jin Xu, Qian Yang, Haojie Wei, Xipin Wei, Zhifang Guo, Yichong Leng, Yuanjun Lv, Jinzheng He, Junyang Lin, and 1 others. 2024. Qwen2-audio technical report. arXiv preprint arXiv:2407.10759 .Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, and 1 others. 2021. Training verifiers to solve math word problems. arXiv preprint arXiv:2110.14168 .Ruth E Corps, Abigail Crossley, Chiara Gambi, and Martin J Pickering. 2018. Early preparation during turn-taking: Listeners use content predictions to de-termine what to say but not when to say it. Cognition ,175:77–95. Alexandre Défossez, Laurent Mazaré, Manu Orsini, Amélie Royer, Patrick Pérez, Hervé Jégou, Edouard 8960 Grave, and Neil Zeghidour. 2024. Moshi: a speech-text foundation model for real-time dialogue. arXiv preprint arXiv:2410.00037 .Vignesh Ethiraj, Ashwath David, Sidhanth Menon, and Divya Vijay. 2025. Toward low-latency end-to-end voice agents for telecommunications using streaming asr, quantized llms, and real-time tts. arXiv preprint arXiv:2508.04721 .Yunfan Gao, Yun Xiong, Xinyu Gao, Kangxiang Jia, Jinliu Pan, Yuxi Bi, Yi Dai, Jiawei Sun, Meng Wang, and Haofen Wang. 2024. Retrieval-augmented gener-ation for large language models: A survey. Preprint ,arXiv:2312.10997. Aaron Grattafiori, Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey, Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman, Akhil Mathur, Alan Schelten, Alex Vaughan, and 1 others. 2024. The llama 3 herd of models. arXiv preprint arXiv:2407.21783 .Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Ruoyu Zhang, Runxin Xu, Qihao Zhu, Shi-rong Ma, Peiyi Wang, Xiao Bi, and 1 others. 2025. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning. arXiv preprint arXiv:2501.12948 .Edward J Hu, yelong shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. 2022. LoRA: Low-rank adaptation of large language models. In International Conference on Learning Representations .Casey Kennington, Pierre Lison, and David Schlangen. 2025. Prior lessons of incremental dialogue and robot action management for the age of language models. 
+
+Dialogue & Discourse , 16(3):96–130. Arne Köhn. 2018. Incremental natural language pro-cessing: Challenges, strategies, and evaluation. In 
+
+Proceedings of the 27th International Conference on Computational Linguistics , pages 2990–3003, Santa Fe, New Mexico, USA. Association for Computa-tional Linguistics. Takeshi Kojima, Shixiang Shane Gu, Machel Reid, Yu-taka Matsuo, and Yusuke Iwasawa. 2022. Large lan-guage models are zero-shot reasoners. Advances in neural information processing systems , 35:22199– 22213. Nathan Lambert, Jacob Morrison, Valentina Pyatkin, Shengyi Huang, Hamish Ivison, Faeze Brahman, Lester James V Miranda, Alisa Liu, Nouha Dziri, Shane Lyu, and 1 others. 2024. Tulu 3: Pushing fron-tiers in open language model post-training. arXiv preprint arXiv:2411.15124 .Yaniv Leviathan, Matan Kalman, and Yossi Matias. 2023. Fast inference from transformers via spec-ulative decoding. In International Conference on Machine Learning , pages 19274–19286. PMLR. Quentin Lhoest, Albert Villanova del Moral, Yacine Jernite, Abhishek Thakur, Patrick von Platen, Suraj Patil, Julien Chaumond, Mariama Drame, Julien Plu, Lewis Tunstall, Joe Davison, Mario Šaško, Gunjan Chhablani, Bhavitvya Malik, Simon Brandeis, Teven Le Scao, Victor Sanh, Canwen Xu, Nicolas Patry, and 13 others. 2021. Datasets: A community library for natural language processing. In Proceedings of the 2021 Conference on Empirical Methods in Nat-ural Language Processing: System Demonstrations ,pages 175–184, Online and Punta Cana, Dominican Republic. Association for Computational Linguistics. Hunter Lightman, Vineet Kosaraju, Yuri Burda, Harri-son Edwards, Bowen Baker, Teddy Lee, Jan Leike, John Schulman, Ilya Sutskever, and Karl Cobbe. 2024. Let’s verify step by step. In The Twelfth Inter-national Conference on Learning Representations .Tatiana Likhomanenko, Luke Carlson, Richard He Bai, Zijin Gu, Han Tran, Zakaria Aldeneh, Yizhe Zhang, Ruixiang Zhang, Huangjie Zheng, and Navdeep Jaitly. 2025. Chipchat: Low-latency cas-caded conversational agent in mlx. arXiv preprint arXiv:2509.00078 .Guan-Ting Lin, Jiachen Lian, Tingle Li, Qirui Wang, Gopala Anumanchipalli, Alexander H Liu, and Hung-yi Lee. 2025. Full-duplex-bench: A bench-mark to evaluate full-duplex spoken dialogue mod-els on turn-taking capabilities. arXiv preprint arXiv:2503.04721 .Ilya Loshchilov and Frank Hutter. 2017. SGDR: Stochastic gradient descent with warm restarts. In In-ternational Conference on Learning Representations .Dominik Macháˇ cek, Raj Dabre, and Ondˇ rej Bojar. 2023. Turning whisper into real-time transcription system. In Proceedings of the 13th International Joint Con-ference on Natural Language Processing and the 3rd Conference of the Asia-Pacific Chapter of the Associ-ation for Computational Linguistics: System Demon-strations , pages 17–24, Bali, Indonesia. Association for Computational Linguistics. OpenAI. 2024a. Hello gpt-4o. Accessed on May 12, 2025. OpenAI. 2024b. Introducing next-generation audio models in the api. Accessed on May 12, 2025. OpenAI. 2024c. Learning to reason with llms. Ac-cessed on July 15, 2025. Yujia Qin, Shengding Hu, Yankai Lin, Weize Chen, Ning Ding, Ganqu Cui, Zheni Zeng, Yufei Huang, Chaojun Xiao, Chi Han, Yi Ren Fung, Yusheng Su, Huadong Wang, Cheng Qian, Runchu Tian, Kunlun Zhu, Shihao Liang, Xingyu Shen, Bokai Xu, and 22 others. 2024a. Tool learning with foundation models. 
+
+Preprint , arXiv:2304.08354. Yujia Qin, Shihao Liang, Yining Ye, Kunlun Zhu, Lan Yan, Yaxi Lu, Yankai Lin, Xin Cong, Xiangru Tang, Bill Qian, Sihan Zhao, Lauren Hong, Runchu Tian, 8961 Ruobing Xie, Jie Zhou, Mark Gerstein, dahai li, Zhiyuan Liu, and Maosong Sun. 2024b. ToolLLM: Facilitating large language models to master 16000+ real-world APIs. In The Twelfth International Con-ference on Learning Representations .Qwen, :, An Yang, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chengyuan Li, Dayiheng Liu, Fei Huang, Haoran Wei, Huan Lin, Jian Yang, Jianhong Tu, Jianwei Zhang, Jianxin Yang, Jiaxi Yang, Jingren Zhou, and 25 oth-ers. 2025. Qwen2.5 technical report. Preprint ,arXiv:2412.15115. Alec Radford, Jong Wook Kim, Tao Xu, Greg Brock-man, Christine McLeavey, and Ilya Sutskever. 2022. Robust speech recognition via large-scale weak su-pervision. Preprint , arXiv:2212.04356. Alec Radford, Jong Wook Kim, Tao Xu, Greg Brock-man, Christine McLeavey, and Ilya Sutskever. 2023. Robust speech recognition via large-scale weak su-pervision. In International conference on machine learning , pages 28492–28518. PMLR. David Rein, Betty Li Hou, Asa Cooper Stickland, Jack-son Petty, Richard Yuanzhe Pang, Julien Dirani, Ju-lian Michael, and Samuel R. Bowman. 2024. GPQA: A graduate-level google-proof q&a benchmark. In 
+
+First Conference on Language Modeling .Timo Schick, Jane Dwivedi-Yu, Roberto Dessi, Roberta Raileanu, Maria Lomeli, Eric Hambro, Luke Zettle-moyer, Nicola Cancedda, and Thomas Scialom. 2023. Toolformer: Language models can teach themselves to use tools. In Thirty-seventh Conference on Neural Information Processing Systems .Yi-Jen Shih, Desh Raj, Chunyang Wu, Wei Zhou, SK Bong, Yashesh Gaur, Jay Mahadeokar, Ozlem Kalinli, and Mike Seltzer. 2026. Can speech LLMs think while listening? In The Fourteenth Interna-tional Conference on Learning Representations .Hugo Touvron, Louis Martin, Kevin Stone, Peter Al-bert, Amjad Almahairi, Yasmine Babaei, Nikolay Bashlykov, Soumya Batra, Prajjwal Bhargava, Shruti Bhosale, and 1 others. 2023. Llama 2: Open foun-dation and fine-tuned chat models. arXiv preprint arXiv:2307.09288 .Lei Wang, Wanyu Xu, Yihuai Lan, Zhiqiang Hu, Yunshi Lan, Roy Ka-Wei Lee, and Ee-Peng Lim. 2023. Plan-and-solve prompting: Improving zero-shot chain-of-thought reasoning by large language models. In Pro-ceedings of the 61st Annual Meeting of the Associa-tion for Computational Linguistics (Volume 1: Long Papers) , pages 2609–2634, Toronto, Canada. Associ-ation for Computational Linguistics. Mingqiu Wang, Izhak Shafran, Hagen Soltau, Wei Han, Yuan Cao, Dian Yu, and Laurent El Shafey. 2024. Re-trieval augmented end-to-end spoken dialog models. In ICASSP 2024-2024 IEEE International Confer-ence on Acoustics, Speech and Signal Processing (ICASSP) , pages 12056–12060. IEEE. Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou, and 1 others. 2022. Chain-of-thought prompting elic-its reasoning in large language models. Advances in neural information processing systems , 35:24824– 24837. Donghang Wu, Haoyang Zhang, Chen Chen, Tianyu Zhang, and Eng Siong Chng. 2026. Chronologi-cal thinking in full-duplex spoken dialogue language models. Jin Xu, Zhifang Guo, Jinzheng He, Hangrui Hu, Ting He, Shuai Bai, Keqin Chen, Jialin Wang, Yang Fan, Kai Dang, and 1 others. 2025a. Qwen2. 5-omni technical report. arXiv preprint arXiv:2503.20215 .Jin Xu, Zhifang Guo, Hangrui Hu, Yunfei Chu, Xiong Wang, Jinzheng He, Yuxuan Wang, Xian Shi, Ting He, Xinfa Zhu, Yuanjun Lv, Yongqi Wang, Dake Guo, He Wang, Linhan Ma, Pei Zhang, Xinyu Zhang, Hongkun Hao, Zishan Guo, and 19 others. 2025b. Qwen3-omni technical report. Preprint ,arXiv:2509.17765. Hao Zhang, Weiwei Li, Rilin Chen, Vinay Kothapally, Meng Yu, and Dong Yu. 2025. Llm-enhanced dia-logue management for full-duplex spoken dialogue systems. arXiv preprint arXiv:2502.14145 .Xinrong Zhang, Yingfa Chen, Shengding Hu, Xu Han, Zihang Xu, Yuanwei Xu, Weilin Zhao, Maosong Sun, and Zhiyuan Liu. 2024. Beyond the turn-based game: Enabling real-time conversations with duplex models. In Proceedings of the 2024 Conference on Empiri-cal Methods in Natural Language Processing , pages 11543–11557, Miami, Florida, USA. Association for Computational Linguistics. Weilin Zhao, Yuxiang Huang, Xu Han, Wang Xu, Chaojun Xiao, Xinrong Zhang, Yewei Fang, Kai-huo Zhang, Zhiyuan Liu, and Maosong Sun. 2024. Ouroboros: Generating longer drafts phrase by phrase for faster speculative decoding. In Proceed-ings of the 2024 Conference on Empirical Methods in Natural Language Processing , pages 13378–13393, Miami, Florida, USA. Association for Computational Linguistics. Lianmin Zheng, Wei-Lin Chiang, Ying Sheng, Siyuan Zhuang, Zhanghao Wu, Yonghao Zhuang, Zi Lin, Zhuohan Li, Dacheng Li, Eric Xing, and 1 others. 2023. Judging llm-as-a-judge with mt-bench and chatbot arena. Advances in neural information pro-cessing systems , 36:46595–46623. Yaowei Zheng, Richong Zhang, Junhao Zhang, Yanhan Ye, and Zheyan Luo. 2024. LlamaFactory: Unified efficient fine-tuning of 100+ language models. In 
+
+Proceedings of the 62nd Annual Meeting of the As-sociation for Computational Linguistics (Volume 3: System Demonstrations) , pages 400–410, Bangkok, Thailand. Association for Computational Linguistics. 8962 Lucen Zhong, Zhengxiao Du, Xiaohan Zhang, Haiyi Hu, and Jie Tang. 2025. Complexfuncbench: ex-ploring multi-step and constrained function call-ing under long-context scenario. arXiv preprint arXiv:2501.10132 .
+
+A Encoding the User Speech 
+
+In the main content of the paper, we say that we chunk the user input audio into fixed-size chunks of tchunk seconds. In fact, what we do is chunking at the level of feature representation instead of the level of the audio waveform. Precisely, when en-coding the i ≥ 2 speech chunks Si, we feed the full speech through the audio encoder, and only take the speech representation for the corresponding speech chunk. If we directly chunk the audio waveform and encode each audio chunk independently, the representation of later audio chunks will not be able to depend on the earlier audio chunks, which can potentially lead to performance degradation. 
+
+B Details in Training 
+
+We fine-tune the models using the Llamafac-tory (Zheng et al., 2024) toolkit. When generating the training data using GPT-4o, we do not feed the audio of the user’s speech into GPT-4o. Instead, we feed the transcription of the speech chunks. This is because using the speech chunk will increase the cost and time to call the API. To obtain the transcription of each chunk, we use Whisper-large-v3 (Radford et al., 2023) to obtain the transcription and timestamp for each word in the user speech, and then segment the transcriptions into chunks based on the timestamp. While the timestamp ob-tained from Whisper may not be very precise, this is already sufficient for preparing the training data. 
+
+B.1 Fine-tuning Qwen-omni for E2E S HANKS 
+
+For the E2E S HANKS , we fine-tune the Qwen-omni model. Qwen-omni is a thinker-talker SLM . The thinker takes speech representation extracted by a speech encoder (Chu et al., 2024) as the input and generates text tokens . The talker functions like a text-to-speech (TTS) model, taking the hidden representation from the thinker as the input and generating the output speech. Originally, Qwen-omni is not capable of per-forming unspoken thinking – every token (and its corresponding hidden representation) generated by the thinker will be sent to the talker model and syn-thesized into speech. After fine-tuning the thinker model on the training dataset mentioned before, the model will learn to enclose the unspoken thinking process within <think> and </think> . Since we only want the Qwen-omni to speak out the response tokens, we only pass the response tokens and their hidden states to the talker. After fine-tuning the thinker, it will be necessary to adapt the talker so it can recognize the output from the fine-tuned thinker. While fine-tuning the talker model is straightforward as long as we have the training data, we cannot fine-tune the talker model in this paper since the speech tokenizer of Qwen-2.5-Omni is not publicly available , which is an issue raised by several GitHub issues in the official repository of Qwen-omni. When we report the response latency in Section 5.1, we estimate the speech output latency using the reported latency from Qwen-3-Omni (Xu et al., 2025b). Nevertheless, to make Qwen-omni think while listening, the main burden lies in how to make the 
+
+thinker model generate thinking tokens when the user is speaking. As a result, we mainly focus on how thinker should be trained and how it should be used during inference. 
+
+B.2 Fine-tuning for Interruption 
+
+To prepare the training data, we randomly sample 5K samples from Tulu-3-SFT-Math-Grade (Lam-bert et al., 2024), which can be loaded from Huggingface datasets (Lhoest et al., 2021): 
+
+https://huggingface.co/datasets/allenai/ tulu-3-sft-personas-math-grade . We follow the procedure detailed in Section 3.1.2 to construct the training data. We additionally filter out audios that are longer than 80 seconds, so the final training dataset is slightly less than 5K. We fine-tune the thinker on the training data for two epochs on 8 A100 GPUs. The effective batch size is 64. We set the learning rate to 1.0e − 4 with cosine learning rate scheduling and a 0.1 warm-up ratio (Loshchilov and Hutter, 2017). The same training hyperparameters are used across all three models, including the S HANKS -E2E, S HANKS -Cascade, and no-thinking model. The training data is mostly generated by GPT-4o. We include the prompts to generate the reasoning chunks in Table 4 and 5, the prompt to generate the interruption in Table 6, and the prompt to generate the response without interruption in Table 7. 8963 (a)  Basic Training seqience   
+
+> [INTERRUPT] (b) Training seq. with interrupt
+> (c) Training seq. with API call
+
+Figure 2: Illustration of the training data. Si: the speech for the i-th user speech chunk; Ri: the i-th thinking block after Si; O: the final response block; Ai: the API call responses after the speech chunk Si. Blocks in dashed lines do not contribute to the training loss, while blocks in solid lines are included for loss calculation. (a) The general training sequence: Alternating between user speech block and SLM thinking token chunks (Section 2.2), followed by a final response chunk. (b) Training data with interruption: Alternating between user speech blocks and the thinking token chunks, while the last thinking chunk includes a special token [INTERRUPT] . (c) Training data with API calls: Similar to (a), while each thinking chunk may be separated into two blocks Ri−1 and Ri−2 by the API call response Ai.
+
+B.3 Fine-tuning for Tool Calls 
+
+To determine which API calls can be made in Ri,recall that a thinking chunk Ri is based on the user speech up to i × tchunk seconds, so as long as the speech up to i × tchunk provides the information to make an ground truth API call, that API call can be included in Ri. We follow the above idea and prompt GPT-o1 (OpenAI, 2024c) with the tran-scription of the user speech, the time alignment of each word in the user’s speech, and the ground truth APIs, and ask GPT-o1 to determine the ear-liest time an API call can be made. The prompt is shown in Table 9 in the Appendix. Based on the above process, we can determine which ground truth APIs should be included in which thinking chunk Ri.We use the procedure detailed in Section 3.2.2 to construct the training data. The training data consists of 500 samples. The prompt used to de-termine when an API call can be made is shown in Table 9. The prompt used to generate the final response is shown in Table 10. For the think-after-listen and S HANKS -E2E model, we fine-tune them using LoRA (Hu et al., 2022), as the sequence length for this dataset is very large and full fine-tuning will result in out-of-memory. We also fine-tune the LM head and the token embedding of the talker model; other-wise, the model will not be able to recognize and generate special tokens. For the S HANKS -Cascade model, we fine-tune all the parameters. As the train-ing dataset is smaller, we fine-tune the model for 10 epochs, while other training hyperparameters follow those in Appendix B.2. 
+
+C Details in Evaluation 
+
+C.1 Evaluation Details for Interruption 
+
+To determine the time of interruption tinterrupt 
+
+when evaluating the interrupt latency, we apply the following procedure. We use Whisper-large (Rad-ford et al., 2022) to obtain the timestamp of each word in the user speech from the testing set, and we use GPT-4o to determine when the first error in the user speech occurs by giving GPT-4o the question, the ground truth answer, the transcription of the user speech, and the word-timestamp alignment. The prompt used to determine the first error time 
+
+terror is shown in Table 8. To evaluate the valid interrupt ratio, we use GPT-4o as the judge. We give the judge LLM (GPT-4o) the transcription of the user input until the time of interruption 4 and output response O from the model, and ask the LLM judge to determine if the model’s interruption response O correctly inter-rupts the user when there are unclear or mistakes in the user’s speech. The prompt given to the judge model is shown in Table 11. 
+
+C.2 Evaluation Details for Tool Call 
+
+When evaluating the S HANKS models, when the user is still speaking, each thinking chunk can only include at most 320 tokens generated by the SLM itself. In some cases, the API call augments may include very long tokens, which can easily exceed the token limit for the thinking chunk, and the API call will be incomplete and unsuccessful. While we do not specifically handle this kind of case,          
+
+> 4If the interruption happens in Ri, the user is currently speaking the (i+ 1) -th speech chunk Si+1 , as the thinking
+> Rihappens simultaneously when the user says Si+1 . Conse-quently, we also feed the transcription of Si+1 into the judge model when determining whether the interruption is valid. Nevertheless, we do not find the results to differ significantly if we only give the judge model up to the speech chunk Si.
+
+8964 I want to solve following question. Catherine has five 
+
+Now I know that the petunias cost $3 each, and the sweet potato vines also have a cost, but the user hasn’t specified it yet. This seems to be leading toward a financial calculation problem involving the total cost of filling the baskets. I can already start calculating the cost of the petunias: 5 baskets × 3 petunias per basket × $3 per petunia = $45 for the petunias. I will wait for the user to provide the cost of the sweet potato vines to complete the calculation. 
+
+all five hanging baskets? Here is my solution. Catherine 
+
+hanging baskets to fill. In each basket, she wants to add three 
+
+The user’s tone is neutral, and they are introducing a question they want to solve. The question involves someone named Catherine, who has five of something. The user has not yet specified what these five items are or what the problem entails. It could be a math problem, a logic puzzle, or a real-life scenario. I will wait for more details to understand the context and determine the nature of the problem. If the user provides a specific question, I will aim to solve it step by step and compare my solution with theirs. 
+
+The user is introducing a question involving someone named Catherine, who has five of something. It is unclear what the five items are or what the question is about yet. I will wait for more details before forming any thoughts or calculations. 
+
+petunias and two sweet potato vines. The petunias 
+
+Now I know that Catherine has five hanging baskets to fill, and she wants to add three of something to each basket. The user hasn’t specified what the three items are yet—whether they are plants, decorations, or something else. This could lead to a math problem involving multiplication or distribution. I will wait for more details to clarify the situation and determine the exact question. 
+
+cost $3 a piece and the sweet potato vines cost 
+
+Now I know that Catherine has five hanging baskets, and in each basket, she wants to add three petunias and two sweet potato vines. The user is likely setting up a math or logic problem involving the total number of items needed. I can already calculate the total number of petunias and sweet potato vines required: - Petunias: 5 baskets × 3 petunias per basket = 15 petunias. - Sweet potato vines: 5 baskets × 2 sweet potato vines per basket = 10 sweet potato vines. I will wait for the user to finish the question to confirm if this is the intended calculation or if there are additional details 
+
+$2.50 a piece. How much will she spend filling 
+
+Now I know the cost of each petunia is $3, and the cost of each sweet potato vine is $2.50. I can calculate the total cost for filling the baskets: 
+
+- Petunias: 15 × $3 = $45. 
+
+- Sweet potato vines: 10 × $2.50 = $25. 
+
+Total cost = $45 + $25 = $70. 
+
+I have the answer and can provide it to the user if they ask. 
+
+has five hanging baskets to fill and each basket gets 
+
+Now I have all the necessary information to calculate the total cost of filling the five hanging baskets. 
+
+1. Cost of petunias: 
+
+- 5 baskets × 3 petunias per basket × $3 per petunia = $45. 
+
+2. Cost of sweet potato vines: 
+
+- 5 baskets × 2 sweet potato vines per basket × $2.50 per sweet potato vine = $25. 
+
+3. Total cost: 
+
+- $45 (petunias) + $25 (sweet potato vines) = $70. 
+
+The total cost for filling all five hanging baskets is $70. I will now listen to the user's solution and compare it with mine. If there is any mistake in their solution, I will interrupt them. 
+
+three petunias and two sweet potato vines. That's five 
+
+The user is beginning to explain their solution. I will compare their solution to mine as they proceed. So far, I know the total cost is $70, based on my calculations. If the user makes any errors in their solution, I will interrupt them immediately to correct it. I will wait for more details from their explanation before making any judgments. 
+
+vines are $2.50 each, so 25 vines 
+
+Hold on, I think there might be a discrepancy. Earlier, you mentioned 5 baskets with 3 petunias each, which totals 15 petunias, not 25. At $3 each, that would cost $45, not $75. Could you clarify this? 
+
+baskets times three petunias and two sweet potato vines 
+
+The user is reiterating the details of the problem: each basket gets three petunias and two sweet potato vines. This matches the information I already have. I will continue to listen to their solution and compare it with my own calculation of $70. If they make any errors, I will interrupt them. 
+
+per basket, which totals 25 flowers. The 
+
+The user is correctly stating the quantities of petunias and sweet potato vines per basket. This aligns with the information provided earlier. I will continue to listen to their solution and verify if their calculations match mine. If they make any errors, I will interrupt them immediately. 
+
+petunias cost $3 each, so 25 petunias 
+
+The user is now calculating the total number of flowers per basket, which is 3 petunias + 2 sweet potato vines = 5 flowers per basket. This aligns with my understanding so far. I will continue to listen to their solution and verify if their subsequent calculations match mine. If they make any errors, I will interrupt them immediately. 
+
+at $3 each is $75. The sweet potato 
+
+The user is now calculating the cost of the petunias. They correctly state that there are 25 petunias in total (5 baskets × 3 petunias per basket). At $3 each, the cost for the petunias is 25 × $3 = $75. However, this contradicts my earlier calculation, where the cost of the petunias was $45 (5 baskets × 3 petunias per basket × $3 per petunia). I need to interrupt the user to clarify this discrepancy. Figure 3: An example from the interruption scenario in Section 3.2. The chunks in red are the transcriptions of a user describing a math problem and attempting to solve it step-by-step. The thinking chunks (in green) and interruption response (in orange) are generated by S HANKS -E2E. For each time slot from nt chunk to (n + 1) tchunk , the chunks in green (SLM thinking chunks) and orange (output response) happen sequentially , while the user speech chunk (in red) happens concurrent to other blocks in the same time slot. 
+
+there is a simple workaround that can resolve the above issue: The long arguments for the API call generated by the model must be the returned value of previous tool calls, so we can include previous API call responses in a reservoir of the draft for speculative decoding (Leviathan et al., 2023; Zhao et al., 2024), and use speculative decoding to speed up the inference speed. ComplexFuncBench is originally designed to evaluate a model’s ability to parse long-context in-8965 Help me check the details of the cheapest flight from Hangzhou to Seoul 
+
+The cheapest flight from Hangzhou to Seoul on December 10th, 2024, costs $77.44 USD. It departs from Hangzhou at 9:05 PM and arrives at Incheon International Airport in Seoul at 1:55 PM on December 11th, 2024. The flight includes one checked bag (up to 50.7 lbs) and one carry-on bag (up to 11 lbs). For car rental near Incheon International Airport, the cheapest option is available for pickup at 3:00 PM on December 11th, 2024, and return at the same time and location on January 18th, 2025. 
+
+on December 10, 2024, and the car rental 
+
+<tool_call>{"name": "Search_Flight_Location", "arguments": {"query": "Hangzhou"}}</tool_call> 
+
+(API call responses. Omitted for simplicity) 
+
+All the tool calls have been made. I will wait for additional information from the user. 
+
+information near Seoul airport. I want to rent a 
+
+The user is still providing the information. There are no additional information that is sufficient to make another tool call. 
+
+car at the airport at 3pm on the day I arrive, 
+
+<tool_call>{"name": "Search_Flights", "arguments": {"fromId": "HGH.AIRPORT", "toId": "ICN.AIRPORT", "departDate": "2024-12-10", "sort": "CHEAPEST"}} </tool_call> 
+
+(API call responses. Omitted for simplicity) 
+
+All the tool calls have been made. I will wait for additional information from the user. 
+
+and return it at the same time and place, 7 days later. 
+
+<tool_call>{"name": "Search_Car_Location", "arguments": {"query": "Incheon International Airport"}}</tool_call> 
+
+(API call responses. Omitted for simplicity) 
+
+All the tool calls have been made. I will wait for additional information from the user. 
+
+<tool_call>{"name": "Get_Flight_Details", "arguments": {"token": "(omitted for simplicity)"}}</tool_call> 
+
+(API call responses. Omitted for simplicity) 
+
+The user has provided the information. I have already made all the necessary tool calls. I am ready to generate the final response to the user. 
+
+<tool_call>{"name": "Search_Flight_Location", "arguments": {"query": "Seoul"}}</tool_call> 
+
+(API call responses. Omitted for simplicity) 
+
+<tool_call>{"name": "Search_Car_Rentals", "arguments": {"pick_up_latitude": 37.4492, "pick_up_longitude": 126.4509, "drop_off_latitude": 37.4492, "drop_off_longitude": 126.4509, "pick_up_date": "2024-12-11", "drop_off_date": "2025-01-18", "pick_up_time": "15:00", "drop_off_time": "15:00"}}</tool_call> 
+
+(API call responses. Omitted for simplicity) Figure 4: An example user query from ComplexFuncBench (in red), including the unspoken thinking process (in green) and the spoken final response (in orange) from S HANKS -E2E. For each time slot from nt chunk to 
+
+(n + 1) tchunk , the chunks in green (SLM thinking chunks), blue (API call responses), and orange (output response) happen sequentially , while the user speech chunk (in red) happens concurrent to other blocks in the same time slot. The t = T means the time when the user’s speech terminates. 
+
+formation, and the API call response can be very long. However, since Qwen-omni only has a con-text length of 32,768, once the token exceeds this limit, we directly terminate the inference for a tested instance. As a result, some of the testing samples we evaluate may fail because the number of tokens exceeds the max sequence length of the model. To evaluate the quality of the final response, we report the following two metrics: 1. Correctness : We evaluate if the final response 
+
+O is accurate and aligns with the API call re-sponses. Following Zhong et al. (2025), we use GPT-4o to give a score in {0, 1, 2}, indi-cating if the transcription of the response O
+
+is completely incorrect, partially correct, or completely correct the user’s request. 2. Completeness : We evaluate if the final re-sponse O fully satisfies the user’s request. Fol-lowing Zhong et al. (2025), we use GPT-4o to give a score in {0, 1, 2}, indicating if the tran-scription of the response O does not satisfy, partially satisfies, or fully satisfies the user’s request. The results for correctness and completeness are reported in Table 3. 60 40 20 0 20 40 
+
+Interruption Latency 
+
+> 0
+> 200
+> 400
+> 600
+> 800
+> 1000
+> Count
+
+Figure 5: The interruption latency for S HANKS . The bars in red are the results on the wrong subset, while the bars in green are the results on the correct subset. One can observe that the red bars are mostly positive, meaning that the model tends to interrupt after the first error occurs. 8966 Table 3: Results for API calls. “Early” and “Late” are computed over the total set of ground-truth API calls; they need not sum to 100% because some calls may be incorrect. 
+
+Method Call accuracy (%) Success rate Correctness Completeness Latency 
+
+Early Late Total (%) (0-2) (0-2) (token) 
+
+Call-after-listen 0.0 86.5 86.5 63.2 1.17 1.37 313 SHANKS -E2E 56.9 14.4 71.3 35.2 0.79 1.00 54 SHANKS -C ASCADE 63.9 5.4 69.3 34.9 0.73 1.00 153 SHANKS +Call-after-listen 57.3 32.8 90.0 62.3 1.31 1.43 117 
+
+# Generate Internal Thinking While Listening ## Task Introduction Humans are capable of thinking while listening to others speak. Based on the partial information received, we parse important details, clarify ambiguities, recall relevant facts, and compute intermediate variables. Your task is to simulate this process. You will be the previous chunks of user’s speech in text, and you will also see your previous inner thinking when listening to those chunks. Your job is to generate the next internal thinking as if you had listened up to the newest chunk. When generating internal thinking spans, follow these guidelines: 1. The inner thinking span should be fewer than 400 words. 2. Your internal thinking should reflect the user’s emotion, intent, and what you already know from the user. If any relevant information can be recalled or intermediate variables can be calculated based on current information, include them in your inner thinking. 3. The inner thinking should read more like full, coherent sentences rather than shorthand notes. Using short notes will be very hard to understand and possibly making logical errors. 4. If the user’s query involves a question, you **must generate your own step-by-step answer in the internal thinking before the user finishes speaking**. 5. Later internal thinking spans must not repeat information already covered in earlier ones. However, if later transcription spans update or contradict earlier information, explicitly point that out and correct it. You may start with phrases like “Wait, the user previously..., but now...”. 6. Always think independently in your internal thinking. When the user is providing there solution, you should have you own solution and then compare your own solution with the user’s solution. If you identify any error, you should interrupt the user immediately. Indicate the interruption by ending your internal thinking with the special token [INTERRUPT]. —## Samples ### Example 1: User (partial) input transcription 1 Betty is saving money for a new wallet which Prior Inner Thinking 1 The user’s tone is neutral. The user describes a situation where someone named Betty is saving money for a new wallet. The user hasn’t finished yet. Perhaps they want me to give advice on how to save money. User (partial) input transcription 2 costs $100. Betty has only half of the money she needs. Prior Inner Thinking 2 Now the user gives more information. We know the wallet Betty wants to buy costs $100, and she has only half of that. I can calculate this: $100 / 2 = $50, so she currently has $50. The user’s intent is still unclear. User (partial) input transcription 3 Her parents decided to give her $15 for that Inner thinking to Generate Well, it seems that Betty’s parents will contribute as well. She will get $15 from them. Now she has $50 + $15 = $65. She still needs $100 - $65 = $35. It seems the user wants to know how to plan Betty’s budget. ### Example 2: User (partial) input transcription 1 I want to answer the following math question: Is the function f(x) = Prior Inner Thinking 1 The user uses a neutral tone and describes a math question they want to solve. I will try to solve the question when the user is speaking. I can verify if the user’s solution is correct by comparing my solution with the user’s solution. The question is about a function in x. The user has not finished yet. I will wait until they complete the question. User (partial) input transcription 2 4xˆ2 + 4x + 1 always above the x axis? Prior Inner Thinking 2 The user has finished describing the question. They want to determine if the function f(x) = 4xˆ2 + 4x + 1 is always above the x-axis. I am ready to answer this question. Let’s compute the discriminant: D = bˆ2 - 4ac = 4ˆ2 - 4 * 4 * 1 = 16 - 16 = 0. The function touches the x-axis at one point. Ihave the solution. Since the user wants to solve the question by themselves, I will not interrupt the user and listen to the solution. However, I will interrupt the use if there is any mistakes. User (partial) input transcription 3 Here is my solution: Based on the formula D = bˆ2 - 2ac, Inner thinking to Generate Now I see that the user wants to solve the question themselves. I should verify whether their solution is correct. The user says the formula is D = bˆ2 -2ac, but that’s incorrect. The correct formula is D = bˆ2 - 4ac. The user has made a mistake, and I need to interrupt them. [INTERRUPT] 
+
+Table 4: Prompt for generating the thinking chunks in the training data for the interruption experiment (part 1). 8967 ### Example 3: User (partial) input transcription 1 Bella bought stamps at the post office. Some of the Prior Inner Thinking 1 The user uses a neutral tone and describes a math question he wants to solve. The question is to The user is introducing a word problem involving someone named Bella and her purchase of stamps. It seems like a math problem, likely about counting. The exact numbers and relationships haven’t been shared yet. I will hold off making any calculations until I know more about the stamps. User (partial) input transcription 2 stamps had a snowflake design, some had a truck design, Prior Inner Thinking 2 We now know there several types of stamps: snowflake and truck. There seems to be more, but the user is still speaking. There are still no numbers provided, so I can’t compute yet. I will wait for more information. User (partial) input transcription 3 and some had a rose design. Bella bought 11 Prior Inner Thinking 3 Now we know that there are three types of stamps: snowflake, truck, and rose. Bella bought 11, but it is unclear which this number corresponds to. I will wait for the complete detail from the user to be sure before computing. User (partial) input transcription 4 snowflake stamps. She bought 9 more truck stamps Prior Inner Thinking 4 Now I know that Bella bought 11 snowflake stamps. I am also told she bought 9 more truck stamps than snowflake stamps. I can calculate the number first: she bought 11 + 9 = 20 truck stamps. The information we have now is: - Snowflake: 11 - Truck: 20 The user is still talking, and I am waiting for more information. User (partial) input transcription 5 than snowflake stamps, and 13 fewer rose stamps than Prior Inner Thinking 5 Now the user states that Bella bought 13 fewer roses than something, but it is unclear what is compared here. I will wait until the user finishes. User (partial) input transcription 6 truck stamps. How many stamps did Bella buy in all? Inner thinking to Generate Now I know that Bella bought 13 fewer roses than the truck stamps. There are 20 truck stamps, so I can calculate the number of rose stamp is 20 - 13 = 7. The user finishes with a question: total number of stamps. I already have all counts: - Snowflake: 11 - Truck: 20 - Rose: 7 Total = 11 + 20 + 7 = 38 stamps. I have the answer and I can provide it to the user. —This is the end of the examples. Now, this is the (partial) user input transcription, and you need to generate a inner thinking. You do not need to explain why the inner thinking you generate is a good one. Simply generate a good one without explaining it. {interleaved_transcription_and_thinking} Inner thinking to generate (Do not generate anything else other than the inner thinking) 
+
+Table 5: Prompt for generating the thinking chunks in the training data for the interruption experiment (part 2). 8968 # Task: Interrupt the user to correct an error A user is talking to an AI assistant. You will be given a partial user turn. There is an error in the user turn and the AI assistant has identified that error. The AI assistant needs to interrupt the user. Your job is to generate the response for the AI assistant that interrupts the user’s turn. You will be given: (1) A (possibly incomplete) user turn (2) The inner thinking of the AI assistant. This inner thinking hasn’t been spoken out by the AI assistant and is only silently kept in the assistant’s mind. We provide you this inner thinking for you to better craft a response. When correcting and interrupting the user, be precise about what the error is and how to correct it. You only need to generate the response without saying anything else. The conversation between the user and the assistant is in spoken form, so you need to make your response easy to be spoken while not overly informal and colloquial. ## Example #### User (partial) input I want to answer the following math question: Is the function f(x) = 4xˆ2 + 4x + 1 always above the x axis? Here is my solution: Based on the formula D = bˆ2 - 2ac, D = 4ˆ2 - 2 * 4 * 1 = 8 > 0 #### Inner thinking of the assistant The user uses a neutral tone and describes a math question he wants to solve. The question is to determine if a 2-degree function is above the x-axis. f(x) = 4xˆ2 + 4x + 1. Let’s use D = bˆ2 - 4ac = 4ˆ2 - 4 * 4 * 1 = 0. So the function happens to intersect with x-axis at one point. I can answer the user if the user wants me to do so. But wait, the user themselves want to solve the question, and the user says D = bˆ2 - 2ac, which is clearly wrong. The correct formula should be D = bˆ2 - 4ac. I should interupt the user here and tell them the correct formula with a friendly and reminding tone. #### Assistant Response Wait, I think the correct formula should be bˆ2 - 4ac, not bˆ2 - 2ac. The coefficient you mentioned was wrong. ## Now it is your turn #### User (partial) input {query} #### Inner thinking of the assistant {inner_thinking} #### Assistant Response <Write the interrupting response here. Be precise about the error and the correction; keep it concise and easy to speak. Do not include anything else.> 
+
+Table 6: Prompts for generating an interrupting correction response. 
+
+# Task: Generate the spoken response given full user turn and assistant’s inner thinking A user is chatting with a voice assistant. Your job is to act as the voice assistant and generate a valid response that fits in the context. You will be given: (1) The full user turn (2) The inner thinking of the voice assistant. Note that the voice assistant may generate the inner thinking when the user hasn’t finished, so it is possible that some contents in the inner thinking is incorrect. Guidelines: 1. Do not generate anything else except the response. 2. The inner thinking might mention a drafted response. If the drafted response is still valid considering the full user turn, follow the draft and start the response. If the draft is invalid considering the full user input, neglect the draft and craft a response that is suitable. 3. This is a spoken dialogue. Keep the response easy to follow for spoken form. However, there is no need to deliberately use very colloquial words or phrasing, making things awkward. ## Input #### Full user input {query} #### Inner thinking of the voice assistant {inner_thinking} #### Your Response (Act like the voice assistant) <Write only the final spoken response here> 
+
+Table 7: Prompts for generating the response for the interruption application. 8969 # Task: Detect the first reasoning or calculation error with timestamps You a user’s query. In the user query, the user describes a math problem and then attempt to solve the problem by themselves. This user query is in a spoken form, and I provide you with the transcription. I will also provide you the force alignment result of the transcription, which corresponds timestamp of each word in the spoken response. Your job is to determine where the problem solving process has the first calcaultion or reasoning error. In your response, you should solve the math problem by yourself, and carefully check the spoken response. When you see the first error in the spoken response, use the provided timestamp to determine when the first error happened. Conclude you respond with: "First error: [time]", where ’time’ is the time where the first error happens. If the user’s problem solving process is completely correct, please use -1 to indicate that there is no error, i.e., "First error: -1" ## Example ### User Query I want to solve the following math question: Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? Here is my solution: Our goal is to calculate the total number of clips sold in April and May. In April, she sold 48. In May, she sold the half of that, which is 96. So she sold 48 in April plus 96 in May, making it 144 in total. ### Word-Timestamp I - 0.00 want - 0.50 ... 96. - 36.50 ... total. - 44.00 ### Correct Answer 72 ### Output The math problem wants to know how many clips Natalia sold in total. In April, she sold 48. In May, she sold half as many, so she sold 48 / 2 = 24. In total, she sold 48 + 24 = 72. In the problem solving process, the user says that ’half of that, which is 96.’ This is incorrect. The correct number for May should be 24. This is where the first error occurs. Based on the Word-Timestamp information, the word 96 is emitted at second. First error: 36.50 ## Now, it is your turn. ### User Query {question} ### Word-Timestamp {alignment} ### Correct Answer {answer} ### Output <Write the reasoning here and conclude with "First error: [time]"> 
+
+Table 8: Template for detecting the first error in the interruption task. 8970 # Task: Earliest possible time to call tools during a spoken user query You are given a user spoken query, which requires some tool usage for answering. You will be given the tool calls (including their parameters) which are useful for responding to the user query. You will also be given the timestamp of each word in the user’s utterance. Your job is to determine the earliest time that a tool call can be called when the user is speaking. That is, when the user is still speaking, the information that has been spoken by the user may already be sufficient enough to call some of the tools. Your job is to determine the **earliest time** during the utterance that a tool call can be called. A tool can be called if only if it is clear what tool should be call and what the paramaters are for the tool call. ### User Spoken Query {question} ### Time Stamp of Each word {alignment} ### Tools that needs to be called {tools} ### Total number of tool calls {count} ### Output Format Your response should be a python dictionary. The key of this dictionary is an integer index of the tool call shown above, and the value is the earliest time the tool can be called. Your response should only include a python dictionary. The first character in your response should be the left bracket while the last character in your response should be the right bracket. Your response should be able to be directly converted into a python dictionary using eval(). If there are N tools that need to be called, your output dictionary should have N items. I also provide you the number of tool calls, so you should verify if your output dictionary matches the number of tool calls. ### Your response: <Return only a python dictionary, e.g., {0: 12.5, 1: 18.0}> 
+
+Table 9: Template for checking the earliest callable time for an API. 
+
+# Task: Generate the final user-facing response from tool call results You will be given a user query. The user query can only be responded based on the results of some external tool call. I will show you the tool calls and call responses. Your task is to generate a final response to the user based on the tool call results. The final response to the user should satisfy the user’s original query and omit unnecessary information. Some intermediate processes in the tool call may simply be some process to resolve the variables, and they are not necessary to be included in the final response to the user. ### User Query {transcription} ### Previous API Calls {previous_tool_calls} ### Response to the User Query (Only provide the response. Do not include anything else.) <Write only the final user-facing response here, distilled from the tool results and satisfying the query. Exclude setup steps and variable-resolution details.> 
+
+Table 10: Prompts for generating a final response O in the API call application. 8971 # Task: Judge if the assistant’s interruption is reasonable A user is speaking to a voice assistant. When the user is speaking, the assistant tries to interrupt the user. Your job is to judge if the assistant is interrupting the user in a reasonable way. A reasonable interruption is when the user says something wrong and ambiguous, and the assistant is trying to help correct or clarify the user’s statement. Here is the user’s speech before the assistant interrupted: {user_speech_before_interrupt} Here is the assistant’s speech that attempts to interrupt the user: {assistant_speech_after_interrupt} Please judge if the assistant is interrupting the user in a reasonable way. If the assistant is interrupting the user in a reasonable way, return "yes". Otherwise, return "no". Please provide some explanation for your judgment and conclude with "Final verdict: Yes/No". A valid interruption is when the user is indeed making a mistake and the assistant is trying to help correct or clarify the user’s statement. ### Output <Write your explanation here. Conclude with "Final verdict: Yes" or "Final verdict: No"> 
+
+Table 11: The prompt used for judging whether an interruption is reasonable. 8972
