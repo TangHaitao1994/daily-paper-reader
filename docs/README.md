@@ -6,37 +6,29 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-11
-- 运行时间：2026-07-11 21:23:05 UTC
+- 最新运行日期：2026-07-12
+- 运行时间：2026-07-12 20:47:24 UTC
 - 运行状态：成功
-- 本次总论文数：5
-- 精读区：4
-- 速读区：1
+- 本次总论文数：2
+- 精读区：2
+- 速读区：0
 
 ### 今日简报（AI）
-今日精读4篇前沿论文，聚焦多模态音频智能，其中两篇获9分顶评，揭示统一音频与文本能力的新范式。
-最大亮点：无需牺牲文本性能就能构建统一音频智能，以及用分组正交连接器突破音频-语言模型的对齐瓶颈。
-动手建议：可从跨模态连接器设计入手，尝试将分组正交策略迁移到你的多模态项目中，低成本验证性能提升。
-- 详情：[/202607/11/README](/202607/11/README)
+今日精读两篇9.0高分论文，聚焦智能语音的“理解力”与“反应力”双重突破。
+最值得看：用强化学习解耦全双工对话中“听”与“说”的动态纠缠，以及上下文感知如何让中文技术讲座的识别准确率大幅跃升。
+建议普通读者留意：未来语音助手将能在专业会议中更精准记录，并学会“边听边思考”而非匆忙抢答。
+- 详情：[/202607/12/README](/202607/12/README)
 
 ### 精读区论文标签
-1. [Unified Audio Intelligence Without Regressing on Text Intelligence](/202607/11/2607.05196v2-unified-audio-intelligence-without-regressing-on-text-intelligence)  
+1. [Context-Aware ASR for Mandarin Technical Lectures](/202607/12/2607.05058v1-context-aware-asr-for-mandarin-technical-lectures)  
    标签：评分：9.0/10、query:speech-model
-   evidence：利用海量语音数据训练大规模音频-文本大语言模型
-2. [Escaping the Procrustean Bed: Groupwise Orthogonal Connectors for Audio-Language Models](/202607/11/2607.06014v1-escaping-the-procrustean-bed-groupwise-orthogonal-connectors-for-audio-language-models)  
+   evidence：提出上下文感知的两遍解码ASR，利用自建术语表提升技术讲座中英文术语识别。
+2. [Decoupling Conversational Dynamics in Full-Duplex Spoken Models through Reinforcement Learning](/202607/12/2607.07148v1-decoupling-conversational-dynamics-in-full-duplex-spoken-models-through-reinforcement-learning)  
    标签：评分：9.0/10、query:speech-model
-   evidence：ORCA通过强制分组正交输出改进音频语言模型压缩，增强多模态语音理解
-3. [Transformer-based segmentation of prosodic boundaries in Brazilian Portuguese](/202607/11/2607.07408v1-transformer-based-segmentation-of-prosodic-boundaries-in-brazilian-portuguese)  
-   标签：评分：9.0/10、query:speech-model
-   evidence：基于Whisper的韵律边界分割器通过显式标记改善ASR，提升识别精度
-4. [PS4: Proxy-Supervised Joint Training for Real Target Speaker Extraction](/202607/11/2607.08111v1-ps4-proxy-supervised-joint-training-for-real-target-speaker-extraction)  
-   标签：评分：8.0/10、query:speech-model
-   evidence：提出代理监督训练用于目标说话人提取，通过分离目标语音可改善ASR
+   evidence：在口语对话中解耦何时说与说什么
 
 ### 速读区论文标签
-1. [Ranking the Impact of Contextual Specialization in Neural Speech Enhancement](/202607/11/2607.04826v1-ranking-the-impact-of-contextual-specialization-in-neural-speech-enhancement)  
-   标签：评分：7.0/10、query:speech-model
-   evidence：研究针对说话人特化语音增强模型如何改善语音质量，间接有助于下游ASR
+- 本次无速读推荐。
 
 
 <div class="dpr-home-promo-card">
