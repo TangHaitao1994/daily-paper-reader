@@ -6,29 +6,37 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-12
-- 运行时间：2026-07-12 20:47:24 UTC
+- 最新运行日期：2026-07-13
+- 运行时间：2026-07-13 21:25:22 UTC
 - 运行状态：成功
-- 本次总论文数：2
-- 精读区：2
-- 速读区：0
+- 本次总论文数：5
+- 精读区：3
+- 速读区：2
 
 ### 今日简报（AI）
-今日精读两篇9.0高分论文，聚焦智能语音的“理解力”与“反应力”双重突破。
-最值得看：用强化学习解耦全双工对话中“听”与“说”的动态纠缠，以及上下文感知如何让中文技术讲座的识别准确率大幅跃升。
-建议普通读者留意：未来语音助手将能在专业会议中更精准记录，并学会“边听边思考”而非匆忙抢答。
-- 详情：[/202607/12/README](/202607/12/README)
+今日聚焦多模态语音前沿：精读2篇顶会力作，速览2项实用技术。  
+最值得关注的是用最优传输对齐语义来增强视听语音识别，以及FreyaTTS在高质量语音合成上的新进展。  
+想深入了解的话，可以从那篇10分论文的跨模态对齐思路切入，它会帮你更直观地理解多模态融合的关键。
+- 详情：[/202607/13/README](/202607/13/README)
 
 ### 精读区论文标签
-1. [Context-Aware ASR for Mandarin Technical Lectures](/202607/12/2607.05058v1-context-aware-asr-for-mandarin-technical-lectures)  
+1. [Optimal Transport-based Semantic Alignment for LLM-based Audio-Visual Speech Recognition](/202607/13/2607.09001v1-optimal-transport-based-semantic-alignment-for-llm-based-audio-visual-speech-recognition)  
+   标签：评分：10.0/10、query:speech-model
+   evidence：通过最优传输对齐音频、视觉与文本模态，提升多模态语音识别鲁棒性。
+2. [FreyaTTS Technical Report](/202607/13/2607.09530v1-freyatts-technical-report)  
    标签：评分：9.0/10、query:speech-model
-   evidence：提出上下文感知的两遍解码ASR，利用自建术语表提升技术讲座中英文术语识别。
-2. [Decoupling Conversational Dynamics in Full-Duplex Spoken Models through Reinforcement Learning](/202607/12/2607.07148v1-decoupling-conversational-dynamics-in-full-duplex-spoken-models-through-reinforcement-learning)  
+   evidence：紧凑的非自回归TTS模型实现高质量高效的土耳其语音合成
+3. [Tokenizer Transplantation: Mitigating Autoregressive Collapse in Edge-Efficient Bengali ASR](/202607/13/2607.09598v1-tokenizer-transplantation-mitigating-autoregressive-collapse-in-edge-efficient-bengali-asr)  
    标签：评分：9.0/10、query:speech-model
-   evidence：在口语对话中解耦何时说与说什么
+   evidence：词汇移植修复分词器以提升孟加拉语ASR准确率
 
 ### 速读区论文标签
-- 本次无速读推荐。
+1. [Phone Segmentation and Recognition through Phonological Activation Mapping](/202607/13/2607.09020v1-phone-segmentation-and-recognition-through-phonological-activation-mapping)  
+   标签：评分：7.0/10、query:speech-model
+   evidence：通过音系特征映射利用自监督语音模型进行音素识别
+2. [Technical Report for MERL's Real-TSE Challenge Submission](/202607/13/2607.09043v1-technical-report-for-merls-real-tse-challenge-submission)  
+   标签：评分：7.0/10、query:speech-model
+   evidence：重视数据准备与清洗以增强语音提取鲁棒性
 
 
 <div class="dpr-home-promo-card">
