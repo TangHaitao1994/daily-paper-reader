@@ -6,64 +6,52 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-14
-- 运行时间：2026-07-14 21:21:43 UTC
+- 最新运行日期：2026-07-15
+- 运行时间：2026-07-15 21:29:14 UTC
 - 运行状态：成功
-- 本次总论文数：14
+- 本次总论文数：10
 - 精读区：6
-- 速读区：8
+- 速读区：4
 
 ### 今日简报（AI）
-今日从14篇中精读了两篇满分论文，重点攻克低资源语言语音基础模型和多语言持续学习。
-最值得关注：GigaAM多语言基础模型如何赋能弱势语种，以及梯度投影实现语言平衡的持续学习。
-建议研发者优先在真实多语种场景验证这些10分论文的泛化能力，尤其关注小语种ASR的落地表现。
-- 详情：[/202607/14/README](/202607/14/README)
+今日精读聚焦多模态视频描述与高效长对话语音合成，速读覆盖语音识别测试、大音频模型与智能采样。
+满分论文《AVSCap》实现视听同步的全能视频字幕生成，9分《ZipL-Dialog》用潜流匹配大幅降低长语音合成内存占用。
+建议关注多模态对齐在视频理解中的落地方法，并可尝试将高效合成技术嵌入自己的交互系统。
+- 详情：[/202607/15/README](/202607/15/README)
 
 ### 精读区论文标签
-1. [GigaAM Multilingual: Foundation Model for Underrepresented Languages](/202607/14/2607.10371v1-gigaam-multilingual-foundation-model-for-underrepresented-languages)  
+1. [AVSCap: Orchestrating Audio-Visual Synergy for Omni-modal Video Captioning](/202607/15/2607.12820v1-avscap-orchestrating-audio-visual-synergy-for-omni-modal-video-captioning)  
    标签：评分：10.0/10、query:speech-model
-   evidence：使用HuBERT式目标在200万小时音频上预训练，并采用簇级数据平衡策略，构建多语言ASR基础模型
-2. [Unified Gradient Projection: Language-Balanced Continual Learning for Multilingual Low-Resource ASR](/202607/14/2607.11163v1-unified-gradient-projection-language-balanced-continual-learning-for-multilingual-low-resource-asr)  
-   标签：评分：10.0/10、query:speech-model
-   evidence：通过持续学习方法提升低资源ASR准确率，对抗灾难性遗忘
-3. [Empowering Long-form Omni-modal Understanding with Robust Audio Perception](/202607/14/2607.10299v1-empowering-long-form-omni-modal-understanding-with-robust-audio-perception)  
+   evidence：显式跨模态事件绑定的视听字幕生成框架
+2. [ZipL-Dialog: Memory-Efficient Long-Form Spoken Dialog Synthesis via Latent Flow Matching](/202607/15/2607.12496v1-zipl-dialog-memory-efficient-long-form-spoken-dialog-synthesis-via-latent-flow-matching)  
    标签：评分：9.0/10、query:speech-model
-   evidence：创建音视频解耦字幕数据集与问答数据,结合鲁棒音频感知实现全模态理解
-4. [Where Speech Enhancement Hurts Recognition: An Inference Time Polar Projection Diagnosis](/202607/14/2607.11157v1-where-speech-enhancement-hurts-recognition-an-inference-time-polar-projection-diagnosis)  
+   evidence：通过潜空间流匹配将长对话TTS峰值GPU内存降低11.22倍，推理加速2.23倍
+3. [Audio-Native Speech Recognition with a Frozen Discrete-Diffusion Language Model](/202607/15/2607.13013v1-audio-native-speech-recognition-with-a-frozen-discrete-diffusion-language-model)  
    标签：评分：9.0/10、query:speech-model
-   evidence：推理时通过极坐标投影诊断语音增强为何降低ASR性能
-5. [Qwen-Audio-VAE Technical Report](/202607/14/2607.11738v1-qwen-audio-vae-technical-report)  
-   标签：评分：9.0/10、query:speech-model
-   evidence：低比特率快速编码音频VAE用于高效大规模语音合成,提升推理速度
-6. [Efficiently Adapting Spoken Language Models for the Singaporean Context](/202607/14/2607.10092v1-efficiently-adapting-spoken-language-models-for-the-singaporean-context)  
+   evidence：离散扩散语言模型用于语音识别
+4. [ReGen: Hierarchical Multi-Prompt Representation Generation for Efficient Waveform Diffusion Models](/202607/15/2607.09134v1-regen-hierarchical-multi-prompt-representation-generation-for-efficient-waveform-diffusion-models)  
    标签：评分：8.0/10、query:speech-model
-   evidence：适配口语语言模型用于多语言口语交互的敏感领域,实现对话式AI
+   evidence：提升语音合成中波形扩散模型的效率和质量
+5. [The SonicAGI System for the REAL-TSE Challenge](/202607/15/2607.11083v1-the-sonicagi-system-for-the-real-tse-challenge)  
+   标签：评分：8.0/10、query:speech-model
+   evidence：针对真实会议场景的目标说话人提取技术提升ASR鲁棒性
+6. [An Omnilingual-ASR-Based Speech-LLM System for the 2nd MLC-SLM Challenge](/202607/15/2607.12468v1-an-omnilingual-asr-based-speech-llm-system-for-the-2nd-mlc-slm-challenge)  
+   标签：评分：8.0/10、query:speech-model
+   evidence：级联说话人分割再识别系统，采用LoRA适配的全语种ASR LLM用于会话ASR
 
 ### 速读区论文标签
-1. [Evaluating SSL and ViViT Architectures for Cross-Corpus Audio MOS Prediction via LODO Validation](/202607/14/2607.10146v1-evaluating-ssl-and-vivit-architectures-for-cross-corpus-audio-mos-prediction-via-lodo-validation)  
-   标签：评分：8.0/10、query:speech-model
-   evidence：评估SSL和ViViT架构在跨语料自动MOS预测中的性能，用于评估合成语音和音频质量
-2. [Synchronized Three-Dimensional Vocal-Tract Motion for Speech Synchronization via Joint-Embedding Predictive Architecture Alignment](/202607/14/2607.11772v1-synchronized-three-dimensional-vocal-tract-motion-for-speech-synchronization-via-joint-embedding-predictive-architecture-alignment)  
-   标签：评分：8.0/10、query:speech-model
-   evidence：通过联合嵌入预测架构对齐同步三维声道运动与语音,推进视觉-语音多模态学习
-3. [Casting Everything to Online API Services? A Survey of Integrating Localized Speech Recognition Models in Robotic Systems](/202607/14/2607.11792v1-casting-everything-to-online-api-services-a-survey-of-integrating-localized-speech-recognition-models-in-robotic-systems)  
-   标签：评分：8.0/10、query:speech-model
-   evidence：综述语音识别在机器人系统语音交互中的集成方法
-4. [Text-Independent Speaker Verification Using Discrete Audio Tokens](/202607/14/2607.07579v1-text-independent-speaker-verification-using-discrete-audio-tokens)  
+1. [Generative Testing of Automated Speech Recognition Systems](/202607/15/2607.09833v1-generative-testing-of-automated-speech-recognition-systems)  
    标签：评分：7.0/10、query:speech-model
-   evidence：增强离散音频令牌中的说话人表征以提升语音合成质量
-5. [CoFi-Lite: Pushing the Limits of Ultra-Lightweight Speech Enhancement](/202607/14/2607.10142v1-cofi-lite-pushing-the-limits-of-ultra-lightweight-speech-enhancement)  
+   evidence：通过TTS隐空间生成对抗样本以测试和提升ASR鲁棒性
+2. [GigaChat Audio: Time-aware Large Audio Language Model](/202607/15/2607.10387v1-gigachat-audio-time-aware-large-audio-language-model)  
    标签：评分：7.0/10、query:speech-model
-   evidence：超轻量级语音增强模型，可作为鲁棒ASR的预处理步骤
-6. [GigaChat Audio: Time-aware Large Audio Language Model](/202607/14/2607.10387v1-gigachat-audio-time-aware-large-audio-language-model)  
-   标签：评分：7.0/10、query:speech-model
-   evidence：面向长录音的时间感知音频大语言模型，支持时间戳问答
-7. [Data Augmentation for L2 English Speaking Assessment using TTS](/202607/14/2607.10790v1-data-augmentation-for-l2-english-speaking-assessment-using-tts)  
-   标签：评分：7.0/10、query:speech-model
-   evidence：利用TTS将书面语料转化为合成L2语音，为口语评估增强数据
-8. [Encoder-Side Neuron Identification and Amplification for Acoustic Perception in Large Audio-Language Models](/202607/14/2607.11801v1-encoder-side-neuron-identification-and-amplification-for-acoustic-perception-in-large-audio-language-models)  
-   标签：评分：7.0/10、query:speech-model
-   evidence：推理时增强大音频语言模型声学感知的方法
+   evidence：采用交织时间标记和合成数据的时间感知音频LLM训练方法
+3. [Semantic Sampling via Learnable Observation Front Ends](/202607/15/2607.11260v1-semantic-sampling-via-learnable-observation-front-ends)  
+   标签：评分：6.0/10、query:speech-model
+   evidence：可学习的语义采样前端可改进语音模型预处理
+4. [Encoder-Side Neuron Identification and Amplification for Acoustic Perception in Large Audio-Language Models](/202607/15/2607.11801v1-encoder-side-neuron-identification-and-amplification-for-acoustic-perception-in-large-audio-language-models)  
+   标签：评分：6.0/10、query:speech-model
+   evidence：提出推理时神经元放大方法以提升大音频语言模型的声学感知
 
 
 <div class="dpr-home-promo-card">

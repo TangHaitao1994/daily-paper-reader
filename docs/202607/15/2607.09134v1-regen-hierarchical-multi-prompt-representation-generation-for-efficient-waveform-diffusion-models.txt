@@ -1,0 +1,470 @@
+Title: ReGen: Hierarchical Multi-Prompt Representation Generation for Efficient Waveform Diffusion Models
+
+URL Source: https://arxiv.org/pdf/2607.09134v1
+
+Published Time: Mon, 13 Jul 2026 00:36:31 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+# ReGen: Hierarchical Multi-Prompt Representation Generation for Efficient Waveform Diffusion Models 
+
+Sang-Hoon Lee 1 Ha-Yeong Choi 2
+
+## Abstract 
+
+Representation alignment (REPA) has been in-vestigated to accelerate diffusion training, but we observe that regularizing intermediate representa-tions in diffusion Transformers (DiT) may implic-itly entangle latents and limit generative capacity. To address this issue, we propose ReGen, a hier-archical multi-prompt representation generation framework that jointly estimates multiple vector fields for both representations and data within a single diffusion model. We further introduce gen-eralized flow matching (GFM) to improve the gen-eralization of conditional flow matching (CFM). We validate ReGen on single-stage waveform dif-fusion models including neural audio codec and Wave-VAE. ReGen significantly improves wave-form generation quality from highly compressed latent representations at 12.5 Hz. We also present ReGenVoice, a latent diffusion model (LDM)-based text-to-speech model that achieves strong speech intelligibility (WER) and speaker similar-ity (SIM) with a small dataset. Moreover, op-erating the LDM at 6.25 Hz with rich semantic and acoustic latent representation enables efficient training and sampling, requiring only 1 day of training on 4 GPUs and fast inference with an RTF of 0.08. Audio samples are available at https: //regenvoice.github.io/demo/ .
+
+## 1. Introduction 
+
+Recently, audio has been getting interest in human-centric ar-tificial intelligence systems, enabling both audio understand-ing and generation in spoken dialogue systems. To do this, it is essential to compress high-resolution raw waveform signals into low-resolution latent representations via vec-
+
+> 1
+
+Department of Artificial Intelligence, Ajou University, Suwon, Korea 2KT Corp., Seoul, Korea. Correspondence to: Sang-Hoon Lee <sanghoonlee@ajou.ac.kr >.
+
+Proceedings of the 43 rd International Conference on Machine Learning , Seoul, South Korea. PMLR 306, 2026. Copyright 2026 by the author(s). 
+
+tor quantization (VQ) or variational autoencoders (VAEs), followed by large language models that predict VQ-based discrete audio tokens and diffusion models that generate VAE-based continuous audio vectors. Then, audio decoder converts these representation into an audible waveform. While generative adversarial networks (GAN)-based neural audio codecs (Zeghidour et al., 2021) are commonly used, they have several drawbacks in extremely low-bitrate sce-narios: 1) limited semantic capacity, which reduces speech intelligibility; 2) limited acoustic capacity, which degrades high-frequency details. Basically, semantic distillation with residual vector quantization (RVQ) (Zhang et al., 2024; D ´efossez et al., 2024) has been widely used to improve the semantic consistency. However, it requires additional quantization and can reduce generative capacity. Meanwhile, conditional flow matching (CFM)-based mod-els have gained increasing attention as a new generation paradigm for audio modeling (Lee et al., 2025; Liu et al., 2025; Welker et al., 2025; Yao et al., 2025). PeriodWave-Turbo (Lee et al., 2024) demonstrated that CFM-based pre-training and adversarial post-training significantly improve the performance and reduce overall training times. Stream-Flow (Choi & Lee, 2025) introduces streaming flow match-ing for streaming DiT-based waveform generation, and an-alyzes representation alignment (REPA) (Yu et al., 2025) learning in diffusion Transformers (DiT) (Peebles & Xie, 2023) for waveform generation, where REPA accelerates training speed and can improve generative capacity via ro-bust semantic alignment. However, recent studies (Wang et al., 2025d) report that REPA can suffer from capacity mismatch that decreases the capacity on generative ability due to implicitly entangled latent representations in DiT. To address this limitation, we shift our focus from represen-tation alignment to representation generation (ReGen) for robust waveform DiT training. Rather than regularizing in-termediate representations to maximize semantic alignment, we explicitly disentangle semantic features from the wave-form by jointly estimating multiple vector fields for both representations and data within a single diffusion model. We carefully design a hierarchical DiT structure that progresses from semantics to waveform across layers. Moreover, we introduce a multi-prompting mechanism that hierarchically 1arXiv:2607.09134v1 [cs.SD] 10 Jul 2026 ReGen: Hierarchical Multi-Prompt Representation Generation for Efficient Waveform Diffusion Models 
+
+guides both representation and waveform generation via a masked-infilling strategy. Moreover, we present general-ized flow matching (GFM) for robust waveform-level flow matching via a repulsive term in the vector field space. Specifically, we demonstrate the effectiveness of ReGen and GFM on a low-bitrate neural audio codec (25 Hz, 400 bps) and a VAE (12.5 Hz, 32 dimension) for 24 kHz waveform generation. Furthermore, we propose ReGenVoice, a latent diffusion models (LDM)-based text-to-speech model, per-forming the diffusion process at 6.25 Hz. With a small-scale dataset and only one day of training on 4 GPUs, the model achieves strong performance in speech intelligibility and speaker similarity. The main contributions are as follows: • We introduce ReGen , a hierarchical representation prompting and generation framework built within a single DiT. • We propose GFM , generalized flow matching that im-proves robustness in waveform-level flow matching training by mitigating zero-collapse. • We demonstrate the effectiveness of ReGen and GFM by achieving state-of-the-art performance in speech reconstruction and prompted generation. • We introduce an LDM-based TTS model, ReGenVoice to verify the effectiveness of ReGen in generative modeling, achieving strong speech intelligibility and speaker similarity. We will release all source code. 
+
+## 2. Neural Waveform Generation with SSL 
+
+In this section, we summarize self-supervised learning (SSL) representation for speech, the semantic distillation for neural audio codec and the representation alignment (REPA) for recent diffusion Transformers (DiT)-based neural waveform generation, and their limitations. 
+
+2.1. Self-supervised Representation for Speech 
+
+In the speech domain, leveraging SSL representation is a common approach for improving the semantic capacity on highly entangled audio representations. (Polyak et al., 2021) first adopted self-supervised discrete representations (Hsu et al., 2021) to disentangle speech into content, prosody, and speaker identity. NANSY (Choi et al., 2021) used self-supervised continuous representation (Baevski et al., 2020) as a linguistic representation. HierSpeech (Lee et al., 2022) utilized SSL representation as an intermediate representa-tion between text and waveform. Miipher (Koizumi et al., 2023) used w2v-BERT (Chung et al., 2021) for speech en-hancement. SPEAR-TTS (Kharitonov et al., 2023) and Make-A-Voice (Huang et al., 2024a) introduce SSL based se-mantic token and residual vector quantization (RVQ)-based acoustic token in a hierarchical manner. RepCodec (Huang et al., 2024b) directly used SSL representation as an input and quantized them as a semantic token. X-Codec series (Ye et al., 2024; 2025) jointly used SSL representation as an input representation with waveforms to improve semantic capacity for low-bitrate neural audio codec. 
+
+2.2. Semantic Distillation 
+
+While directly using SSL representations as intermediate features or semantic tokens is effective, it often increases inference complexity and may require additional modules during inference. As an alternative, several works exploit SSL representations only as supervision during training, transferring high-level semantic information into compact latent representations without explicitly relying on SSL fea-tures at inference time. SpeechTokenizer (Zhang et al., 2024) introduced semantic distillation objectives to improve the linguistic capacity and robustness of low-bitrate neural audio codecs by aligning the first codec latents with SSL representations. Mimi (D ´efossez et al., 2024) used a group RVQ approach by disentangling semantic VQ and acoustic RVQ for robust downstream tasks. 
+
+2.3. Representation Alignment (REPA) 
+
+Recently, conditional flow matching (CFM)-based neural waveform generation model have shown promising perfor-mance. Among them, StreamFlow (Choi & Lee, 2025) is the only method that adopts DiT for waveform generation, and introduces scale normalization layers for robust waveform-level diffusion. Furthermore, StreamFlow leverages REPA on the intermediate DiT blocks by using an intermediate representation from MMS (Pratap et al., 2024) as a speech-level semantic representation, leading to faster convergence and improved semantic consistency. 
+
+2.4. Limitations 
+
+Building on StreamFlow, we train a single-stage waveform diffusion neural audio codec from scratch and incorporate REPA using semantic representations. However, we ob-serve that learning meaningful information in extremely low-bitrate settings remains challenging, even with REPA. To mitigate this issue, we additionally introduce acoustic REPA using mel-spectrograms, as well as hierarchical REPA (REPA-H) to enhance both semantic and acoustic capacity. While REPA-H enables stable training, REPA alone cannot guarantee consistent speech generation in terms of semantic and acoustic characteristics, due to severe information loss in highly compressed latent representations. To address this limitation, we shift our focus from REPA to representation generation (ReGen) for more robust waveform diffusion models. Experimental results for REPA and REPA-H are summarized in Table 4 and the details of ReGen are de-scribed in the following subsections. 2ReGen: Hierarchical Multi-Prompt Representation Generation for Efficient Waveform Diffusion Models (b) ReGen (Proposed)                             
+
+> DiT Block
+> DiT Block
+> DiT Block
+> …
+> 𝑣 𝑤𝑎𝑣
+> DiT Block
+> DiT Block
+> DiT Block
+> 𝑣 𝑆𝑆𝐿 𝑣 𝑀𝑒𝑙
+> VQ or VAE
+> Encoder
+> Mel
+> SSL
+> Waveform
+> Prompt
+> Acoustic
+> Prompt
+> Semantic
+> Prompt
+> Semantic
+> Alignment
+> (a) REPA (Baseline)
+> DiT Block
+> DiT Block
+> …
+> 𝑣 𝑤𝑎𝑣
+> DiT Block
+> Waveform
+> Prompt
+> DiT Block
+> DiT Block
+> VQ or VAE
+> Encoder SSL
+> MLP
+> DiT Block
+> Long skip -
+> connection
+> Representation
+> Generation
+> Masked Representations
+> (c) Conceptual visualization of GFM
+> Model 𝑣 𝜃 Model 𝑣 𝜃
+> MSE ( ො𝑣 2,𝑣 2)
+> Attractive
+> MSE ( ො𝑣 1,𝑣 1)
+> Attractive
+> −MSE ( ො𝑣 1,ො𝑣 2)
+> Repulsive
+> 𝑥 1
+> ො𝑣 1ො𝑣 2
+> Noise 1 Noise 2
+> Different noise
+> 𝑡
+
+Figure 1. (a) A baseline that applies REPA to waveform generation, (b) the proposed ReGen architecture with hierarchical multi-prompting, and (c) a conceptual visualization of generalized flow matching (GFM) 
+
+## 3. ReGen 
+
+While REPA can accelerate the early states of diffusion training, it can implicitly entangle latent representations in DiT, resulting in capacity mismatch that reduces generative capacity. This can result in low-quality waveform, espe-cially limiting high-frequency generation while focusing low-frequency details such as semantics of speech. This phenomenon becomes more pronounced in low-bitrate sce-narios, where compressed latent representations provide limited acoustic bandwidth and REPA regularization further biases the model toward overly smoothed reconstructions. 
+
+3.1. Representation Generation 
+
+To avoid the above problems, we introduce ReGen that jointly estimates the vector field of representation and data and generate together through iterative sampling. Unlike prior approaches that treat representations as fixed condition-ing signals, ReGen models the representation as a stochastic variable to be generated, thereby reducing over-reliance on the conditions and explicitly disentangling representation from data. As a result, the generative model can flexibly allocate its capacity to synthesize both high-level semantics and acoustic details, even under low-bitrate settings. For robust generation in terms of architecture designs, we disentangle the DiT block by generating from representa-tions to data in a hierarchical manner. Additionally, we leverage multiple representations including semantic (SSL) and acoustic (Mel-spectrogram) representations by estimat-ing multiple vector fields on waveform, Mel-spectrogram, and SSL representation together from high-compressed la-tent representation of VQ or VAE. 
+
+3.2. Hierarchical Multi-Prompt 
+
+ReGen extends the hierarchical multi-prompt design to si-multaneously utilize information from different represen-tation levels. Rather than simply providing conditional in-put, each prompt provides direct information on the genera-tion process at the semantic, acoustic, and waveform levels within each representation space. The proposed method pre-dicts independent vector fields for each representation, while simultaneously employing a hierarchical structure in which information from higher-level representations progressively constrains the generation of lower-level representations. For each representation level r ∈ { ssl , mel , wav }, the con-ditional flow between the target representation xr 
+
+> 1
+
+and the noise sampled from xr 
+
+> 0
+
+∼ N (0 , I ) is defined according to the time t ∼ U (0 , 1) as follows: 
+
+xrt =  1 − (1 − σmin )txr 
+
+> 0
+
++ tx r 
+
+> 1
+
+(1) The corresponding target vector field is given by: 
+
+urt = xr 
+
+> 1
+
+− (1 − σmin )xr 
+
+> 0
+
+(2) During training, a mask M is applied to all prompts, ˜xr 
+
+> 1
+
+=
+
+M ⊙ xr
+
+> 1
+
+. Then, the network predicts the vector field ˆvrθ
+
+for each level conditioned on masked multi-prompt. This masked multi-prompt infilling strategy (Le et al., 2024) enables ReGen to learn robust vector fields. Finally, the masked multi-prompt CFM objective is defined as: 
+
+LCFM = X
+
+> r∈{ ssl ,mel ,wav }
+
+Et,x 0,x 1
+
+h
+
+ˆvrθ (xrt , t, ˜xr
+
+> 1
+
+) − urt 
+
+> 2
+
+⊙ M
+
+i
+
+(3) 
+
+## 4. Generalized Flow Matching 
+
+Waveform generation tasks face significant challenges in regression-based learning due to the multi-modal nature and phase inconsistencies of high-frequency components. Under a standard regression objective, these characteristics force diverse potential waveforms to converge towards a sin-gle average solution. This often results in over-smoothing, where the generated waveform lacks detail. When the vec-tor field is trained via regression, different probabilistic 3ReGen: Hierarchical Multi-Prompt Representation Generation for Efficient Waveform Diffusion Models 
+
+trajectories may collapse into a single conditional mean flow. Consequently, the generated waveforms tend to lose high-frequency energy, leading to degraded audio quality. To mitigate this, (Gritsenko et al., 2020) was proposed that introduces a repulsive term between generated samples us-ing the generalized energy distance (GED). As discussed in (Gritsenko et al., 2020), using standard regression loss with-out repulsive regularization causes samples to converge to the conditional mean or produces waveforms with distorted phase and energy in high-dimensional space. Inspired by these observations, we extend this principle to conditional flow matching. Specifically, we reformulate sample-space repulsive regularization to fit vector field optimization. We propose generalized flow matching (GFM), which reformu-lates repulsive regularization in the velocity space, aligning the objective with the optimization domain of CFMs. We explicitly control the similarity between predicted veloc-ity vectors to prevent multiple stochastic trajectories from collapsing into a single flow. To ensure training stability in high-dimensional space, we adopt a mechanism where one trajectory serves as a fixed reference, while the other is pushed away from it and simultaneously pulled towards the ground-truth target trajectory. This mitigates the tendency to converge towards an average solution while effectively preventing divergence during the training process. Formally, consider two flow trajectories x(1)  
+
+> t
+
+and x(2)  
+
+> t
+
+that are coupled with the same target waveform but originate from different initial noise samples x(1) 0 and x(2) 0 . Let u(1)  
+
+> t
+
+and u(2)  
+
+> t
+
+be their respective target vector fields. We define the attractive loss Latt and the asymmetric repulsive loss Lrep as:              
+
+> Latt = 12
+> 
+> ∥vθ(x(1)
+> t, t, c )−u(1)
+> t∥2+∥vθ(x(2)
+> t, t, c )−u(2)
+> t∥2
+> (4)
+
+Lrep = ∥vθ (x(1)  
+
+> t
+
+, t, c ) − sg (vθ (x(2)  
+
+> t
+
+, t, c )) ∥2 (5) where vθ denotes the velocity estimator network, and sg (·)
+
+denotes the stop-gradient operator. The GFM objective is constructed by subtracting the repulsive term from the attractive term, controlled by λneg :
+
+LGFM = Latt − λneg Lrep (6) We apply GFM objectives independently in waveform, Mel-spectrogram, and SSL representation spaces. The final training objective is: 
+
+L = Lwav GFM + λregen 
+
+ LMel GFM + LSSL GFM 
+
+ . (7) 
+
+## 5. Efficient Waveform Diffusion Transformers 
+
+Wave-DiT For an efficient waveform diffusion Transform-ers (Wave-DiT), we utilize a linear-reshape Transformation and Scale-DiT of StreamFlow (Choi & Lee, 2025) to op-erate diffusion at 50 Hz for 24,000 Hz waveform signals directly. Also, we modify Scale-DiT by replacing AdaLN with AdaLN-SOLA (Hai et al., 2024) for parameter-efficient shared time adaptation. We add hierarchical multi-prompt embedding layer for each representation and U-Net like long-skip connection (Add) for disentangled representation generation as illustrated in Figure 1. Specifically, Wave-DiT consists of Wave-DiT blocks of [3,3,6,3,3] with 1024 di-mensions at 50 Hz. To demonstrate the powerful generative performance of ReGen, we train both neural audio codec and VAE encoder using Wave-DiT decoder. 
+
+ReGenTokenizer For neural audio codec, we also use a linear-reshape transformation for input waveform (from 24,000 Hz to 50 Hz), followed by eight layers of causal Transformers using RoPE, context window of 4s, and dimen-sion of 1024. Then, we simply downsample and apply finite scalar quantization (FSQ) using codebook size of 65536 (FSQ of [4,4,4,4,4,4,4]) at 25 Hz (400bps). The upsampled outputs are fed to Wave-DiT as a condition for waveform generation at 50 Hz. 
+
+ReGenVAE We use the same linear-reshape transforma-tion and eight layers of causal Transformers. Then, we simply downsample and apply weak KL regularization ( λkl 
+
+of 1e-5) on the highly compressed latent representations (32 dimensions at 12.5 Hz). The upsampled latent representa-tions are used as a condition for Wave-DiT. 
+
+Acceleration Following PeriodWave-Turbo (Lee et al., 2024), we apply adversarial post-training for accelerating the sampling speed by fixing the sampling steps of 4. We em-ploy multi-period discriminator (MPD) (Kong et al., 2020), multi-scale STFT discriminator (MS-STFTD) (D ´efossez et al., 2023), and multi-scale sub-band constant-Q transform (MS-SB-CQTD) (Gu et al., 2024). We carefully use multi-scale STFT losses by warming up the weights to maximum 1, where high-weight of STFT losses cause metallic sounds. 
+
+## 6. ReGenVoice 
+
+To verify the effectiveness of ReGen in generative modeling, we train a LDM text-to-speech model, ReGenVoice by using latent representation of ReGenVAE. ReGenVoice consists of causal text encoder, implicit latent aligner, and the same structure of Wave-DiT using down/up-sampling layers. 
+
+Causal Text Encoder For streaming text-to-speech, we utilize six layers of causal Transformer using RoPE, context window of 128 text tokens, and dimension of 1024. 
+
+Implicit Latent Aligner Inspired by (Zhu et al., 2025), we use average downsampling for text-latent alignment due to the compressed latents at 12.5 Hz. The output of text encoder are proportionally downsampled and fed to LDM as a condition. 
+
+Efficient Latent Diffusion at 6.25 Hz We use U-net like Wave-DiT using down/up-sampling layers for efficient latent 4ReGen: Hierarchical Multi-Prompt Representation Generation for Efficient Waveform Diffusion Models 
+
+Table 1. Objective evaluation results for reconstruction using LibriSpeech benchmark dataset. For reference, we cite the reported performance of models from X-codec2 (Ye et al., 2025), and use the same evaluation methods used in X-codec2. 
+
+Method Hz TPS Nq Bitrate Stream. WER ( ↓) STOI ( ↑) PESQ -WB ( ↑)PESQ -NB ( ↑) SPK-SIM ( ↑) UTMOS ( ↑)GT 16k - - - - 1.96 1.00 4.64 4.55 1.00 4.09 SpeechTokenizer (Zhang et al., 2024) 16k 100 2 1000 ✓ 3.92 0.77 1.25 1.59 0.36 2.28 BigCodec (Xin et al., 2024) 16k 80 1 1040 ✗ 2.76 0.93 2.68 3.27 0.84 4.11 X-codec2 (Ye et al., 2025) 16k 50 1 800 ✗ 2.47 0.92 2.43 3.04 0.82 4.13 StableCodec(Parker et al., 2025) 16k 50 2 700 ✗ 5.12 0.91 2.24 2.91 0.62 4.23 EnCodec (D´ efossez et al., 2023) 24k 600 8 6000 ✓ 2.15 0.94 2.77 3.18 0.89 3.09 EnCodec (D´ efossez et al., 2023) 24k 150 2 1500 ✓ 4.90 0.85 1.56 1.94 0.60 1.58 WavTokenizer (Ji et al., 2025) 24k 75 1 900 ✗ 3.98 0.90 2.13 2.63 0.65 3.79 WavTokenizer(Ji et al., 2025) 24k 40 1 480 ✗ 11.20 0.85 1.62 2.06 0.48 3.57 Mimi (D´ efossez et al., 2024) 24k 100 8 1100 ✓ 2.92 0.90 2.27 2.80 0.73 3.63 
+
+ReGenTokenizer-LibriTTS 24k 25 1 400 ✓ 2.83 0.84 1.39 1.65 0.67 3.99 
+
+ReGenTokenizer-Emilia 24k 25 1 400 ✓ 2.70 0.86 1.52 1.85 0.74 3.77 
+
+VAE 
+
+ReGenVAE-LibriTTS 24k 12.5 - - ✓ 2.05 0.94 2.90 3.38 0.84 4.21 
+
+ReGenVAE-Emilia 24k 12.5 - - ✓ 2.11 0.95 2.99 3.45 0.89 4.16 
+
+Table 2. Objective evaluation results for reconstruction using LibriTTS Benchmark Dataset. 
+
+Method Hz TPS Nq Stream. CER (↓)WER (↓)M-STFT (↓)PESQ (↑)Period. (↓)V/UV (↑)Pitch (↓)UTMOS (↑)MOS (↑)GT 24k - - - 1.12 3.06 - - - - - 3.862 3.99 ±0.02 SpeechTokenizer (Zhang et al., 2024) 16k 400 8 ✓ 2.06 4.46 - 2.468 0.129 0.934 41.631 3.585 3.68 ±0.03 BigCodec (Xin et al., 2024) 16k 80 1 ✗ 2.61 5.44 - 2.607 0.145 0.927 33.757 3.889 3.77 ±0.03 X-codec2 (Ye et al., 2025) 16k 50 1 ✗ 2.45 5.20 - 2.259 0.230 0.857 53.052 3.869 3.71 ±0.03 StableCodec (Parker et al., 2025) 16k 50 2 ✗ 6.85 12.42 - 2.072 0.184 0.899 32.002 4.134 3.76 ±0.03 StableCodec (Parker et al., 2025) 16k 25 1 ✗ 8.62 16.19 - 1.893 0.194 0.892 48.680 4.131 3.75 ±0.03 EnCodec (D´ efossez et al., 2023) 24k 600 8 ✓ 1.19 3.55 1.163 2.771 0.113 0.941 32.147 2.969 3.68 ±0.03 DAC (Kumar et al., 2023) 24k 600 8 ✗ 1.09 2.91 1.012 3.505 0.075 0.962 22.290 3.546 3.82 ±0.03 Mimi (D´ efossez et al., 2024) 24k 100 8 ✓ 3.07 6.91 1.352 2.266 0.165 0.910 50.686 3.506 3.82 ±0.03 WavTokenizer (Ji et al., 2025) 24k 75 1 ✗ 4.87 9.42 1.220 2.247 0.157 0.918 41.123 3.821 3.86 ±0.03 WavTokenizer (Ji et al., 2025) 24k 40 1 ✗ 13.83 23.53 1.627 1.604 0.196 0.891 69.903 3.467 3.75 ±0.03 
+
+ReGenTokenizer-LibriTTS 24k 25 1 ✓ 1.92 4.43 1.504 1.496 0.184 0.903 94.513 3.955 3.88 ±0.03 
+
+ReGenTokenizer-Emilia 24k 25 1 ✓ 2.23 4.84 1.454 1.606 0.178 0.907 83.194 3.785 3.82 ±0.03 
+
+VAE 
+
+ReGenVAE-LibriTTS 24k 12.5 - ✓ 0.94 2.88 1.087 3.058 0.110 0.943 28.299 4.096 3.85 ±0.03 
+
+ReGenVAE-Emilia 24k 12.5 - ✓ 1.11 3.18 1.111 2.902 0.115 0.942 30.135 3.956 3.87 ±0.03 
+
+diffusion. Operating latent diffusion at 6.25 Hz significantly improves the efficiency and also shows the robust generation performance thanks to high-quality latent representation of ReGenVAE. We train the model using masked-infilling strategy on latent domain and apply GFM objectives for better generalization. 
+
+## 7. Experiment and result 
+
+7.1. Experimental Setup Dataset We utilize LibriTTS (Zen et al., 2019) for high-quality dataset (0.5k hours) and Emilia (He et al., 2024) for high-diversity multi-lingual dataset (100k hours). Both are with a sampling rate of 24,000 Hz, but Emilia is encoded by MP3 so it contains high-frequency distortion. For LDM, we use LibriTTS and Emilia-en subset (40k hours). 
+
+Training We pre-train ReGenTokenizer and ReGenVAE with a learning rate of 1 ×10 −4 using AdamW optimizer (Loshchilov & Hutter, 2019), batch size of 256 for 1M steps on eight NVIDIA H100 GPUs. We utilize sliced window training by randomly segmenting the waveform signal by 96,000 frames (4s). Then, we fine-tune the four-step model with a learning rate of 2 ×10 −5, batch size of 128 for 0.5M steps on eight NVIDIA H100 GPUs. During pre-training, we use masked-infilling strategy by dropping prompt and condition (0.3 and 0.2 respectively). During adversarial post-training, we only drop the prompt by 0.3. For ReGenVoice, we train the model with a learning rate of 1 ×10 −4, batch size of 256 for 1M steps on four NVIDIA H100 GPUs using 2-30s latent representations, and drop prompt and condition (0.3 and 0.2 respectively). 
+
+7.2. Reconstruction 
+
+We conduct two reconstruction experiments on LibriSpeech benchmark dataset (16,000 Hz) from X-codec2 (Ye et al., 5ReGen: Hierarchical Multi-Prompt Representation Generation for Efficient Waveform Diffusion Models 
+
+Table 3. Objective evaluation results for cross-sentence prompted reconstruction using Seed-en benchmark dataset. Seed-en provides prompt speech samples corresponding to target speech. For reference we cite the reported performance of models from TaDiCodec (Wang et al., 2025c). While previous diffusion models consist of two or three stage, ReGenTokenizer and ReGenVAE consist of only a single decoder for waveform generation. GAN, SPK, Mel-CFM, and Voc. denotes GAN-based waveform generator, speaker encoder, CFM-based Mel-spectrogram decoder, and Mel-to-waveform vocoder, respectively.                                                                                                                                                                                                           
+
+> # Stage Decoder Method Hz TPS NqStream. Prompt WER (↓)SPK-SIM (↑)UTMOS (↑)Single GAN EnCodec (D´ efossez et al., 2023) 24k 150 2✓✗5.36 0.48 1.54 DAC (RVQ) (Kumar et al., 2023) 24k 75 3✗✗20.08 0.39 1.75 DAC (VQ) (Kumar et al., 2023) 24k 75 1✗✗12.74 0.45 2.08 SpeechTokenizer (Zhang et al., 2024) 16k 100 2✓✗7.98 0.46 2.47 Mimi (D´ efossez et al., 2024) 24k 100 8✓✗3.99 0.57 3.21 X-codec2 (Ye et al., 2025) 16k 50 1✗✗2.63 0.62 3.68 WavTokenizer (Ji et al., 2025) 24k 75 1✗✗6.65 0.48 3.36 BigCodec (Xin et al., 2024) 16k 80 1✗✗3.25 0.61 3.59 StableCodec (Parker et al., 2025) 16k 25 1✗✗11.08 0.41 3.87 Two SPK, GAN BiCodec (Wang et al., 2025b) 16k 50 1✗✓3.05 0.61 3.68 Three SPK, Mel-CFM, GAN-Voc. FireRedTTS (Guo et al., 2024) 48k 25 1✓✓3.35 0.59 3.40 Three SPK, Mel-CFM, GAN-Voc. CosyVoice (Du et al., 2024a) 24k 25 1✓✓5.63 0.47 3.65 Three SPK, Mel-CFM, GAN-Voc. CosyVoice 2 (Du et al., 2024b) 24k 25 1✓✓4.10 0.68 3.65 Three LDM, MelVAE, GAN-Voc. SemantiCodec (Liu et al., 2024) 16k 50 2✗✗5.11 0.49 2.83 Two Mel-CFM, GAN-Voc. Vevo (Zhang et al., 2025) 24k 50 1✗✓3.04 0.53 3.50 Two Mel-CFM, GAN-Voc. TaDiCodec (Wang et al., 2025c) 24k 12.5 1✗✓2.57 0.69 3.58 Two Mel-CFM, GAN-Voc. TaDiCodec (Wang et al., 2025c) 24k 6.25 1✗✓2.73 0.69 3.73 Single Wave-CFM (+GAN) ReGenTokenizer-LibriTTS (ours) 24k 25 1✓✓3.37 0.61 3.73 Single Wave-CFM (+GAN) ReGenTokenizer-Emilia (ours) 24k 25 1✓✓3.58 0.71 3.46
+> VAE
+> Single Wave-CFM (+GAN) ReGenVAE-LibriTTS (ours) 24k 12.5 -✓✓2.03 0.72 3.87
+> Single Wave-CFM (+GAN) ReGenVAE-Emilia (ours) 24k 12.5 -✓✓2.09 0.73 3.73
+
+2025) in Table 1 and LibriTTS benchmark dataset (24,000 Hz) from BigVGAN (Lee et al., 2023) in Table 2. Re-GenTokenizer successfully demonstrates the effectiveness of ReGen by achieving much better speech intelligibility and speaker similarity compared to other low-bitrate mod-els. Furthermore, we demonstrate the data scalability by training the models with Emilia dataset that shows better speaker similarity. However, Emilia dataset contains a lot of noise and distortion due to MP3 encoding, resulting in high-frequency distortion and low-quality waveform generation. Additionally, ReGenVAE further demonstrates efficient la-tent compression with only 32 dimensions at 12.5 Hz by achieving promising speech intelligibility in terms of CER and WER. We also observe that VAE models can enhance audio quality without audio prompts, and prompted genera-tion can mimic the audio quality and style of speech prompts in terms of UTMOS and SPK-SIM as shown in Table 3. 
+
+7.3. Prompted Reconstruction 
+
+Following TaDiCodec (Wang et al., 2025c), we conducted prompted reconstruction using Seed-en benchmark dataset. Table 3 also shows the superiority of ReGen in low-bitrate scenarios, where a single-stage ReGen has powerful genera-tive performance through multi-prompting from semantic, acoustic representation, and data. Previous acoustic neural audio codecs including EnCodec, DAC, SpeechTokenizer, Mimi, X-codec2, WavTokenizer, BigCodec, and Stable-Codec have weak speaker similarity due to lack of style adaptation performance. Semantic speech tokenizer models including BiCodec, FireRedTTS, CosyVoice series require additional speaker embedding model, Mel-spectrogram de-coder, and neural vocoder. Furthermore, these models sepa-rately train their tokenizer, leading to difficulty in training. Meanwhile, TaDiCodec introduced novel frameworks for speech-text foundation models, showing high-quality gener-ation even in extremely low-bitrate scenarios. We thought that ReGen framework can be jointly used with text-aware tokenization for a single-stage decoding. Specifically, Re-GenTokenizer shows the best speaker similarity compared to other neural audio codecs, and ReGenVAE has better performance than all models including GT samples (WER: 2.14, SIM: 0.73) by showing the strong generative perfor-mance. Also, we hope to highlight that our models are trained with sliced window training (maximum 4s) and short prompts (maximum 1.2s) but show the robust prompting and generation performance (over 30s) as indicated in Table 3. Furthermore, this facilitates the streaming generation using self-generated prompts. 
+
+7.4. Ablation Study 
+
+Due to a lack of previous study for waveform-level diffusion neural audio codec, we thoroughly conducted an ablation study for the optimization of diffusion neural audio codec and REPA, ReGen, GFM, and GAN in Table 4. 6ReGen: Hierarchical Multi-Prompt Representation Generation for Efficient Waveform Diffusion Models 
+
+Table 4. Ablation Study. Each model is trained for 0.5M steps, relatively small training steps. Unlike base model (No REPA) and REPA models, ReGen approaches show significantly faster training speed and significantly better performance even with small training steps. ReGen-U* requires smaller weight of representation generation ( λregen = 0 .01 ) for robust waveform CFM training. 
+
+Method CER (↓)WER (↓)M-STFT (↓)PESQ (↑)Period. (↓)V/UV (↑)Pitch (↓)SPK-SIM (↑)UTMOS (↑)No REPA 116.88 136.57 2.638 1.115 0.236 0.872 126.415 0.08 1.761 
+
++ Representation Alignment (REPA) 
+
+REPA (SSL) 90.44 130.64 2.536 1.119 0.255 0.846 230.819 0.12 2.159 REPA (Mel) 8.29 15.10 2.060 1.374 0.198 0.892 77.773 0.32 3.090 REPA-H (SSL, Mel) 9.71 16.53 1.976 1.448 0.189 0.901 70.973 0.38 3.294 
+
++ Unified Representation Generation (ReGen-U) 
+
+ReGen-U (SSL, Mel) 63.57 89.94 5.412 1.030 0.262 0.808 65.761 0.21 1.338 ReGen-U* (SSL, Mel) 11.70 19.31 2.152 1.192 0.214 0.879 108.35 0.43 2.114 
+
++ Hierarchical Representation Generation (ReGen-H) 
+
+ReGen-H (SSL) 7.73 15.04 1.985 1.263 0.216 0.879 131.818 0.54 2.862 ReGen-H (Mel) 8.00 14.84 2.243 1.323 0.199 0.888 76.908 0.35 2.508 ReGen-H (SSL, Mel) 6.36 11.99 1.886 1.452 0.178 0.904 62.536 0.54 3.210 
+
++ Generalized Flow Matching 
+
+ReGenTokenizer 6.51 12.59 1.795 1.500 0.182 0.904 57.471 0.59 3.268 
+
++ Auxiliary Decoder (Cosyvoice2 token distillation on FSQ) 
+
+ReGenTokenizer 3.09 6.01 1.943 1.315 0.195 0.890 118.072 0.64 2.995 
+
++ Replacing FSQ with VAE (12.5 Hz, 32 dim.) - Auxiliary Decoder 
+
+ReGenVAE 1.35 3.63 1.640 2.063 0.139 0.928 38.953 0.72 3.375 
+
++ Adversarial Post-training 
+
+ReGenTokenizer 1.92 4.43 1.504 1.496 0.184 0.903 94.513 0.75 3.955 ReGenVAE 0.94 2.88 1.087 3.058 0.110 0.943 28.299 0.87 4.096 
+
+Table 5. Hyper-parameter Search for Generalized Flow Matching                                                                                      
+
+> Method λregen λneg
+> CER (↓)WER (↓)M-STFT (↓)PESQ (↑)Period. (↓)V/UV (↑)Pitch (↓)SPK-SIM (↑)UTMOS (↑)ReGen-H 0.1 -6.36 11.99 1.886 1.452 0.178 0.904 62.536 0.54 3.210 0.1 0.001 6.39 13.01 1.814 1.477 0.172 0.911 49.318 0.58 3.254 0.1 0.005 7.00 12.28 1.827 1.476 0.172 0.909 47.158 0.58 3.265 ReGen-H + GFM 0.1 0.01 6.51 12.59 1.795 1.500 0.182 0.904 57.471 0.59 3.268 0.1 0.05 6.22 12.00 1.951 1.430 0.178 0.905 55.362 0.57 3.269 0.1 0.1 7.77 14.93 2.059 1.377 0.190 0.896 74.186 0.57 3.072 Ablation ( λregen )10.01 7.43 12.76 2.115 1.361 0.184 0.893 74.832 0.56 2.266 0.01 0.01 9.11 16.50 1.897 1.319 0.209 0.881 129.572 0.56 2.955
+
+REPA In extremely low-bitrate scenarios, it is difficult to train the waveform-level diffusion neural audio codec due to the lack of useful latent information on their codebooks without REPA. We found that waveform generation requires more acoustic representations in that Mel-spectrogram dis-tillation on DiT blocks can make the model generate au-dible waveform signals. Furthermore, we adopt hierarchi-cal REPA (REPA-H) by distilling SSL representation and acoustic representation hierarchically, resulting in better optimization even with the same architecture. 
+
+ReGen We compare ReGen by unified prompt-ing/generation at the same layer (ReGen-U) or hierarchical prompting/generation (ReGen-H). Disentangling prompt and generation can improve the robustness of ReGen so we adopt ReGen-H as the default settings. While REPA still shows a lack of speaker similarity, ReGen models significantly improve the speaker similarity and all performance compared to REPA. We found that SSL representation can guide the speech-level semantics, and Mel-spectrogram can guide the acoustics of the waveform. 
+
+GFM GFM improves the performance compared to the original CFM. We also conducted the hyper-parameter search for GFM at Table 5. While we conducted this hyper-parameter search by using global weights for each represen-tation, we see that further optimization can be possible by analyzing the proper weights for each representation. 
+
+Adversarial Post-training With only a few steps, adver-sarial post-training simply accelerates the models and im-proves the entire performance by directly generating wave-form from noise. This indicates that CFM pre-training fol-lowed by adversarial post-training is the natural and essen-tial choice to efficiently train waveform generation models. 7ReGen: Hierarchical Multi-Prompt Representation Generation for Efficient Waveform Diffusion Models 
+
+Table 6. Zero-shot TTS results on Seed-en Benchmark                                                               
+
+> Model Params Data WER ↓SIM ↑
+> GT --2.14 0.73 SparkTTS (Wang et al., 2025b) 0.5B 100k 1.98 0.58 TadiCodec-AR (Wang et al., 2025c) 4B 100k 2.28 0.65 F5-TTS (Chen et al., 2024) 0.3B 100k 2.00 0.67 ZipVoice (Zhu et al., 2025) 0.1B 100k 1.70 0.69 CosyVoice2 (Du et al., 2024b) 0.5B 166k 2.57 0.65 CosyVoice3-RL (Du et al., 2025) 0.5B -1.68 0.69 VibeVoice (Peng et al., 2025) 1.5B -3.04 0.68 VibeVoice-RT (Peng et al., 2025) 0.5B -2.05 0.63 VoxCPM-Emilia (Zhou et al., 2025) 0.6B 100k 2.34 0.68 ReGenVoice-S 0.3B 0.5k 2.04 0.65 ReGenVoice-S 0.3B 40k 2.21 0.68 ReGenVoice 0.5B 0.5k 1.46 0.64 ReGenVoice 0.5B 40k 1.62 0.70
+
+Table 7. Subjective evaluation and RTF comparison 
+
+Model MOS ↑ SMOS ↑ RTF ↓
+
+GT 3.978 ±0.02 3.756 ±0.02 -CosyVoice2 4.033 ±0.02 3.754 ±0.02 1.05 CosyVoice3-RL (vLLM) 3.867 ±0.02 3.606 ±0.02 0.81 ReGenVoice (25 NFE) 4.029 ±0.02 3.762 ±0.02 0.08 
+
+7.5. Text-to-Speech Experiment We conducted zero-shot TTS experiments on Seed-en benchmark dataset. We train our models with LibriTTS and Emilia-en dataset using 0.3B/0.5B parameters to verify the scalability. We compared our models with re-cent LLM-based TTS models, CFM-based Mel-spectrogram generation models, and latent diffusion models. Specifically, our ReGenVoice employs the latent diffusion at 6.25 Hz using down/upsampling layers for latents of ReGenVAE, resulting in fast sampling speed without any optimization technique such as vLLM, Triton, and FlashAttention. 
+
+Result Table 6 shows the powerful generative perfor-mance of ReGen frameworks by achieving lower WER and higher speaker Similarity compared to others. Even with a small-scale dataset, our models achieve comparable performance in terms of speaker similarity. Specifically, it is worth noting that ReGenVAE was trained with a small-scale of STFT loss that reduces the performance on objective eval-uation including WER and SIM. However, it significantly improves the perceptual quality in human evaluation as indi-cated in Table 7, where some models generate noisy metallic sounds due to overuse of STFT losses for high objective performance. When using high STFT loss, ReGenVoice achieved a speaker similarity of 0.72, but it may contain metallic noise in some cases. 
+
+Ablation Study For ReGenTTS, we conducted an abla-tion study for efficient LDM-based TTS. With an average down-sampling-based implicit text-latent aligner, Table 8 shows that the text encoder is not required for speech intelli-gibility. However, we adopt causal Transformers as a text encoder for better speaker similarity and word-level stream-
+
+Table 8. Ablation study for ReGenTTS                               
+
+> Ablation Method WER ↓SIM ↑UTMOS ↑
+> ReGenVoice -1.46 0.64 4.07 Text Encoder w/o Encoder 1.38 0.61 4.09 ConvNeXt V2 2.13 0.56 3.92 Text Embedding w/o input down 1.55 0.62 4.11 Backbone w/o U-DiT (12.5 Hz) 1.74 0.60 3.97 Objective w/o GFM 1.60 0.59 3.98
+
+Table 9. Analysis of NFE (Seed-en) 
+
+Method WER ↓ SIM ↑ UTMOS ↑
+
+Different NFEs (Euler, Proportional Dur.) 
+
+4 NFE 4.20 0.67 3.05 8 NFE 1.93 0.69 3.67 10 NFE 1.85 0.70 3.74 16 NFE 1.77 0.70 3.79 25 NFE 1.62 0.70 3.81 32 NFE 1.67 0.70 3.82 
+
+Different durations (25 NFE, GT Dur.) 
+
+1.5 × 9.28 0.71 3.65 1.25 × 4.21 0.71 3.75 1.11 × 2.51 0.70 3.80 1.0 × (GT) 1.68 0.70 3.81 0.9 × 1.71 0.69 3.80 0.8 × 2.12 0.68 3.77 0.67 × 6.01 0.66 3.69 
+
+ing generation. ConvNeXt blocks show under-fitted results compared to others. Due to highly-compress target latent, the initial downsampling layer for text embedding could en-hance the efficiency and performance, and U-DiT structures including down/up-sampling layers for 6.25 Hz latent LDM improve the robustness of LDM training. Furthermore, the GFM objective improves the entire performance of LDM. 
+
+Robust Speech Generation We analyze the effect of NFE and duration control. Table 9 shows the robustness of LDM even with a small number of NFE. While increasing the NFE over 25 can improve the audio quality, we chose 25 NFE for the trade-off between quality and speed. For a duration control, we use the GT duration, and the results show the robustness of duration control. 
+
+## 8. Conclusion 
+
+We propose representation generation for efficient wave-form diffusion models via representation generation (Re-Gen). Compared to REPA, ReGen significantly improves the robustness and performance by improving the genera-tive capacity. Furthermore, we introduce generalized flow matching (GFM) for better optimization of CFM by address-ing the collapse of distinct stochastic paths into a single deterministic flow. With neural audio codec, VAE, and LDM-based TTS experiments, results verify the effective-ness of ReGen, GFM, and our proposed efficient waveform diffusion models. 8ReGen: Hierarchical Multi-Prompt Representation Generation for Efficient Waveform Diffusion Models 
+
+## Impact Statement 
+
+Potential Broader Impact We propose novel generative models including ReGen and GFM. Then, we verify the effectiveness of ReGen and GFM by applying them to effi-cient waveform diffusion models for high-quality waveform generation. Specifically, neural audio codec and Wave-VAE can be utilized for speech generation and speech language models with better speech intelligibility and speaker simi-larity thanks to improved generative ability. Furthermore, LDM-based TTS models can be efficiently designed by op-erating latent diffusion at 6.25 Hz. This significantly reduce the inference time, leading to lower service cost. 
+
+Social Negative Impact However, high-quality waveform generation models can be misused by cloning someone’s voice to deceive others that can pose risks such as fraud and the spread of misinformation. Furthermore, the proposed LDM-based TTS models may be exploited to generate high similar synthetic speech without consent that can raise con-cerns regarding privacy issue. To mitigate these risks, it is essential to consider the watermarking or fake audio de-tection models together. Furthermore, we will release the source code with an explicit usage agreement and ethical guidelines to address misuse and promote responsible use. 
+
+## Acknowledgments 
+
+This work was supported by Institute of Information & communications Technology Planning & Evaluation (IITP) grant funded by the Korea government (MSIT) (RS-2025-02283048, Developing the Next-Generation General AI with Reliability, Ethics, and Adaptability, IITP-2026-RS-2023-00255968, the Artificial Intelligence Convergence In-novation Human Resources Development), National Re-search Foundation of Korea(NRF) grant funded by the Ko-rea government (MSIT) (RS-2025-16069227), and the “Ad-vanced GPU Utilization Support Program” funded by the Government of the Republic of Korea (Ministry of Science and ICT). 
+
+## References 
+
+Baevski, A., Zhou, Y., Mohamed, A., and Auli, M. wav2vec 2.0: A framework for self-supervised learning of speech representations. Advances in neural information process-ing systems , 33:12449–12460, 2020. Chen, Y., Niu, Z., Ma, Z., Deng, K., Wang, C., Zhao, J., Yu, K., and Chen, X. F5-tts: A fairytaler that fakes fluent and faithful speech with flow matching. arXiv preprint arXiv:2410.06885 , 2024. Choi, H.-S., Lee, J., Kim, W., Lee, J., Heo, H., and Lee, K. Neural analysis and synthesis: Reconstructing speech from self-supervised representations. Advances in Neural Information Processing Systems , 34:16251–16265, 2021. Choi, H.-Y. and Lee, S.-H. Streamflow: Streaming audio generation from discrete tokens via streaming flow match-ing. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2025. URL https: //openreview.net/forum?id=1cURNMriee .Chung, Y.-A., Zhang, Y., Han, W., Chiu, C.-C., Qin, J., Pang, R., and Wu, Y. W2v-bert: Combining contrastive learn-ing and masked language modeling for self-supervised speech pre-training. In 2021 IEEE Automatic Speech Recognition and Understanding Workshop (ASRU) , pp. 244–250. IEEE, 2021. D ´efossez, A., Copet, J., Synnaeve, G., and Adi, Y. High fidelity neural audio compression. Transactions on Machine Learning Research , 2023. ISSN 2835-8856. URL https://openreview.net/forum? id=ivCd8z8zR2 . Featured Certification, Repro-ducibility Certification. D ´efossez, A., Mazar ´e, L., Orsini, M., Royer, A., P ´erez, P., J ´egou, H., Grave, E., and Zeghidour, N. Moshi: a speech-text foundation model for real-time dialogue. 
+
+arXiv preprint arXiv:2410.00037 , 2024. Du, Z., Chen, Q., Zhang, S., Hu, K., Lu, H., Yang, Y., Hu, H., Zheng, S., Gu, Y., Ma, Z., et al. Cosyvoice: A scalable multilingual zero-shot text-to-speech synthesizer based on supervised semantic tokens. arXiv preprint arXiv:2407.05407 , 2024a. Du, Z., Wang, Y., Chen, Q., Shi, X., Lv, X., Zhao, T., Gao, Z., Yang, Y., Gao, C., Wang, H., et al. Cosyvoice 2: Scalable streaming speech synthesis with large language models. arXiv preprint arXiv:2412.10117 , 2024b. Du, Z., Gao, C., Wang, Y., Yu, F., Zhao, T., Wang, H., Lv, X., Wang, H., Ni, C., Shi, X., et al. Cosyvoice 3: Towards in-the-wild speech generation via scaling-up and post-training. arXiv preprint arXiv:2505.17589 , 2025. Gritsenko, A., Salimans, T., van den Berg, R., Snoek, J., and Kalchbrenner, N. A spectral energy distance for par-allel speech synthesis. Advances in Neural Information Processing Systems , 33:13062–13072, 2020. Gu, Y., Zhang, X., Xue, L., and Wu, Z. Multi-scale sub-band constant-q transform discriminator for high-fidelity vocoder. In ICASSP 2024-2024 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , pp. 10616–10620. IEEE, 2024. Guo, H.-H., Hu, Y., Liu, K., Shen, F.-Y., Tang, X., Wu, Y.-C., Xie, F.-L., Xie, K., and Xu, K.-T. Fireredtts: A foundation text-to-speech framework for industry-level generative speech applications. arXiv preprint arXiv:2409.03283 ,2024. 9ReGen: Hierarchical Multi-Prompt Representation Generation for Efficient Waveform Diffusion Models 
+
+Hai, J., Xu, Y., Zhang, H., Li, C., Wang, H., Elhilali, M., and Yu, D. Ezaudio: Enhancing text-to-audio genera-tion with efficient diffusion transformer. arXiv preprint arXiv:2409.10819 , 2024. He, H., Shang, Z., Wang, C., Li, X., Gu, Y., Hua, H., Liu, L., Yang, C., Li, J., Shi, P., et al. Emilia: An extensive, multi-lingual, and diverse speech dataset for large-scale speech generation. In 2024 IEEE Spoken Language Technology Workshop (SLT) , pp. 885–890. IEEE, 2024. Hsu, W.-N., Bolte, B., Tsai, Y.-H. H., Lakhotia, K., Salakhutdinov, R., and Mohamed, A. Hubert: Self-supervised speech representation learning by masked pre-diction of hidden units. IEEE/ACM transactions on audio, speech, and language processing , 29:3451–3460, 2021. Huang, R., Zhang, C., Wang, Y., Yang, D., Tian, J., Ye, Z., Liu, L., Wang, Z., Jiang, Z., Chang, X., et al. Make-a-voice: Revisiting voice large language models as scalable multilingual and multitask learners. In Proceedings of the 62nd Annual Meeting of the Association for Compu-tational Linguistics (Volume 1: Long Papers) , pp. 10929– 10942, 2024a. Huang, Z., Meng, C., and Ko, T. Repcodec: A speech representation codec for speech tokenization. In Proceed-ings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pp. 5777–5790, 2024b. Ji, S., Jiang, Z., Wang, W., Chen, Y., Fang, M., Zuo, J., Yang, Q., Cheng, X., Wang, Z., Li, R., Zhang, Z., Yang, X., Huang, R., Jiang, Y., Chen, Q., Zheng, S., and Zhao, Z. Wavtokenizer: an efficient acoustic discrete codec tokenizer for audio language modeling. In The Thirteenth International Conference on Learning Representations ,2025. URL https://openreview.net/forum? id=yBlVlS2Fd9 .Kharitonov, E., Vincent, D., Borsos, Z., Marinier, R., Gir-gin, S., Pietquin, O., Sharifi, M., Tagliasacchi, M., and Zeghidour, N. Speak, read and prompt: High-fidelity text-to-speech with minimal supervision. Transactions of the Association for Computational Linguistics , 11:1703– 1718, 2023. Koizumi, Y., Zen, H., Karita, S., Ding, Y., Yatabe, K., Morioka, N., Zhang, Y., Han, W., Bapna, A., and Bac-chiani, M. Miipher: A robust speech restoration model integrating self-supervised speech and text representa-tions. In 2023 IEEE Workshop on Applications of Signal Processing to Audio and Acoustics (WASPAA) , pp. 1–5. IEEE, 2023. Kong, J., Kim, J., and Bae, J. Hifi-gan: Generative ad-versarial networks for efficient and high fidelity speech synthesis. Advances in neural information processing systems , 33:17022–17033, 2020. Kumar, R., Seetharaman, P., Luebs, A., Kumar, I., and Ku-mar, K. High-fidelity audio compression with improved rvqgan. Advances in Neural Information Processing Sys-tems , 36:27980–27993, 2023. Le, M., Vyas, A., Shi, B., Karrer, B., Sari, L., Moritz, R., Williamson, M., Manohar, V., Adi, Y., Mahadeokar, J., et al. Voicebox: Text-guided multilingual universal speech generation at scale. Advances in neural informa-tion processing systems , 36, 2024. Lee, S.-g., Ping, W., Ginsburg, B., Catanzaro, B., and Yoon, S. BigVGAN: A universal neural vocoder with large-scale training. In The Eleventh International Conference on Learning Representations , 2023. URL https:// openreview.net/forum?id=iTtGCMDEzS_ .Lee, S.-H., Kim, S.-B., Lee, J.-H., Song, E., Hwang, M.-J., and Lee, S.-W. Hierspeech: Bridging the gap between text and speech by hierarchical variational inference us-ing self-supervised representations for speech synthesis. 
+
+Advances in Neural Information Processing Systems , 35: 16624–16636, 2022. Lee, S.-H., Choi, H.-Y., and Lee, S.-W. Accelerating high-fidelity waveform generation via adversarial flow match-ing optimization. arXiv preprint arXiv:2408.08019 , 2024. Lee, S.-H., Choi, H.-Y., and Lee, S.-W. Periodwave: Multi-period flow matching for high-fidelity waveform generation. In The Thirteenth International Confer-ence on Learning Representations , 2025. URL https: //openreview.net/forum?id=tQ1PmLfPBL .Liu, H., Xu, X., Yuan, Y., Wu, M., Wang, W., and Plumbley, M. D. Semanticodec: An ultra low bitrate semantic audio codec for general sound. IEEE Journal of Selected Topics in Signal Processing , 2024. Liu, P., Dai, D., and Wu, Z. Rfwave: Multi-band rectified flow for audio waveform reconstruction. In International Conference on Learning Representations , volume 2025, pp. 61078–61110, 2025. Loshchilov, I. and Hutter, F. Decoupled weight decay reg-ularization. In International Conference on Learning Representations , 2019. URL https://openreview. net/forum?id=Bkg6RiCqY7 .Parker, J. D., Smirnov, A., Pons, J., Carr, C., Zukowski, Z., Evans, Z., and Liu, X. Scaling transformers for low-bitrate high-quality speech coding. In The Thirteenth International Conference on Learning Representations ,2025. URL https://openreview.net/forum? id=4YpMrGfldX .10 ReGen: Hierarchical Multi-Prompt Representation Generation for Efficient Waveform Diffusion Models 
+
+Peebles, W. and Xie, S. Scalable diffusion models with transformers. In Proceedings of the IEEE/CVF interna-tional conference on computer vision , pp. 4195–4205, 2023. Peng, Z., Yu, J., Wang, W., Chang, Y., Sun, Y., Dong, L., Zhu, Y., Xu, W., Bao, H., Wang, Z., et al. Vibevoice technical report. arXiv preprint arXiv:2508.19205 , 2025. Polyak, A., Adi, Y., Copet, J., Kharitonov, E., Lakhotia, K., Hsu, W.-N., Mohamed, A., and Dupoux, E. Speech resynthesis from discrete disentangled self-supervised representations. In Interspeech 2021 , pp. 3615–3619, 2021. doi: 10.21437/Interspeech.2021-475. Pratap, V., Tjandra, A., Shi, B., Tomasello, P., Babu, A., Kundu, S., Elkahky, A., Ni, Z., Vyas, A., Fazel-Zarandi, M., et al. Scaling speech technology to 1,000+ languages. 
+
+Journal of Machine Learning Research , 25(97):1–52, 2024. Wang, S., Tian, Z., Huang, W., and Wang, L. Ddt: Decoupled diffusion transformer. arXiv preprint arXiv:2504.05741 , 2025a. Wang, X., Jiang, M., Ma, Z., Zhang, Z., Liu, S., Li, L., Liang, Z., Zheng, Q., Wang, R., Feng, X., et al. Spark-tts: An efficient llm-based text-to-speech model with single-stream decoupled speech tokens. arXiv preprint arXiv:2503.01710 , 2025b. Wang, Y., Chen, D., Zhang, X., Zhang, J., Li, J., and Wu, Z. Tadicodec: Text-aware diffusion speech tok-enizer for speech language modeling. arXiv preprint arXiv:2508.16790 , 2025c. Wang, Z., Zhao, W., Zhou, Y., Li, Z., Liang, Z., Shi, M., Zhao, X., Zhou, P., Zhang, K., Wang, Z., Wang, K., and You, Y. REPA works until it doesn’t: Early-stopped, holistic alignment supercharges diffusion train-ing. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2025d. URL https: //openreview.net/forum?id=HK96GI5s7G .Welker, S., Le, M., Chen, R. T. Q., Hsu, W.-N., Gerk-mann, T., Richard, A., and WU, Y.-C. Flowdec: Aflow-based full-band general audio codec with high per-ceptual quality. In The Thirteenth International Confer-ence on Learning Representations , 2025. URL https: //openreview.net/forum?id=uxDFlPGRLX .Xin, D., Tan, X., Takamichi, S., and Saruwatari, H. Big-codec: Pushing the limits of low-bitrate neural speech codec. arXiv preprint arXiv:2409.05377 , 2024. Yao, Z., Kang, W., Zhu, H., Guo, L., Ye, L., Kuang, F., Zhuang, W., Li, Z., Han, Z., Lin, L., et al. Flow2gan: Hybrid flow matching and gan with multi-resolution net-work for few-step high-fidelity audio generation. arXiv preprint arXiv:2512.23278 , 2025. Ye, Z., Sun, P., Lei, J., Lin, H., Tan, X., Dai, Z., Kong, Q., Chen, J., Pan, J., Liu, Q., Guo, Y., and Xue, W. Codec does matter: Exploring the semantic shortcom-ing of codec for audio language model. arXiv preprint arXiv:2408.17175 , 2024. Ye, Z., Zhu, X., Chan, C.-M., Wang, X., Tan, X., Lei, J., Peng, Y., Liu, H., Jin, Y., DAI, Z., et al. Llasa: Scaling train-time and inference-time compute for llama-based speech synthesis. arXiv preprint arXiv:2502.04128 , 2025. Yu, S., Kwak, S., Jang, H., Jeong, J., Huang, J., Shin, J., and Xie, S. Representation alignment for generation: Training diffusion transformers is easier than you think. In The Thirteenth International Conference on Learning Representations , 2025. URL https://openreview. net/forum?id=DJSZGGZYVi .Zeghidour, N., Luebs, A., Omran, A., Skoglund, J., and Tagliasacchi, M. Soundstream: An end-to-end neural audio codec. IEEE/ACM Transactions on Audio, Speech, and Language Processing , 30:495–507, 2021. Zen, H., Dang, V., Clark, R., Zhang, Y., Weiss, R. J., Jia, Y., Chen, Z., and Wu, Y. LibriTTS: A Corpus Derived from LibriSpeech for Text-to-Speech. In Proc. Interspeech 2019 , pp. 1526–1530, 2019. doi: 10.21437/Interspeech. 2019-2441. Zhang, X., Zhang, D., Li, S., Zhou, Y., and Qiu, X. Speech-tokenizer: Unified speech tokenizer for speech language models. In The Twelfth International Conference on Learning Representations , 2024. Zhang, X., Zhang, X., Peng, K., Tang, Z., Manohar, V., Liu, Y., Hwang, J., Li, D., Wang, Y., Chan, J., Huang, Y., Wu, Z., and Ma, M. Vevo: Controllable zero-shot voice imitation with self-supervised disentanglement. In 
+
+The Thirteenth International Conference on Learning Representations , 2025. URL https://openreview. net/forum?id=anQDiQZhDP .Zheng, B., Ma, N., Tong, S., and Xie, S. Diffusion trans-formers with representation autoencoders. arXiv preprint arXiv:2510.11690 , 2025. Zhou, Y., Zeng, G., Liu, X., Li, X., Yu, R., Wang, Z., Ye, R., Sun, W., Gui, J., Li, K., et al. Voxcpm: Tokenizer-free tts for context-aware speech generation and true-to-life voice cloning. arXiv preprint arXiv:2509.24650 , 2025. Zhu, H., Kang, W., Yao, Z., Guo, L., Kuang, F., Li, Z., Zhuang, W., Lin, L., and Povey, D. Zipvoice: Fast and high-quality zero-shot text-to-speech with flow matching. 
+
+arXiv preprint arXiv:2506.13053 , 2025. 11 ReGen: Hierarchical Multi-Prompt Representation Generation for Efficient Waveform Diffusion Models 
+
+## A. Implementation Details 
+
+Table 10. Hyperparameters of ReGen 
+
+Module Hyperparameter ReGenTokenizer/ReGenVAE ReGenVoice-S/ReGenVoice Encoder Input Dim. 1024 1024 (Causal Transformer) Hidden Dim. 4096 4096 Layer 8 6Head 16 16 FSQ/VAE Hz 25/12.5 -Dimension 8([4,4,4,4,4,4,4,4])/32 -Scale-DiT Input Dim. 1024 1024/1152 Hidden Dim. 4096 4096/4608 Layer (U-net like) [3,3,6,3,3] [4,10,4]/[6,12,6] Head 16 16/18 AdaLN AdaLN-SOLA (rank=32) AdaLN-SOLA (rank=32) Representation SSL MMS (7th layers) -Mel-spectrogram Hop 480 -Window 1920 -Bin 256 -Latent Dimension 32 Scaling 0.1 Pre-train Training Step 1M 1M Learning Rate 1 × 10 −4 1 × 10 −4
+
+Learning Scheduling Warm-up (3,000 steps) Warm-up (3,000 steps) Batch Size 256 256 Noise Scale (Wave, Mel, SSL) 0.25, 1, 0.25 1Segment Size 4s (96000 frames) 2-30s Limited Context Attention Window 4s -Audio/Token Drop 0.3/0.2 0.3/0.2 
+
+λregen 0.1 -
+
+λneg 0.01 0.01 
+
+λkl 1e-5 -Model Size 0.4B 0.3/0.5B Adversarial Post-training Training Step 0.5M -Learning Rate 2 × 10 −5 -Learning Scheduling - -Batch Size 128 -Segment Size 96000 -Limited Context Attention Window 96000 -Audio/Token Drop 0.3/0 -Weight of GAN Loss 1 -Weight of Feature Matching Loss 2 -Weight of STFT Loss 0-1 (Warmup) -
+
+λkl 1e-2 -
+
+We describe the hyper-parameters of ReGenTokenizer, ReGenVAE, and ReGenVoice in Table 10. For reproducibility, we will release all source code and checkpoints after paper notification. During pre-training of ReGenVAE, we regularize the latent by weak weight of KL loss(1e-5). Due to various losses for adversarial post-training, we utilize higher weight of KL loss (1e-2). For ReGenVoice, we utilize the scaled latent representations by multiplying 0.1 to target latent representation of ReGenVAE. Then, before fed to the decoder of ReGenVAE, we re-scale the generated latent by multiplying 10. 12 ReGen: Hierarchical Multi-Prompt Representation Generation for Efficient Waveform Diffusion Models  
+
+> Table 11. Synthesis speed for each model.
+
+Method Params. (M) Hz TPS Nq Stream. xRT( ↑)SpeechTokenizer (Zhang et al., 2024) 103M 16k 400 8 ✓ ×76.899 BigCodec (Xin et al., 2024) 159M 16k 80 1 ✗ ×21.472 X-codec2 (Ye et al., 2025) 822M 16k 50 1 ✗ ×14.026 StableCodec (Parker et al., 2025) 953M 16k 50 2 ✗ ×63.456 EnCodec (D´ efossez et al., 2023) 15M 24k 600 8 ✓ ×64.267 DAC (Kumar et al., 2023) 74M 24k 600 8 ✗ ×60.237 Mimi (D´ efossez et al., 2024) 79M 24k 100 8 ✓ ×45.538 WavTokenizer (Ji et al., 2025) 80M 24k 75 1 ✗ ×29.982 WavTokenizer (Ji et al., 2025) 80M 24k 40 1 ✗ ×32.494 
+
+ReGenTokenizer 402M 24k 25 1 ✓ ×72.356 
+
+## B. Synthesis Speed 
+
+We evaluate the synthesis speed relative to real-time (xRT) using an NVIDIA A100 GPU and report the model parameter size together. As shown in Table 11, our model achieves fast synthesis speed despite requiring four sampling steps for iterative generation. This efficiency is enabled by efficient waveform diffusion models (Wave-DiT) including linear-reshape transformation, diffusion at low-resolution (50 Hz), and AdaLN-SOLA.           
+
+> Table 12. Effect of prompted waveform generation
+> Models WER SPK-SIM (to Prompt) SPK-SIM (to GT)
+> ReGenVAE-Emilia (w/o Prompt) 2.04 0.65 0.86
+> ReGenVAE-Emilia (w Prompt) 2.09 0.73 0.87
+
+## C. Prompted Waveform Generation 
+
+We evaluate the effectiveness of prompt for zero-shot cross-sentence style transfer in Table 12. The results show that the latent of ReGenVAE already contains rich representations in terms of SPK-SIM (to GT). Furthermore, our new framework significantly improve the cross-sentence style transfer performance in terms of SPK-SIM (to Prompt). 
+
+## D. Limitation 
+
+While ReGen and GFM significantly improve the performance in low-bitrate and high-compress latent scenarios, our model still requires an adversarial post-training for better optimization and fast sampling speed. We see that there are still room for improvement to increase the capacity of waveform diffusion models without adversarial post-training. Recently, RAE (Zheng et al., 2025) adopts a wide decoupled diffusion Transformers (DDT) (Wang et al., 2025a) head for high-dimensional representation diffusion. We will apply the DDT head for waveform-level vector field estimation at low-resolution representation-level DiT. Furthermore, we have a plan to accelerate models via one-step generation using our hierarchical multi-prompting. 
+
+## E. Crowdsourcing Details 
+
+We conducted Mean Opinion Score (MOS) evaluations on a 5-point scale using crowdsourced listeners from Amazon Mechanical Turk. Each audio sample was independently rated by 20 native English speakers. MOS results in Table 2 were obtained from 208 utterances, and the ReGenVoice TTS evaluation used 300 samples randomly selected from the Seed-TTS dataset. To prevent unreliable scoring behavior, randomly inserted Gaussian noise samples were included as control items, and listeners who assigned high scores to these noise samples were excluded from the analysis. The total cost of all MOS evaluations was $550. 13
