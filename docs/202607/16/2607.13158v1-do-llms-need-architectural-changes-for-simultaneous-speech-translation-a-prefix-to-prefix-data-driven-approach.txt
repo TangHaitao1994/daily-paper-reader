@@ -1,0 +1,369 @@
+Title: Do LLMs Need Architectural Changes for Simultaneous Speech Translation? A Prefix-to-Prefix Data Driven Approach
+
+URL Source: https://arxiv.org/pdf/2607.13158v1
+
+Published Time: Thu, 16 Jul 2026 00:11:24 GMT
+
+Number of Pages: 7
+
+Markdown Content:
+# Do LLMs Need Architectural Changes for Simultaneous Speech Translation? A Prefix-to-Prefix Data Driven Approach 
+
+Junkun Chen, Jian Xue, Ming Tang, Abdel Heba, Hoda Gholami, Ruchao Fan, Jinyu Li 
+
+{junkunchen,jinyli }@microsoft.com 
+
+Microsoft, USA 
+
+Abstract —Simultaneous speech translation (SimulST) requires incremental translation under strict latency constraints, yet remains challenging for decoder-only LLM systems due to limited context and cross-lingual reordering. Recent approaches often introduce architectural changes or explicit read/write policies to control output timing, which can be brittle in conversa-tional speech where segmentation boundaries are ambiguous. We present a simple data-driven alternative: fixed-length chunks for cumulative streaming decoding with a rewind-based committed prefix, and teacher-labeled prefix-to-prefix (P2P) targets with bounded waiting for fine-tuning, yielding CSSEL-P2P, where CSSEL is our proposed chunked streaming speech encoder LLM. In our in-house conversational speech evaluation, CSSEL-P2P improves streaming quality by +1.54 COMETKiwi over the CSSEL streaming baseline at comparable latency (+0.15s Average Lagging), suggesting effective SimulST without architectural changes via P2P supervision. 
+
+Index Terms —Speech Translation, Simultaneous Translation, Speech-LLM. 
+
+I. I NTRODUCTION 
+
+Simultaneous speech translation (SimulST) enables real-time cross-lingual communication in applications such as meetings, live events, and customer support [1], [2]. In recent years, large language models (LLMs) have advanced rapidly and demonstrated strong performance for offline speech trans-lation when full utterance context is available [3]–[7]. Despite this progress, building LLM-based SimulST systems remains challenging because translation must be produced incremen-tally under strict latency constraints. The core objective is to achieve a favorable quality–latency trade-off. A fundamental difficulty in SimulST is cross-lingual re-ordering . Early speech prefixes often do not contain enough information to determine a faithful and fluent target prefix, especially for reordering-heavy directions. Consequently, ef-fective SimulST requires not only efficient decoding, but also learning when and what to translate under limited context. This observation has motivated a large body of work on explicit read/write control and latency-aware modeling. For example, fixed-latency strategies such as wait-k [8] provide a simple policy baseline, while learned policies and monotonic attention variants enable adaptive schedules [9]–[11]. In speech translation, additional complexity arises from the lack of clear segmentation boundaries in conversational audio. Disfluencies, pauses, interruptions, and variable speaking rates make fine-grained boundary decisions usually ambiguous and error-prone. As a result, approaches that rely on explicit segmentation, continuous trigger signals, or learned read/write policies can be brittle to deploy in realistic dialog settings. A related line of work adopts re-translation , repeatedly trans-lating a growing input from scratch and allowing revisions of intermediate outputs [12], [13]. More recently, LLM-based SimulST systems have reformulated SimulST as an interleaved generation problem with explicit read/write tokens and intro-duced dedicated policy heads to predict output timing. [14]– [16]. This landscape raises a simple question that directly moti-vates our work. Do decoder-only LLMs really need archi-tectural changes to work well for SimulST? We argue that, under a robust streaming interface, the dominant bottleneck is often data rather than architecture . Specifically, an offline-trained LLM is not trained to produce commit-ready partial translations from prefix-only speech inputs. Instead of adding policy modules or designing complex boundary detectors, we adopt a simple and direct strategy. We process the incoming speech using fixed-length chunks of ∆ seconds and perform cumulative streaming decoding. This fixed-chunk interface avoids the need to predict uncertain speech boundaries and provides a stable deployment abstraction. We further introduce a rewind boundary of length k to determine a committed prefix at each step, and only the committed prefix is emitted to the user. Crucially, we teach the model what to output at each prefix by constructing prefix-to-prefix (P2P) supervision with a teacher LLM. We obtain chunk-level transcriptions via forced alignment for labeling only . We then prompt a teacher LLM to plan a bounded-waiting schedule over the full chunk sequence, producing incremental translation prefixes that are smoothly extendable under reordering. These teacher-labeled prefixes define training targets for speech-prefix-to-prefix fine-tuning of a decoder-only LLM-based speech translation model. We evaluate on in-house conversational speech and report trans-lation quality with COMETKiwi [17] alongside latency with AL [18]. The results show that P2P fine-tuning substantially improves streaming quality at comparable latency, with larger gains on reordering-heavy directions. Our contributions are as follows.  
+
+> •
+
+We propose a simple fixed-chunk streaming recipe for decoder-only LLM-based speech translation, with explicit arXiv:2607.13158v1 [cs.CL] 14 Jul 2026 knobs (chunk size ∆ and rewind length k) to navigate the quality–latency frontier.  
+
+> •
+
+We introduce a teacher-driven prefix-to-prefix data con-struction method that produces incremental, commit-ready targets under bounded waiting. Fine-tuning on these targets teaches the model what to commit from prefix-only inputs and strengthens the streaming decoding behavior.  
+
+> •
+
+We demonstrate consistent improvements on in-house conversational speech across multiple directions in qual-ity, and provide trade-off analyses over ∆ and k.II. P RELIMINARIES 
+
+A. Offline vs. Streaming Speech Translation 
+
+Let s denote an utterance-level speech waveform, x its source-language transcription, and y the target-language trans-lation. In offline ST, the full utterance s is available before decoding, and the system outputs a translation y using com-plete acoustic and linguistic context. This setting allows the model to defer decisions and resolve ambiguity using future evidence (e.g., later words or clauses). In SimulST, the input arrives incrementally. At time t, only a speech prefix s≤t is observable, and the system produces an evolving translation prefix y≤t without access to any future speech. The model must therefore trade off latency and quality :emitting early improves simultaneity but may be error-prone under limited context; delaying output improves accuracy but increases latency. 
+
+B. Reordering Across Audio, Transcription, and Translation 
+
+A central challenge in SimulST is reordering between the source and target languages [19], [20]. While speech s unfolds temporally and its transcription x is revealed roughly left-to-right, the target translation y may require a different word order to be grammatical and natural. This implies that a target prefix is not necessarily a monotonic function of the source prefix. Formally, consider a sequence of growing source transcrip-tion prefixes {x≤1, x ≤2, . . . } derived from {s≤t1 , s ≤t2 , . . . }.Under strong reordering, early source prefixes may not contain enough information to determine a faithful and fluent transla-tion prefix. Premature commitment can lead to:  
+
+> •
+
+semantic errors due to unresolved ambiguity (e.g., pol-ysemy or missing arguments),  
+
+> •
+
+grammatical infelicities from incomplete structures, Conversely, always waiting for sufficient context results in high latency and poor simultaneity. Therefore, an effective SimulST system must learn when it is safe to commit transla-tion content and when it should wait for additional context. 
+
+C. Motivation for Chunk-Based Streaming and Prefix-to-Prefix Supervision 
+
+To achieve streaming decoding for ST, a common practice is to process the speech stream in fixed increments. At step i,the system observes a speech prefix s≤ti (or equivalently, the accumulation of the first i chunks) and outputs an updated translation [21]. This motivates a chunk-based streaming decoding approach, where the model is repeatedly invoked as the available speech context grows. However, chunk-based decoding alone does not solve the reordering problem: without appropriate training signals, the model may either revise earlier translations aggressively or delay excessively. A natural idea is to train the model with 
+
+prefix-to-prefix examples, where each training instance maps a source prefix to a target prefix that is valid without using future source context . Such supervision teaches the model to produce stable, monotonic outputs under streaming con-straints. Crucially, constructing P2P targets is non-trivial. Naively truncating an offline full-sentence translation to obtain target prefixes can produce unnatural partial outputs that implicitly rely on future context (especially under reordering) [22], leading to inconsistent training objectives. This motivates a more principled target construction strategy that explicitly models bounded waiting and produces smoother incremental translations. In the next section, we introduce (i) a simple cumulative chunk streaming decoding method with prefix anchoring to improve stability and quality, and (ii) a teacher-driven P2P data construction and fine-tuning procedure that strengths LLM-based simultaneous speech translation under reordering. III. M ETHOD 
+
+We propose processing streaming speech in fixed increments with chunk size ∆ seconds. At step i, the observed speech prefix is s≤ti where ti = i∆, and the system outputs a target translation prefix ˆy≤i. We target a no-revision streaming interface: once a translation prefix is emitted at step i, it must remain unchanged for all future steps. 
+
+A. Hard Prefix-Anchored Chunk Streaming Decoding 
+
+Our inference procedure adopts cumulative chunk decod-ing . At each step i, we invoke the model on the entire speech prefix s≤ti . Let yemit  
+
+> i
+
+as prefix committed at the previous step. We perform hard prefix-anchored decoding by forcing the decoder to start from yemit  
+
+> i
+
+and only generate an extension: 
+
+ˆy≤i = Decode( s≤ti ; prefix = yemit  
+
+> i
+
+). (1) This ensures monotonic growth of the output and eliminates revisions by construction. 
+
+1) Rewind-based prefix anchoring.: To avoid locking in unstable boundary decisions, at step i we rewind the last k
+
+tokens of the predicted output and only treat the remaining prefix as committed: 
+
+ˆy′≤i−1 = rewind(ˆ y≤i−1, k ), (2) 
+
+ˆy≤i = Decode( s≤ti ; prefix = ˆ y′≤i−1). (3) The rewind operation withholds the last k tokens from com-mitment rather than revising user-visible output. These tokens may be generated internally, but they are not displayed to the user and are not used as the hard prefix in the next step. Only Prefix -to -Prefix Data Generation 
+
+Input Speech     
+
+> ASR Segment
+> He will look up the dictionary...
+> Te acher LLM
+> {“source ”: “He will look ”,
+> “translation”: “
+> 他会 ”}…
+> [0 -1s]: “
+> 他会 ”
+> [0 -2s]: “
+> 他会 ”
+> [0 -3s]: “
+> 他会查字典 ”
+
+LLM Fine -Tuning 
+
+> Prefix -to -Prefix Fine -Tuning
+
+## LLM 
+
+Prefix -Anchored Streaming Decoding    
+
+> Audio [0 -1s]
+> Prefix:
+> Audio [0 -2s]
+> Prefix: “ 他会 ”
+> Audio [ 0-3s]
+> Prefix: “ 他会 ”
+> translation :“
+> 他会 ”
+> translation :“
+> 他会查字典 ”
+> translation :“
+> 他会 ”
+
+Fig. 1: Prefix-to-prefix supervision enables decoder-only LLMs for SimulST without architectural changes. A teacher LLM plans incremental, commit-ready translations from chunk-level transcriptions. The student LLM model is fine-tuned on these prefix targets and decoded online by anchoring on the emitted prefix while consuming cumulative audio chunks. the remaining prefix is emitted and committed. At the next step, decoding is anchored on this committed prefix, so all user-visible tokens remain fixed, while the hidden suffix can be regenerated after additional speech context becomes available. The detailed method is described in Alg. 1. After each step, the emitted prefix is a monotonic user-visible prefix and satisfies yemit  
+
+> i−1
+
+⪯ yemit  
+
+> i
+
+. The last k generated tokens form a hidden editable buffer and are excluded from the committed prefix. Therefore, the system remains revision-free from the user’s perspective, while still avoiding premature commitment near the hypothesis boundary. 
+
+2) Efficiency.: Adjacent steps share substantial overlap in the speech prefix. We can reuse cached computations when available, including encoder representations of historical speech segments and decoder KV states for the processed audio prefix, reducing recomputation overhead in streaming settings. 
+
+B. Teacher LLM Labeling for Commit-Ready Prefix Targets 
+
+Rewind-based decoding improves robustness at chunk boundaries, but the model can still make suboptimal early commitments if it has never been trained under prefix-only constraints. To address this, we construct commit-ready prefix targets using a teacher LLM, and fine-tune the student model accordingly. 
+
+1) Chunk-level transcriptions for labeling.: Using forced alignment, we obtain chunk-level source transcriptions 
+
+{x1, . . . , x T }, each corresponding to a fixed speech interval. These chunk transcriptions are used only for teacher label-ing: they provide a clean, text-based representation of what information is available at each time step. 
+
+2) Teacher planning with bounded waiting.: We prompt a strong instruction-following LLM as a teacher to mimic a professional simultaneous translator. During annotation, we provide the teacher with the entire sequence of chunks 
+
+{x1, . . . , x T }, enabling global planning. The teacher is in-structed to decide, for each chunk i, whether to translate im-mediately based only on the available prefix context (previous chunks and the current chunk), or to wait (output an empty translation) when context is insufficient. To bound latency, we impose a maximum waiting budget of K chunks: if the teacher has waited for K consecutive chunks, it must produce a translation at the next chunk. We set K = 3 in our experiment. The teacher outputs the corresponding translation per chunk: 
+
+(source = xi, translation = ˜ ti) Ti=1 , (4) where ˜ti is either a target translation or an empty string when waiting. The commit-ready prefix at step i is defined as: 
+
+˜y≤i = concat(˜ t1, . . . , ˜ti). (5) This produces incremental targets that are explicitly designed to be smoothly extendable under cross-lingual reordering. 
+
+3) Teacher Labeling Constraints: Although the teacher observes the full chunk sequence during annotation, it is in-structed to produce targets that simulate a causal simultaneous translator. For each step, the teacher must decide whether the available source prefix is sufficient for a faithful target continuation. If the current prefix is ambiguous or would force an unstable target-side word order, the teacher is allowed to wait by emitting an empty string. The maximum waiting budget K prevents the teacher from deferring translation indefinitely. This design uses the teacher’s global knowledge to construct a coherent schedule, while still producing prefix targets that respect a bounded-latency streaming interface. The resulting labels encode both lexical translation and emission Algorithm 1 Rewind-based Streaming Decoding 
+
+Require: Speech stream s; chunk size ∆; steps T ; rewind length k
+
+Ensure: Emitted outputs {yemit  
+
+> 1
+
+, . . . , y emit  
+
+> T
+
+} 
+
+> 1:
+
+ˆy0 ← ∅  
+
+> 2:
+
+yemit  
+
+> 0
+
+← ∅  
+
+> 3:
+
+C ← ∅ ▷ optional cache state  
+
+> 4:
+
+for i ← 1 to T do  
+
+> 5:
+
+ti ← i∆ 
+
+> 6:
+
+Observe cumulative speech prefix s≤ti 
+
+> 7:
+
+yanchor  
+
+> i−1
+
+← yemit  
+
+> i−1
+
+▷ emitted text as the anchored prefix  
+
+> 8:
+
+(ˆ yi, C) ← Decode( s≤ti ; prefix = yanchor  
+
+> i−1
+
+, C) 
+
+> 9:
+
+if i < T then  
+
+> 10:
+
+yemit  
+
+> i
+
+← rewind(ˆ yi, min( k, |ˆyi|))  
+
+> 11:
+
+else  
+
+> 12:
+
+yemit  
+
+> i
+
+← ˆyi ▷ emit full translation at the end  
+
+> 13:
+
+end if  
+
+> 14:
+
+Emit yemit  
+
+> i
+> 15:
+
+end for  
+
+> 16:
+
+return {yemit  
+
+> 1
+
+, . . . , y emit  
+
+> T
+
+}
+
+timing, but they require no architectural changes to the student model. 
+
+C. Speech-to-Text Prefix-to-Prefix Fine-Tuning 
+
+We finetune the LLM-based speech translation model with the teacher-constructed commit-ready prefix-to-prefix data. For each utterance and each step i, we create a training instance mapping the speech prefix to the teacher-defined translation prefix, {s≤ti , ˜y≤i}.We optimize standard token-level cross entropy to maximize the likelihood of ˜y≤i conditioned on s≤ti . Notably, the chunk transcriptions {xi} are not used as inputs to the student; the student learns to generate commit-ready prefixes directly from partial speech. At inference time, we apply the rewind-based decoding in Section III-A. Both training and inference operate on growing prefixes and aim to produce stable, monotonic outputs, making the fine-tuning objective well aligned with the streaming deployment setting. The whole pipeline is shown in Fig. 1. 
+
+D. Training–Inference Alignment 
+
+A key design principle of our approach is to align the fine-tuning target with the deployment-time streaming interface. In standard offline speech translation training, the model is optimized to generate a complete target sentence given the full source utterance. When the same model is used on partial speech prefixes, the target prefix implied by the offline reference may not be commit-ready: it may require future source context, contain premature lexical choices, or follow a word order that is only valid after observing the full utterance. Our P2P objective instead trains the model on pairs 
+
+(s≤ti , ˜y≤i), where the target prefix ˜y≤i is explicitly con-structed to be safe to emit under bounded waiting. This matches the inference-time constraint that the emitted prefix should grow monotonically and should not require substantive revision. As a result, P2P fine-tuning does not merely adapt the model to shorter audio inputs; it teaches the model a streaming behavior: when to emit, when to wait, and how to produce prefixes that remain extendable under future context. IV. E XPERIMENTS 
+
+A. Model and Training Data 1) Backbone and architecture.: Our LLM backbone is Phi-4-MM [23]. Different from the original design, we pro-cessed the audio input with a chunked streaming speech encoder [24] to better support incremental speech processing. The audio encoder processes speech with an 80 ms frame rate after temporal subsampling. We refer to the resulting model as CSSEL (Chunked Streaming Speech Encoding LLM). 
+
+Streaming speech encoder The encoder takes 80-dimensional log-Mel filterbank features extracted with a 10 ms frame shift. A convolutional front-end performs temporal sub-sampling, producing one acoustic frame every 80 ms, which are then processed by a stack of 12 Conformer blocks [25]. Each block uses an attention dimension of 1280 with 20 attention heads, a 4480-dimensional feed-forward layer, acausal depthwise convolution with kernel size 3, and Swish activations; relative positional encoding is used in the self-attention. To enable streaming, all convolutions are made causal and the self-attention is restricted by a chunk-wise attention mask : frames are grouped into fixed-size chunks (10 frames, i.e. 800 ms), and each frame attends only to frames within its own chunk and a bounded left context of 7 preceding chunks, with no access to future frames beyond the current chunk. This chunked masking bounds the look-ahead latency while still allowing a limited right context within a chunk, giving a controllable trade-off between recognition accuracy and streaming latency. 
+
+Offline Training data : CSSEL inherits the same language coverage as its Phi-4-MM. We first train CSSEL in the standard offline setting using a large-scale mixture of speech translation directions. Specifically, our offline corpus includes:  
+
+> •
+
+20k hours of X → En speech translation pairs,  
+
+> •
+
+20k hours of En → Y speech translation pairs,  
+
+> •
+
+3k hours of direct X → Y speech translation pairs. 
+
+Prefix-to-prefix fine-tuning data : To train CSSEL for si-multaneous translation, we additionally collect prefix-to-prefix supervision on a smaller, carefully constructed dataset. We sample 200 hours for each language pair of X → En and 
+
+En → X. We segment each utterance using a fixed chunk size of 4 seconds and obtain chunk-level transcriptions via forced alignment [26]. We then use GPT-o3-mini 1 as a teacher to annotate prefix-to-prefix translation targets following the bounded-waiting protocol described in Section III-B. These teacher-labeled prefix pairs are used for the prefix-to-prefix fine-tuning stage. We adopt a two-stage training recipe: (i) offline training on the large-scale corpus to obtain CSSEL ,                                                                                                          
+
+> 1https://openai.com/index/openai-o3-mini/ Direction Offline Streaming ( ∆ = 4 s)Phi-4-MM Gemini 3.0 CSSEL CSSEL CSSEL-P2P
+> EN →DE 68.89 67.29 69.01 68.34 69.37 EN →ES 67.88 66.99 68.31 67.97 68.62 EN →FR 68.11 67.75 68.82 68.08 69.56 EN →IT 70.75 69.42 70.38 69.63 70.95 EN →JA 71.98 74.51 72.41 69.46 73.42 EN →PT 66.09 65.45 66.14 65.69 67.08 EN →ZH 66.96 68.36 67.44 66.24 68.98 DE →EN 71.00 72.62 72.30 71.57 72.24 ES →EN 76.44 78.23 78.07 77.52 77.69 FR →EN 71.10 75.30 74.56 74.31 74.51 IT →EN 75.32 74.92 74.91 74.32 74.49 JA →EN 74.32 76.71 74.68 73.53 74.34 PT →EN 66.73 73.28 71.20 70.42 72.58 ZH →EN 70.07 73.66 70.88 70.02 71.08 ES →DE 68.11 67.44 68.24 67.21 68.45 FR →PT 68.22 70.05 69.09 68.61 70.07 IT →ZH 60.06 65.22 59.85 58.48 61.88 ZH →JA 61.03 70.40 61.07 59.82 63.76
+> Avg. 69.06 70.98 69.85 68.96 70.50
+> AL (s) ---2.19 2.34
+
+TABLE I: COMETKiwi performance across language direc-tions on in-house conversational speech. Offline denotes full-utterance decoding, while streaming results use cumulative chunk decoding with ∆ = 4 s and rewind length k = 5 . AL reports average lagging in seconds for streaming systems.             
+
+> 1.922.12.22.3
+> 68 .8
+> 69
+> 69 .2
+> 69 .4
+> k=1
+> k=3
+> k=5
+> Average Lagging (AL)
+> COMETKiwi
+> CSSEL-P2P EN →DE:
+> ∆ = 4 s, varying k
+> ∆ = 4 s
+> 1.822.22.42.6
+> 71 .2
+> 71 .4
+> 71 .6
+> 71 .8
+> ∆=2s
+> ∆=4s
+> ∆=6s
+> Average Lagging (AL)
+> COMETKiwi
+> CSSEL DE →EN:
+> k= 5 , varying ∆
+> k= 5
+
+Fig. 2: Quality–latency trade-offs (COMETKiwi vs. AL) on EN →DE and DE →EN. Left: varying rewind length ( k) at fixed ∆ = 4 s. Right: varying chunk size ∆ at fixed k=5. followed by (ii) P2P fine-tuning on the teacher-labeled 4s-chunk dataset to induce stable streaming behavior, yielding 
+
+CSSEL-P2P .We evaluated this work on in-house conversational speech corpora collected from real dialog scenarios. We report trans-lation quality using COMETKiwi 2 for all directions and all models for a consistent comparison. 
+
+2) Main Results: In Tab I, we report COMETKiwi on our in-house conversational speech across multiple directions. We include Phi-4-MM and Gemini 3.0 as reference systems. 
+
+> 2https://huggingface.co/Unbabel/wmt22-cometkiwi-da
+
+System IT →EN JA →EN PT →EN Avg. Phi-4-mini-MM 41.42 30.54 55.28 42.41 Whisper large-v2 30.90 26.10 51.60 36.20 GPT-4o 38.67 31.87 52.10 40.88 CSSEL offline 41.92 30.30 54.64 42.29 CSSEL streaming 39.68 27.52 51.65 39.62 CSSEL-P2P streaming 40.89 29.16 53.13 41.06 
+
+TABLE II: SacreBLEU results on a diagnostic CoVoST2 X→EN subset. Streaming systems use cumulative chunk de-coding with ∆ = 4 s and rewind length k = 5 .Since CSSEL is trained with an in-house data mixture and recipe that may differ in domain from the backbones, we focus our main comparisons on CSSEL vs. CSSEL-P2P 
+
+under the same streaming configuration. Under offline full-decoding, CSSEL achieves 69 .85 COMETKiwi on average, serving as a strong baseline. Switching to streaming decoding with ∆ = 4 s reduces CSSEL to 68.96, which is expected under limited context and a no-revision (prefix-anchored) interface. P2P finetuning substantially improves streaming de-coding, CSSEL-P2P reaches 70.50, a +1.54 gain over CSSEL streaming, while average lagging increases only from 2.19s to 2.34s ( +0.15 s). Gains are consistent across directions and are larger on reordering-heavy pairs, e.g., EN →JA (+3.96), EN →ZH (+2.74), and ZH →JA (+3.94). Notably, our prefix-to-prefix supervision is constructed only for X→EN and EN →X directions; however, we still observe improvements on X →Y directions that are not directly supervised (e.g., ZH →JA). This suggests that P2P finetuning primarily shapes general streaming decoding behavior, rather than language-pair-specific tuning. 
+
+3) Quality–Latency Trade-offs: Figure 2 analyzes quality– latency trade-offs on EN →DE and DE →EN. With ∆ = 4 s(left), increasing the rewind length k commits a shorter prefix and leaves a larger editable buffer, typically improving COMETKiwi at the cost of higher AL. With k = 5 (right), increasing chunk size ∆ exposes more context per step and improves quality while increasing latency. Together, k and ∆
+
+provide practical knobs to tune the quality–latency frontier for no-revision streaming translation. 
+
+B. Public-Set Diagnostic Evaluation 
+
+Beyond the in-house conversational evaluation, we further conduct a small diagnostic evaluation on CoVoST2 [27] X→EN using SacreBLEU [28], to check whether the same streaming behavior appears on a public test set. We focus on the relative trend under an identical model family and decoding setup. As shown in Table II, moving from offline CSSEL decoding to streaming decoding with ∆ = 4s and k = 5 reduces the average BELU score from 42.29 to 39.62, reflecting the expected cost of prefix-only context and committed-prefix decoding. P2P fine-tuning improves the streaming average to 41.06, recovering more than half of the offline-to-streaming degradation. The gains are consistent across all three evaluated directions: +1.21 on IT →EN, +1.64 on JA →EN, and +1.48 on PT →EN. 
+
+C. Discussion 
+
+The results suggest that the main benefit of P2P supervi-sion is behavioral: it teaches the model to avoid premature commitments and to produce prefixes that remain extendable as more speech arrives. This is complementary to architec-tural approaches for SimulST. Rather than predicting explicit read/write actions, our method encodes emission timing in the target prefixes themselves, allowing the same decoder-only generation interface to be used at inference time. The remaining limitations are the dependence on teacher-label quality and the need to tune ∆, k, and the waiting budget 
+
+K for different latency requirements. V. R ELATED WORK 
+
+Early work in simultaneous machine translation introduced the prefix-to-prefix formulation and controllable policies such as wait-k [8], while adaptive approaches further learned read/write behavior through monotonic attention or related mechanisms [9], [11]. These ideas were later adapted from text to end-to-end simultaneous speech translation, where speech-specific pre-decision, segmentation, and latency evaluation introduce additional challenges [1], [18]. A related line of work explores whether offline sequence-to-sequence models can be used effectively in online settings. Liu et al. pro-posed partial hypothesis selection for chunk-based incremental speech recognition and translation, reducing latency by select-ing stable partial outputs from growing speech chunks [29]. Pol´ ak et al. further showed that an offline speech translation model can be onlinized for simultaneous speech translation without modifying the original model [30]. Re-translation methods also repeatedly translate growing input prefixes and allow revisions, often providing strong baselines when output instability is acceptable [12], [31]. In contrast, our work targets a stricter no-revision user interface: once a prefix is emitted, it is committed, while only a bounded suffix is internally rewound before commitment. Another important direction is to improve the supervision signal for simultaneous translation. Since offline references are optimized for full-sentence translation, they can be poorly matched to low-latency generation, especially for language pairs with strong reordering. Prior work has addressed this is-sue by incorporating pseudo-references with fewer reorderings [22]. In [32], the authors extracted alignments between bilin-gual prefix pairs and used them to segment streaming input and fine-tune a simultaneous translation model. Our method follows the same general motivation that simultaneous systems need prefix-level supervision, but differs in two aspects: the supervision is constructed with a teacher LLM under bounded waiting, and the student is trained to map partial speech directly to commit-ready translation prefixes, without using chunk transcriptions as inputs at inference time. Recent LLM-based SimulST systems have also introduced architectural or policy-aware designs, including blockwise-causal speech encoding [16], multi-turn unbounded speech translation with cache management [15], and fully unidirectional architectures with explicit read/write prediction [33]. Our work is com-plementary to this trend: rather than adding policy heads, special read/write tokens, or new architectural pathways, we investigate whether fixed-chunk streaming decoding combined with teacher-labeled prefix-to-prefix supervision is sufficient to induce effective simultaneous speech translation behavior in a decoder-only speech LLM. VI. C ONCLUSION 
+
+We propose a simple data-driven approach that combines fixed-chunk cumulative streaming decoding with rewind-based committed prefixes and teacher-labeled prefix-to-prefix super-vision. By fine-tuning CSSEL on commit-ready incremental targets, CSSEL-P2P achieves substantially better streaming quality at comparable latency on in-house conversational speech, with larger gains on reordering-heavy directions. These results suggest that, under a robust fixed-chunk inter-face, prefix-to-prefix data construction and supervision can be a primary lever for enabling effective SimulST with decoder-only LLMs. In future work, we will explore broader teacher strategies, more principled target construction, and scaling prefix-to-prefix supervision to more languages and domains. VII. G ENERATIVE AI U SE DISCLOSURE 
+
+We used AI tools only for language polishing (grammar correction, spelling checks) and assisting in formatting and drawing LaTeX tables. All technical content, experiments, and conclusions were produced and verified by the authors. REFERENCES [1] X. Ma, J. Pino, and P. Koehn, “Simulmt to simulst: Adapting simul-taneous text translation to end-to-end simultaneous speech translation,” in Proceedings of the 1st Conference of the Asia-Pacific Chapter of the Association for Computational Linguistics and the 10th International Joint Conference on Natural Language Processing , 2020, pp. 582–587. [2] X. Ma, Y. Wang, M. J. Dousti, P. Koehn, and J. Pino, “Streaming simultaneous speech translation with augmented memory transformer,” in ICASSP 2021-2021 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) . IEEE, 2021, pp. 7523–7527. [3] J. Achiam, S. Adler, S. Agarwal, L. Ahmad, I. Akkaya, F. L. Aleman, D. Almeida, J. Altenschmidt, S. Altman, S. Anadkat et al. , “Gpt-4 technical report,” arXiv preprint arXiv:2303.08774 , 2023. [4] H. Touvron, L. Martin, K. Stone, P. Albert, A. Almahairi, Y. Babaei, N. Bashlykov, S. Batra, P. Bhargava, S. Bhosale et al. , “Llama 2: Open foundation and fine-tuned chat models,” arXiv preprint arXiv:2307.09288 , 2023. [5] A. Liu, B. Feng, B. Xue, B. Wang, B. Wu, C. Lu, C. Zhao, C. Deng, C. Zhang, C. Ruan et al. , “Deepseek-v3 technical report,” arXiv preprint arXiv:2412.19437 , 2024. [6] G. Team, A. Kamath, J. Ferret, S. Pathak, N. Vieillard, R. Merhej, S. Perrin, T. Matejovicova, A. Ram´ e, M. Rivi` ere et al. , “Gemma 3 technical report,” arXiv preprint arXiv:2503.19786 , 2025. [7] A. Yang, A. Li, B. Yang, B. Zhang, B. Hui, B. Zheng, B. Yu, C. Gao, C. Huang, C. Lv et al. , “Qwen3 technical report,” arXiv preprint arXiv:2505.09388 , 2025. [8] M. Ma, L. Huang, H. Xiong, R. Zheng, K. Liu, B. Zheng, C. Zhang, Z. He, H. Liu, X. Li et al. , “Stacl: Simultaneous translation with implicit anticipation and controllable latency using prefix-to-prefix framework,” in Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics , 2019, pp. 3025–3036. [9] N. Arivazhagan, C. Cherry, W. Macherey, C.-C. Chiu, S. Yavuz, R. Pang, W. Li, and C. Raffel, “Monotonic infinite lookback attention for simulta-neous machine translation,” in Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics , 2019, pp. 1313–1323. [10] C.-C. Chiu and C. Raffel, “Monotonic chunkwise attention,” arXiv preprint arXiv:1712.05382 , 2017. [11] X. Ma, J. Pino, J. Cross, L. Puzon, and J. Gu, “Monotonic multihead attention,” arXiv preprint arXiv:1909.12406 , 2019. [12] N. Arivazhagan, C. Cherry, W. Macherey, and G. Foster, “Re-translation versus streaming for simultaneous translation,” in Proceedings of the 17th International Conference on Spoken Language Translation , 2020, pp. 220–227. [13] N. Arivazhagan, C. Cherry, I. Te, W. Macherey, P. Baljekar, and G. Foster, “Re-translation strategies for long form, simultaneous, spoken language translation,” in ICASSP 2020-2020 IEEE International Con-ference on Acoustics, Speech and Signal Processing (ICASSP) . IEEE, 2020, pp. 7919–7923. [14] B. Fu, D. Yu, M. Liao, C. Li, Y. Chen, K. Fan, and X. Shi, “Efficient and adaptive simultaneous speech translation with fully unidirectional architecture,” arXiv preprint arXiv:2504.11809 , 2025. [15] S. Ouyang, X. Xu, and L. Li, “Infinisst: Simultaneous translation of unbounded speech with large language model,” in Findings of the Association for Computational Linguistics: ACL 2025 , 2025, pp. 3032– 3046. [16] S. Ouyang, X. Xu, C. Dandekar, and L. Li, “Fasst: Fast llm-based si-multaneous speech translation,” arXiv preprint arXiv:2408.09430 , 2024. [17] R. Rei, M. Treviso, N. M. Guerreiro, C. Zerva, A. C. Farinha, C. Maroti, J. G. De Souza, T. Glushkova, D. Alves, L. Coheur et al. , “Cometkiwi: Ist-unbabel 2022 submission for the quality estimation shared task,” in 
+
+Proceedings of the Seventh Conference on Machine Translation (WMT) ,2022, pp. 634–645. [18] X. Ma, M. J. Dousti, C. Wang, J. Gu, and J. Pino, “Simuleval: An evaluation toolkit for simultaneous translation,” in Proceedings of the 2020 Conference on Empirical Methods in Natural Language Process-ing: System Demonstrations , 2020, pp. 144–150. [19] Y. Ren, J. Liu, X. Tan, C. Zhang, T. Qin, Z. Zhao, and T.-Y. Liu, “Simulspeech: End-to-end simultaneous speech to text translation,” in Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics , 2020, pp. 3787–3796. [20] M. Omachi, B. Yan, S. Dalmia, Y. Fujita, and S. Watanabe, “Align, write, re-order: Explainable end-to-end speech translation via operation sequence generation,” in ICASSP 2023-2023 IEEE International Con-ference on Acoustics, Speech and Signal Processing (ICASSP) . IEEE, 2023, pp. 1–5. [21] J. Chen, M. Ma, R. Zheng, and L. Huang, “Direct simultaneous speech-to-text translation assisted by synchronized streaming asr,” in Findings of the Association for Computational Linguistics: ACL-IJCNLP 2021 ,2021, pp. 4618–4624. [22] J. Chen, R. Zheng, A. Kita, M. Ma, and L. Huang, “Improving simultaneous translation by incorporating pseudo-references with fewer reorderings,” in Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing , 2021, pp. 5857–5864. [23] A. Abouelenin, A. Ashfaq, A. Atkinson, H. Awadalla, N. Bach, J. Bao, A. Benhaim, M. Cai, V. Chaudhary, C. Chen et al. , “Phi-4-mini technical report: Compact yet powerful multimodal language models via mixture-of-LoRAs,” arXiv preprint arXiv:2503.01743 , 2025. [24] J. Xue, P. Wang, J. Li, M. Post, and Y. Gaur, “Large-scale streaming end-to-end speech translation with neural transducers,” arXiv preprint arXiv:2204.05352 , 2022. [25] A. Gulati, J. Qin, C.-C. Chiu, N. Parmar, Y. Zhang, J. Yu, W. Han, S. Wang, Z. Zhang, Y. Wu, and R. Pang, “Conformer: Convolution-augmented Transformer for speech recognition,” in Proc. Interspeech ,2020. [26] R. Rousso, E. Cohen, J. Keshet, and E. Chodroff, “Tradition or innova-tion: A comparison of modern asr methods for forced alignment,” arXiv preprint arXiv:2406.19363 , 2024. [27] C. Wang, A. Wu, J. Gu, and J. Pino, “Covost 2 and massively mul-tilingual speech translation,” Proc. Interspeech 2021 , pp. 2247–2251, 2021. [28] M. Post, “A call for clarity in reporting BLEU scores,” in 
+
+Proceedings of the Third Conference on Machine Translation: Research Papers . Belgium, Brussels: Association for Computational Linguistics, Oct. 2018, pp. 186–191. [Online]. Available: https: //www.aclweb.org/anthology/W18-6319 [29] D. Liu, G. Spanakis, and J. Niehues, “Low-latency sequence-to-sequence speech recognition and translation by partial hypothesis selection,” in 
+
+Proceedings of Interspeech 2020 , 2020, pp. 3620–3624. [30] P. Pol´ ak, N.-Q. Pham, T. N. Nguyen, D. Liu, C. Mullov, J. Niehues, O. Bojar, and A. Waibel, “CUNI-KIT system for simultaneous speech translation task at IWSLT 2022,” in Proceedings of the 19th Inter-national Conference on Spoken Language Translation (IWSLT 2022) .Dublin, Ireland: Association for Computational Linguistics, 2022, pp. 277–285. [31] N. Arivazhagan, C. Cherry, W. Macherey, and G. Foster, “Re-translation versus streaming for simultaneous translation,” in Proceedings of the 17th International Conference on Spoken Language Translation ,M. Federico, A. Waibel, K. Knight, S. Nakamura, H. Ney, J. Niehues, S. St¨ uker, D. Wu, J. Mariani, and F. Yvon, Eds. Online: Association for Computational Linguistics, Jul. 2020, pp. 220–227. [Online]. Available: https://aclanthology.org/2020.iwslt-1.27/ [32] Y. Kano, K. Sudoh, and S. Nakamura, “Simultaneous neural machine translation with prefix alignment,” in Proceedings of the 19th Inter-national Conference on Spoken Language Translation (IWSLT 2022) .Dublin, Ireland: Association for Computational Linguistics, 2022, pp. 22–31. [33] B. Fu, D. Yu, M. Liao, C. Li, Y. Chen, K. Fan, and X. Shi, “Efficient and adaptive simultaneous speech translation with fully unidirectional architecture,” arXiv preprint arXiv:2504.11809 , 2025.
