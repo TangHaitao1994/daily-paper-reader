@@ -6,40 +6,31 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-17
-- 运行时间：2026-07-17 21:20:51 UTC
+- 最新运行日期：2026-07-18
+- 运行时间：2026-07-18 21:13:39 UTC
 - 运行状态：成功
-- 本次总论文数：6
-- 精读区：3
-- 速读区：3
+- 本次总论文数：3
+- 精读区：2
+- 速读区：1
 
 ### 今日简报（AI）
-今日聚焦语音AI落地，从俄语对话语料库到真实世界评测框架齐亮相。  
-最值得关注的是Dialogs俄语情感对话数据集与RW-Voice-EQ真实语音评测基准，为多语言助手和可靠测评打下双重地基。  
-想快速尝鲜可围观SLT 2026真实场景说话人提取挑战，或用大模型反馈调教文生音频指令跟随。
-- 详情：[/202607/17/README](/202607/17/README)
+今日精读两篇高分研究：让AI听懂人类的纠结与迟疑，以及对真实世界语音助手进行硬核测评。  
+最值得关注的是：CF-Net 用冲突融合与说话人归一化捕获矛盾心理，RW-Voice-EQ 首次带来涵盖噪声、口音等复杂场景的语音AI基准。  
+建议读者从“情感不确定性识别”和“语音系统现实挑战”两个视角追踪这波进展。
+- 详情：[/202607/18/README](/202607/18/README)
 
 ### 精读区论文标签
-1. [Dialogs: a studio-quality expressive conversational Russian speech corpus for dialog assistants](/202607/17/2607.14310v1-dialogs-a-studio-quality-expressive-conversational-russian-speech-corpus-for-dialog-assistants)  
+1. [CF-Net: Conflict Fusion with Speaker Normalisation and Certainty Weighting for Ambivalence/Hesitancy Recognition](/202607/18/2607.13976v1-cf-net-conflict-fusion-with-speaker-normalisation-and-certainty-weighting-for-ambivalencehesitancy-recognition)  
    标签：评分：9.0/10、query:speech-model
-   evidence：用于TTS的工作室质量对话语音语料库，展示增强的自然度
-2. [RW-Voice-EQ Bench: A Real World Benchmark for Evaluating Voice AI Systems](/202607/17/2607.14846v1-rw-voice-eq-bench-a-real-world-benchmark-for-evaluating-voice-ai-systems)  
+   evidence：多模态网络融合视觉、音频和文本特征进行矛盾识别
+2. [RW-Voice-EQ Bench: A Real World Benchmark for Evaluating Voice AI Systems](/202607/18/2607.14846v1-rw-voice-eq-bench-a-real-world-benchmark-for-evaluating-voice-ai-systems)  
    标签：评分：9.0/10、query:speech-model
-   evidence：覆盖TTS、STS、SU、ASR的多维基准实现语音AI整体评估
-3. [Video = World + Event Stream](/202607/17/2607.15038v1-video--world--event-stream)  
-   标签：评分：8.0/10、query:speech-model
-   evidence：融合语音和声音的视频+音频多模态预训练模型
+   evidence：多维语音AI基准，评估TTS、STS、SU、ASR
 
 ### 速读区论文标签
-1. [Improving Text-to-Audio Instruction Following via Fine-Grained Feedback from Audio-Aware Large Language Models](/202607/17/2607.13408v1-improving-text-to-audio-instruction-following-via-fine-grained-feedback-from-audio-aware-large-language-models)  
+1. [Every Sample Counts: Supervised Fine-Tuning of Language Models with Pointwise Constraints](/202607/18/2607.08968v1-every-sample-counts-supervised-fine-tuning-of-language-models-with-pointwise-constraints)  
    标签：评分：7.0/10、query:speech-model
-   evidence：利用音频感知大语言模型作为裁判改善文本到音频生成中的指令遵循
-2. [SLT 2026 REAL-TSE Challenge: Real-world Target Speaker Extraction from Conversational Recordings](/202607/17/2607.15198v1-slt-2026-real-tse-challenge-real-world-target-speaker-extraction-from-conversational-recordings)  
-   标签：评分：7.0/10、query:speech-model
-   evidence：从真实对话录音中提取目标说话人，作为ASR等语音处理的前端
-3. [Efficient Text-to-Audio Generation via Pruning](/202607/17/2607.13330v1-efficient-text-to-audio-generation-via-pruning)  
-   标签：评分：6.0/10、query:speech-model
-   evidence：剪枝用于高效的文本到音频生成，可应用于语音合成效率
+   evidence：提出逐点约束的监督微调方法，可提升语音模型训练的先进性
 
 
 <div class="dpr-home-promo-card">
