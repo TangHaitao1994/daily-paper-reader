@@ -1,0 +1,295 @@
+Title: Cross-Layer Error Compensation and Finite-Sample Feature-Statistics Matching for Extreme Low-Bit Quantization of Large Language Models
+
+URL Source: https://arxiv.org/pdf/2607.14630v1
+
+Published Time: Fri, 17 Jul 2026 00:39:46 GMT
+
+Number of Pages: 10
+
+Markdown Content:
+# Cross-Layer Error Compensation and Finite-Sample Feature-Statistics Matching for Extreme Low-Bit Quantization of Large Language Models 
+
+Ryo Noda 
+
+ryounaman19@gmail.com 
+
+July 2026 
+
+Abstract 
+
+Layer-wise post-training quantization (PTQ) of large language models (LLMs) minimizes each layer’s local reconstruction error in isolation, which allows quantization errors to accumulate across depth and causes severe degradation in extreme low-bit regimes. We formulate quantization as a joint optimization over the discrete codes and scales of all layers, driven by two mechanisms: (i) cross-layer error compensation , which maintains the network-level accumulated error through the recursion el+1 = Alel + ql, where Al is a propagation operator derived from the layer’s input differential and ql is the local quantization residual evaluated at teacher features; and (ii) finite-sample feature-statistics matching , which aligns means, projected covariances, and centered empirical kernels between the full-precision and quantized networks under relative normalization. We prove that when the propagation operator is instantiated as a finite difference of the quantized network, the recursion is exact for arbitrary nonlinear layers, which connects the abstract operator formulation to an efficient forward-difference implementation. For binary weights we optimize latent variables via a mirror-descent parameterization u = tanh (βz ) with an annealed inverse temperature and a group-wise log-scale. On Qwen2.5-1.5B with 1.125-bit group-binary weights (group size 128, transformer blocks only), error compensation alone reaches a perplexity ratio of 9 .56 ± 0.15 over the FP16 teacher, outperforming logit distillation (14 .09 ± 0.53; 32% relative, > 8σ over 3 seeds) and layer-local reconstruction (ratio ∼ 1.4 × 10 3) by two orders of magnitude. The same objective transfers unchanged to 4-bit integer quantization (1 .060 ± 0.002 vs. 1 .088 ± 0.003 for layer-local), indicating that the mechanism is independent of the discrete value set. Out-of-domain evaluations (C4, CNN/DailyMail) show that the quality advantage of error compensation grows off-domain, while statistics matching keeps the feature-statistics discrepancy low off-domain (0 .42–0 .88 vs. 1 .41–2 .99 without it) at a modest quality cost, revealing a complementary division of labor between the two mechanisms. We release the equation-level unit tests and the exact training configurations used in all experiments. 
+
+Note. The methods described in this paper are the subject of a pending patent application. This manuscript is intended for public disclosure after the filing date. 
+
+# 1 Introduction 
+
+Extreme low-bit quantization—in particular binary (1-bit) and sub-2-bit representations—is the most aggressive form of LLM weight compression: a 1.125-bit group-binary representation retains only 7 .0% of the FP16 weight footprint. The dominant PTQ paradigm, exemplified by GPTQ [ 1]and its successors, quantizes one layer (or one block [ 2]) at a time by minimizing a local output-reconstruction error. This layer-local view has a well-known blind spot: the error committed by layer 1arXiv:2607.14630v1 [cs.NE] 16 Jul 2026 l perturbs the input of layer l + 1, and these perturbations compound with depth. Recent work has begun to address error accumulation—QEP [ 4] propagates quantization errors into the calibration of subsequent layers, YAQA [ 5] sketches network-level Hessians to guide per-layer rounding, and TurboBoA [ 6] and ResComp [ 7 ] refine the compensation rules of the GPTQ family. All of these methods, however, are sequential-commit procedures: each layer’s codes are finalized once, in order, and information available only after later layers are quantized never flows back to earlier decisions. This paper develops and empirically validates a different design point: a joint objective over the discrete variables of all layers, organized around an explicit state variable—the accumulated error—that is updated by a linear recursion and can be driven toward cancellation by the optimizer. Concretely, our contributions are: 1. A recursive accumulated-error objective (Section 3.2). We define a propagation operator 
+
+Al from the layer’s input differential, a local quantization residual ql evaluated at teacher features, and the recursion el+1 = Alel + ql. We prove an exactness lemma: with the finite-difference instantiation of Al on the quantized network, the recursion equals the true feature deviation for arbitrary nonlinear layers, not merely to first order (Lemma 1). This licenses an efficient implementation that never forms a Jacobian. 2. Finite-sample statistics matching under relative normalization (Section 3.3). We match means, random-projected covariances, and centered empirical kernels between teacher and quantized features, normalized by the teacher’s own statistics so that layers of different scales contribute comparably, and we monitor the same quantity ( EGE ) as an equivalence metric at evaluation time. 3. A mirror-descent latent parameterization for binary codes (Section 3.4). Binary codes are produced by u = tanh (βz ) with an annealed β and a hard-forward finishing phase; we show this is exactly mirror descent under a binary-entropy mirror map and give the initialization that reproduces the teacher’s signs and magnitudes. 4. Controlled ablations with pre-registered seeds (Section 4). On a 1.5B-parameter model we isolate each mechanism at 1.125 bits and at 4.125 bits, evaluate in-domain and out-of-domain, and report all results, including the negative finding that statistics matching is not a quality driver. 
+
+# 2 Related Work 
+
+Layer-wise PTQ and error compensation. GPTQ [ 1] minimizes per-layer reconstruction error with second-order column updates; BRECQ [ 2 ] extends the unit to blocks; AdaRound [ 3 ]learns up/down rounding within a layer. QEP [ 4] explicitly propagates quantization errors and compensates for accumulated errors during sequential layer-wise PTQ, and reports the largest gains in the extremely low-bit regime; TurboBoA [ 6 ] adds a correction for errors propagated from preceding layers without backpropagation; ResComp [ 7] identifies a compensation-aware error term inside the GPTQ update; YAQA [ 5 ] uses Kronecker-factored sketches of layer Hessians taken with respect to the network output. Our method differs structurally from this entire family: the codes of all layers remain free variables of a single objective, the accumulated error is an explicit state of a recursion rather than an adjustment to calibration inputs, and later-layer information flows back into earlier-layer updates. 2Binary and near-binary LLMs. BinaryConnect [ 8 ] and XNOR-Net [ 9] established latent full-precision weights with sign forward passes and scale factors ( s = mean |W |). BitNet [ 10 ] and BitNet b1.58 [ 11 ] train 1-bit/ternary LLMs from scratch; OneBit [ 12 ] converts pretrained models with a sign– value decomposition and distillation; BiLLM [ 13 ] performs salience-aware binary PTQ; FBI-LLM [ 14 ]trains fully binarized LLMs from scratch via autoregressive distillation while keeping the embedding and the causal head in full precision. We use the standard latent-weight machinery but embed it in the joint cross-layer objective above; our experiments quantize all transformer-block linear layers and keep embedding/LM head in FP16, matching the common setting of the conversion-based literature. 
+
+Feature and relation distillation for quantization. FAQD [ 19 ] matches feature affinities on label-free data; ZeroQ [ 20 ] matches batch-norm statistics to synthesize calibration data; classical KD [ 21 ] matches logits. Our statistics term differs in its finite-sample, relative-normalized construction and, more importantly, in the role our experiments assign to it: it is an equivalence-preserving 
+
+regularizer rather than a quality driver. 
+
+Discrete optimization for quantization. ProxQuant [ 15 ] uses proximal operators toward quantized sets; Ajanthan et al. [ 16 ] formulate quantization as mirror descent and derive tanh -type maps; QuIP# [ 17 ] and SpinQuant [ 18 ] precondition weights by Hadamard/learned rotations. Our contribution here is not the mirror map itself but its integration with a group-wise log-scale, an annealing schedule with sign-fixing criteria, and the joint cross-layer objective. 
+
+# 3 Method 
+
+3.1 Group-wise discrete parameterization 
+
+Let W ∈ Rm×n be a weight matrix. We partition each row into groups of G consecutive entries and represent cW = s ⊙ q, q ∈ D m×n, (1) where D is a finite value set and s > 0 is one scale per group, broadcast within the group. For binary quantization D = {− 1, +1 } and the storage cost is 1 + 16 /G bits per weight (1 .125 bits at G = 128 with FP16 scales); for INT4, D = {− 8, . . . , 7} and the cost is 4 .125 bits. All derivations below are agnostic to D.
+
+3.2 Cross-layer error dynamics 
+
+Write the full-precision (teacher) network as a composition of layer maps hl+1 = Fl(hl) and the quantized network as bhl+1 = bFl(bhl), with shared input h0 = bh0 = x. Define the deviation el := bhl −hl.Two quantities localize how error is created and transported: 
+
+ql := bFl(hl) − Fl(hl) (local quantization residual, at teacher features) , (2) 
+
+Al := ∂F l
+
+∂h hl
+
+(propagation operator, input differential) . (3) Expanding bhl+1 − hl+1 = bFl(hl + el) − Fl(hl) to first order in el gives the recursion 
+
+el+1 = Al el + ql, e0 = 0 . (4) Equation (4) exposes the design principle: the optimizer can choose later-layer residuals ql that 
+
+cancel the propagated term Alel, which is impossible if each ql is minimized in isolation. The 3operator Al never needs to be materialized: Jacobian–vector products, low-rank sketches, or the finite differences below all suffice. In practice we do not run the recursion with the teacher Jacobian. The following lemma shows that a specific instantiation makes (4) exact and reduces it to a forward difference. 
+
+Lemma 1 (Exactness of the quantized finite-difference propagation) . Instantiate the propagation operator as the finite-difference map of the quantized layer, bAl(e) := bFl(hl + e) − bFl(hl). Then the recursion el+1 = bAl(el) + ql with e0 = 0 satisfies el = bhl − hl exactly for every l and for arbitrary (nonlinear) layer maps. Proof. Induction on l. The base case is e0 = 0 = bh0 − h0. Assume el = bhl − hl, i.e., hl + el = bhl.Then 
+
+el+1 = bAl(el) + ql =  bFl(hl + el) − bFl(hl) +  bFl(hl) − Fl(hl) = bFl(bhl) − Fl(hl) = bhl+1 − hl+1 .
+
+Corollary 1. Minimizing ∥eL∥2 with the recursion of Lemma 1 is identical to minimizing the squared deviation of final-layer features computed by two forward passes. If instead the teacher-side finite difference Al(e) = Fl(hl + e) − Fl(hl) is used, (4) holds to first order in el, consistent with the Jacobian definition (3) .
+
+The corollary matters for implementation: the exact accumulated error of a 1 .5B-parameter model can be obtained with one extra forward pass, and the resulting loss 
+
+LE = Ex
+
+"
+
+∥eL(x)∥22
+
+∥hL(x)∥22 + ϵ
+
+#
+
+(5) (relative normalization; identity readout) trains all layers’ codes and scales jointly through automatic differentiation. We verified Lemma 1 numerically on random linear networks to 10 −10 absolute tolerance (Section 4.5). 
+
+3.3 Finite-sample feature-statistics matching 
+
+Let H, bH ∈ Rn×d collect n token features of a chosen layer from the teacher and the quantized network on the same inputs, with means μ, bμ. With a fixed random projection R ∈ Rd×k (k=64, entries N (0 , 1/k )), define centered projections P = ( H − μ)R, bP = ( bH − bμ)R and the centered empirical kernel K = 1 
+
+> d
+
+(H − μ)( H − μ)⊤. The statistics loss on one layer is 
+
+D = ∥bμ − μ∥22
+
+∥μ∥22 + ϵ
+
+| {z }
+
+> Dμ
+
++
+
+bC − C 2
+
+> F
+
+∥C∥2 
+
+> F
+
++ ϵ
+
+| {z }
+
+> DC
+
++
+
+bK − K 2
+
+> F
+
+∥K∥2 
+
+> F
+
++ ϵ
+
+| {z }
+
+> DK
+
+, C = 1 
+
+> n−1
+
+P⊤P, (6) and LGE averages D over a layer set S (every L/ 4 blocks plus the final block). The relative normalization makes deep and shallow layers commensurable and keeps the loss dimensionless. The same quantity evaluated on held-out data, denoted EGE , serves as a statistical-equivalence metric :
+
+EGE ≈ 0 certifies that first- and second-order feature statistics and token-relation structure of the teacher survive quantization. We emphasize a scope statement: (6) is a finite-sample, functional criterion, not a claim of mathematical equivalence of the two networks. For completeness we also report centered linear CKA [ 22 ] in the code base; note that independent d-dimensional representations exhibit a positive CKA bias of order r/n , which our unit tests reproduce (Appendix C). 43.4 Latent binary codes as mirror descent 
+
+Each binary group is parameterized by latent variables z and a log-scale r = log s:
+
+cW = s u, u = tanh( βz ), (7) with initialization chosen to reproduce the teacher exactly at β = β0:
+
+s0 = mean |Wgroup |, z0 = 1
+
+β0
+
+artanh  clip( W/s 0, ±ρ), ρ = 0 .95 . (8) 
+
+Mirror-descent interpretation. Let ψβ (u) = 1
+
+> β
+
+ 1+ u 
+
+> 2
+
+log 1+ u 
+
+> 2
+
++ 1−u 
+
+> 2
+
+log 1−u
+
+> 2
+
+ be the (scaled) binary-entropy mirror map on ( −1, 1). Then ∇ψβ (u) = artanh (u)/β and its convex conjugate satisfies ∇ψ∗ 
+
+> β
+
+(z) = tanh (βz ) (Appendix A). Gradient descent on z with the reparameterization (7) is therefore exactly mirror descent on the primal u ∈ (−1, 1): the dual variable accumulates gradients, and the mirror map squashes the iterate back into the box. Increasing β sharpens the map so that the primal iterates approach the binary vertices {± 1}; we anneal β : 1 → 16 exponentially over training. In the final 20% of steps the forward pass uses sign (z) (hard-forward) while gradients flow through the tanh surrogate, and the final codes are B = sign (z). Two diagnostics govern sign freezing: the flip rate Rflip (fraction of sign changes per interval) and the softness Rsoft = E|u − sign (z)|; measured terminal values in our runs were Rflip ≈ 3 × 10 −4 and Rsoft ≈ 0.028. The ℓ∞ box view is equivalent: 
+
+su lives in [ −s, +s] per weight, the vertex-inducing pressure comes from the sharpened map, and a positive lower bound on s (enforced by the log parameterization) prevents scale collapse. 
+
+3.5 Total objective and ablation switches 
+
+The training objective is 
+
+J = λE LE + λGE LGE + λDLKD , (9) where LKD is a temperature-τ KL on the teacher’s top-k logits ( k= 256, τ = 2), used only in distillation conditions. Setting subsets of coefficients to zero yields the ablation conditions of Section 4; e.g., error compensation alone is λGE = λD = 0. 
+
+# 4 Experiments 
+
+4.1 Setup 
+
+Model and quantization scope. Qwen2.5-1.5B [ 23 ]; all 196 linear matrices of the transformer blocks ( ≈ 1.31 × 10 9 parameters) are quantized; embedding and LM head remain FP16. Group size G=128 (1.125 bits/weight; quantized-part capacity 184 .2 MB, 7 .0% of FP16). Data. Calibra-tion: WikiText-2 [ 24 ] train, 0 .13M tokens. Training: 1 ,000 steps × batch 8 × length 512 (4 .1M tokens). Evaluation: WikiText-2 test (33K tokens); OOD evaluation uses C4 [ 25 ] (validation) and CNN/DailyMail (articles). Optimization. AdamW; learning rates 5 × 10 −4 (z) and 5 × 10 −3
+
+(log s); β : 1 → 16; hard-forward for the last 20%. INT4 runs use 300 steps with learning rates 2 × 10 −5 (latent weights) and 5 × 10 −4 ( log s), reflecting the raw scale of INT4 latents. Protocol. 
+
+Seeds {1234 , 2025 , 7} were fixed before any result was observed and never changed; every completed run is reported. Results are mean ± standard deviation over seeds. Teacher perplexity: 11 .951 (WikiText-2), 16 .18 (C4), 14 .70 (CNN/DailyMail). One binary condition-seed takes ≈ 9 minutes on a single A100. 
+
+Conditions. (A) RTN: B = sign (W ), s = mean |W |, no training; (B) layer-local output reconstruction (each layer independently); (G) logit distillation only; (C) statistics matching only 5Table 1: Binary quantization of Qwen2.5-1.5B (3 seeds, mean ±sd). PPL ratio is validation perplexity divided by the FP16 teacher’s (11 .951). EGE is the statistics discrepancy (6) on held-out data (lower is better). Condition PPL ratio EGE 
+
+(A) RTN (no training) ∼ 2.2 × 10 9 —(B) layer-local reconstruction ∼ 1.4 × 10 3 —(G) logit distillation only 14 .09 ± 0.53 1.56 ± 0.07 (C) statistics matching only 262 ± 47 0.29 ± 0.09 
+
+(D) accumulated error only 9.56 ± 0.15 1.41 ± 0.12 (E) combination (C)+(D) 11 .50 ± 0.20 0.48 ± 0.24 Table 2: INT4 group quantization, same teacher and protocol (3 seeds, mean ±sd; PPL ratio vs. teacher). Condition PPL ratio (a) nearest rounding 1.201 ± 0.000 (b) layer-local 1.088 ± 0.003 (c) statistics only 1.176 ± 0.006 (d) accumulated error only 1.060 ± 0.002 
+
+(e) combination 1.060 ± 0.003 (λE =λD=0); (D) accumulated-error loss only ( λGE =λD=0); (E) combination of (C)+(D) with 
+
+λGE =0 .1. 
+
+4.2 Binary ablation (1.125 bits/weight) 
+
+Table 1 isolates each mechanism. Three observations. (i) Joint error compensation is the quality engine. (D) beats layer-local reconstruction (B) by more than two orders of magnitude and logit distillation (G) by 32% relative; the (D)–(G) gap exceeds 8 σ and the ordering is preserved in every seed. Since (B) is precisely the “minimize each ql in isolation” strategy, the (B) vs. (D) gap is a direct measurement of the value of the cancellation structure in (4) . (ii) Statistics matching is not a quality driver. (C) alone collapses perplexity (ratio 262) yet achieves the best EGE of all conditions—the two metrics dissociate. (iii) The combination inherits both. (E) sits near (D) in quality and near (C) in statistical equivalence; neither single mechanism achieves this pair. This is a functional interaction rather than an additive aggregation: the direction that preserves statistics is, by (C), catastrophic for quality on its own, and only the joint optimization finds solutions good under both criteria. 
+
+4.3 Bit-independence: INT4 (4.125 bits/weight) 
+
+Table 2 repeats the ablation with D = {− 8, . . . , 7}: (d) and (e) beat layer-local (b) by ≈ 9σ. The identical objective, with no bit-specific modification, improves both the 1-bit and 4-bit regimes, supporting the claim that the compensation mechanism is a property of the objective , not of the value set. 6Table 3: OOD evaluation (calibration: WikiText-2 only). Left: PPL ratio per evaluation set. Right: 
+
+EGE per evaluation set. 3 seeds, mean ±sd.                                                                                
+
+> PPL ratio EGE
+> Condition WT-2 C4 CNN/DM WT-2 C4 CNN/DM (G) distill. only 13 .91 ±0.21 73 .8±3.554 .1±2.01.56 ±0.07 1.70 ±0.09 2.99 ±2.05 (C) stats only 313 ±114 780 ±306 484 ±192 0.29 ±0.07 0.62 ±0.28 0.42 ±0.24 (D) accum. error 9.62 ±0.13 46 .1±1.433 .4±0.81.41 ±0.12 1.46 ±0.16 1.52 ±0.12 (E) combination 11 .57 ±0.14 62 .9±1.844 .9±1.10.26 ±0.03 0.53 ±0.08 0.88 ±0.15
+
+4.4 Out-of-domain evaluation 
+
+Table 3 evaluates the same checkpoints on domains never seen during calibration. Error compen-sation’s advantage grows off-domain : the (D)/(G) quality gap widens from 1 .45 × in-domain to 1 .60 × on C4 and 1 .62 × on CNN/DailyMail; the mechanism is not overfitting the calibration domain. Statistics matching preserves equivalence off-domain : conditions with LGE hold 
+
+EGE at 0 .42–0 .88 off-domain while conditions without it sit at 1 .41–2 .99. An honest negative : the relative OOD degradation factor (OOD ratio ÷ in-domain ratio) of (E) is not better than (D)’s (5 .43 vs. 4 .79 on C4); adding statistics matching does not buy extra perplexity robustness. Its measurable benefit off-domain is the preservation of feature statistics, i.e., of the teacher-equivalence certificate, at a ∼ 20% quality cost. Applications that require downstream-representation stability (feature reuse, probing, cascaded systems) are the natural consumers of this trade. 
+
+4.5 Equation-level verification 
+
+All core equations are unit-tested in NumPy independently of the training code: (1) the initialization (8) reproduces tanh (β0z0) = clip (W/s 0, ±ρ) to 10 −12 and preserves teacher signs; (2) β=64 drives 
+
+|u − sign (z)| below 0 .02; (3) centered linear CKA equals 1 under orthogonal transforms and exhibits the r/n bias on independent representations; (4) the statistics loss (6) is zero iff distributions match and responds to mean and variance shifts; (5) the recursion of Lemma 1 equals the forward difference exactly on random linear networks (10 −10 ). 
+
+# 5 Limitations 
+
+We state the boundaries of the evidence plainly. (1) Scale : all measurements are at 1.5B parameters; behavior at 8B+ is extrapolation, and the literature suggests larger models quantize more gracefully, which could shrink (or grow) the reported gaps. (2) Scope of binarization : embedding and LM head remain FP16; fully binarized configurations (including tied embedding/output projections) are designed in the framework but not measured here. (3) Baselines : condition (B) is our own layer-local reconstruction implementation, a controlled proxy for the GPTQ family rather than a head-to-head comparison against tuned public implementations; QEP-style sequential propagation is not re-implemented. (4) Metrics : we report perplexity and EGE only; no downstream task suite. (5) Statistics : three seeds suffice for the > 8σ headline gaps but not for fine distinctions (e.g., INT4 (d) vs. (e)). (6) Compute : the exact accumulated-error loss costs one extra teacher-parallel forward per step; layer-recursive implementations with explicit operator application cost ≈ 3× condition (D). 76 Conclusion 
+
+Treating extreme low-bit quantization as a joint optimization over all layers’ discrete variables—with the accumulated error as an explicit, provably exact recursive state, and finite-sample statistics matching as an equivalence-preserving regularizer—yields large, seed-stable improvements over layer-local and distillation-only training at 1.125 bits, transfers unchanged to 4.125 bits, and degrades gracefully out of domain. The two mechanisms play complementary roles that neither plays alone: error compensation owns output quality; statistics matching owns the preservation of the teacher’s representational statistics. We believe the exactness lemma, which collapses the operator formalism into two forward passes, makes the approach practical at larger scales, and we plan fully binarized (embedding and LM-head inclusive) experiments as the next step. 
+
+Reproducibility 
+
+Pre-registered seeds {1234 , 2025 , 7}; all completed runs reported; exact hyperparameters in Section 4; equation-level unit tests in Section 4.5. Notebooks reproducing Tables 1–3 are available from the author. 
+
+# References 
+
+[1] E. Frantar, S. Ashkboos, T. Hoefler, D. Alistarh. GPTQ: Accurate post-training quantization for generative pre-trained transformers. arXiv:2210.17323, 2022. [2] Y. Li et al. BRECQ: Pushing the limit of post-training quantization by block reconstruction. arXiv:2102.05426, 2021. [3] M. Nagel, R. A. Amjad, M. van Baalen, C. Louizos, T. Blankevoort. Up or down? Adaptive rounding for post-training quantization. arXiv:2004.10568, 2020. [4] Y. Arai, Y. Ichikawa. Quantization error propagation: Revisiting layer-wise post-training quantization. arXiv:2504.09629, 2025. [5] A. Tseng, Z. Sun, C. De Sa. Model-preserving adaptive rounding. arXiv:2505.22988, 2025. [6] J. Kim et al. TurboBoA: Faster and exact attention-aware quantization without backpropagation. arXiv:2602.04929, 2026. [7] Rethinking residual errors in compensation-based LLM quantization. arXiv:2604.07955, 2026. [8] M. Courbariaux, Y. Bengio, J.-P. David. BinaryConnect: Training deep neural networks with binary weights during propagations. arXiv:1511.00363, 2015. [9] M. Rastegari, V. Ordonez, J. Redmon, A. Farhadi. XNOR-Net: ImageNet classification using binary convolutional neural networks. arXiv:1603.05279, 2016. [10] H. Wang et al. BitNet: Scaling 1-bit transformers for large language models. arXiv:2310.11453, 2023. [11] S. Ma et al. The era of 1-bit LLMs: All large language models are in 1.58 bits. arXiv:2402.17764, 2024. [12] Y. Xu et al. OneBit: Towards extremely low-bit large language models. arXiv:2402.11295, 2024. [13] W. Huang et al. BiLLM: Pushing the limit of post-training quantization for LLMs. arXiv:2402.04291, 2024. [14] L. Ma et al. FBI-LLM: Scaling up fully binarized LLMs from scratch via autoregressive distillation. arXiv:2407.07093, 2024. 
+
+8[15] Y. Bai, Y.-X. Wang, E. Liberty. ProxQuant: Quantized neural networks via proximal operators. arXiv:1810.00861, 2018. [16] T. Ajanthan, K. Gupta, P. H. S. Torr, R. Hartley, P. K. Dokania. Mirror descent view for neural network quantization. arXiv:1910.08237, 2019. [17] A. Tseng, J. Chee, Q. Sun, V. Kuleshov, C. De Sa. QuIP#: Even better LLM quantization with Hadamard incoherence and lattice codebooks. arXiv:2402.04396, 2024. [18] Z. Liu et al. SpinQuant: LLM quantization with learned rotations. arXiv:2405.16406, 2024. [19] Z. Li et al. Feature affinity assisted knowledge distillation and quantization of deep neural networks on label-free data. arXiv:2302.10899, 2023. [20] Y. Cai, Z. Yao, Z. Dong, A. Gholami, M. W. Mahoney, K. Keutzer. ZeroQ: A novel zero shot quantization framework. arXiv:2001.00281, 2020. [21] G. Hinton, O. Vinyals, J. Dean. Distilling the knowledge in a neural network. arXiv:1503.02531, 2015. [22] S. Kornblith, M. Norouzi, H. Lee, G. Hinton. Similarity of neural network representations revisited. ICML, 2019. [23] Qwen Team. Qwen2.5 technical report. arXiv:2412.15115, 2024. [24] S. Merity, C. Xiong, J. Bradbury, R. Socher. Pointer sentinel mixture models. arXiv:1609.07843, 2016. [25] C. Raffel et al. Exploring the limits of transfer learning with a unified text-to-text transformer. JMLR, 2020. 
+
+# A Derivation of the mirror map 
+
+Let ψβ (u) = 1
+
+> β
+
+ 1+ u 
+
+> 2
+
+log 1+ u 
+
+> 2
+
++ 1−u 
+
+> 2
+
+log 1−u
+
+> 2
+
+ on u ∈ (−1, 1). Differentiating, 
+
+∇ψβ (u) = 12β log 1 + u
+
+1 − u = 1
+
+β artanh( u),
+
+so the dual (mirror) variable is z = artanh (u)/β and the inverse map is u = ∇ψ∗ 
+
+> β
+
+(z) = tanh (βz ). A gradient step z ← z − η ∂J/∂z followed by the inverse map is mirror descent on u with distance-generating function ψβ . As β → ∞ the curvature of ψβ at the boundary sharpens, and minimizers of linearized objectives over [ −1, 1] concentrate on the vertices {± 1}; annealing β therefore interpolates from soft averaging to vertex selection. The initialization (8) follows by inverting u0 = clip (W/s 0, ±ρ), the clip guarding artanh ’s domain; signs of z0 equal signs of W , so B0 = sign (W ) and RTN is recovered at initialization. 
+
+# B First-order form of the recursion 
+
+With the teacher-side operator Al = ∂F l/∂h |hl ,
+
+el+1 = bFl(hl + el) − Fl(hl) = bFl(hl + el) − bFl(hl)
+
+| {z }
+
+> bAl(el)
+
++ ql = Alel + ql + O(∥el∥2) +   bAl − Al
+
+(el),
+
+where ( bAl − Al)( el) is second order in the perturbations (product of the weight perturbation and el). Lemma 1 shows the quantized-side instantiation absorbs all higher-order terms exactly. 9C CKA bias on independent representations 
+
+For centered linear CKA between independent random n × d representations with d ≪ n, the expected value concentrates near d/n rather than 0 (rank-driven positive bias). Our unit tests use n = 400, d = 16 and verify CKA < 5 d/n , plus exact invariance under orthogonal transforms. Reported CKA values should therefore be read against this floor. 10
