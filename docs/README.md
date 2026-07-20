@@ -6,37 +6,40 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-19
-- 运行时间：2026-07-19 20:49:12 UTC
+- 最新运行日期：2026-07-20
+- 运行时间：2026-07-20 21:10:41 UTC
 - 运行状态：成功
-- 本次总论文数：5
-- 精读区：2
-- 速读区：3
+- 本次总论文数：6
+- 精读区：1
+- 速读区：5
 
 ### 今日简报（AI）
-1) 今日聚焦语音与音频AI，从低资源语言迁移到一步式音频生成，兼评大模型量化新招  
-2) 低资源ASR发现意大利语迁移Warlpiri效果意外最佳，FdAudio则用弗réchet距离实现无需多步扩散的高质量文本转音频  
-3) 建议关注相似性迁移策略在其他濒危语言上的复用，并实验单步生成模型在实时配音中的表现
-- 详情：[/202607/19/README](/202607/19/README)
+今日聚焦语音智能，精读情感语音合成新作，并速读跨模态声纹识别、评分公平性及歌声分离迁移任务。
+最值得关注的是 AuEmoChat 对对话式语音真实情绪的理解与渲染，以及 POLY-SIM 挑战揭示的说话人身份超越语言与模态约束的洞察。
+下一步不妨从 AuEmoChat 的情感建模切入语音交互，或以口语评分捷径控制为线索追一追评估公平性的前沿方案。
+- 详情：[/202607/20/README](/202607/20/README)
 
 ### 精读区论文标签
-1. [Which Languages Transfer Best to Warlpiri? A Similarity-Based Study for Low-Resource ASR](/202607/19/2607.10256v1-which-languages-transfer-best-to-warlpiri-a-similarity-based-study-for-low-resource-asr)  
+1. [AuEmoChat: Authentic Emotion Understanding and Rendering for Conversational Speech Synthesis](/202607/20/2607.15755v1-auemochat-authentic-emotion-understanding-and-rendering-for-conversational-speech-synthesis)  
    标签：评分：9.0/10、query:speech-model
-   evidence：提出利用声学和语言学相似性进行跨语言ASR迁移的框架，提升低资源语言识别准确率。
-2. [FdAudio: MeanFlow-Anchored Fréchet-Distance Post-Training for One-Step Text-to-Audio Generation](/202607/19/2607.10421v1-fdaudio-meanflow-anchored-frchet-distance-post-training-for-one-step-text-to-audio-generation)  
-   标签：评分：9.0/10、query:speech-model
-   evidence：后训练方法提升一步式文本到音频生成质量
+   evidence：提出对话语音合成中真实情感渲染的框架
 
 ### 速读区论文标签
-1. [RDQ: Residual Distribution Quantization for Large Language Models](/202607/19/2607.10137v1-rdq-residual-distribution-quantization-for-large-language-models)  
+1. [Learning Speaker Identity Beyond Language and Modality Constraints: Insights from the POLY-SIM 2026 Challenge](/202607/20/2607.13669v1-learning-speaker-identity-beyond-language-and-modality-constraints-insights-from-the-poly-sim-2026-challenge)  
+   标签：评分：7.0/10、query:speech-model
+   evidence：缺失模态与多语言条件下的多模态说话人识别
+2. [Controlling Implicit Shortcut Reliance in L2 Spoken English Auto-markers](/202607/20/2607.16085v1-controlling-implicit-shortcut-reliance-in-l2-spoken-english-auto-markers)  
+   标签：评分：7.0/10、query:speech-model
+   evidence：新颖训练准则减少语音自动评分中的快捷依赖
+3. [Teaching Speech Enhancement Models to Sing: Domain Adaptation from Speech Enhancement to Singing Voice Separation](/202607/20/2607.11630v1-teaching-speech-enhancement-models-to-sing-domain-adaptation-from-speech-enhancement-to-singing-voice-separation)  
    标签：评分：6.0/10、query:speech-model
-   evidence：提出残差分布量化及级联误差补偿，用于LLM，可应用于大型语音模型提升推理效率。
-2. [Investigating the Integration of Spatial Information in Foundation-Model-Based Speaker Diarization](/202607/19/2607.12647v1-investigating-the-integration-of-spatial-information-in-foundation-model-based-speaker-diarization)  
+   evidence：通过微调从语音增强到歌声分离的领域自适应
+4. [Audio Diarization: A New Paradigm for Exploring Audio Recordings with Unknown Event Classes](/202607/20/2607.12703v1-audio-diarization-a-new-paradigm-for-exploring-audio-recordings-with-unknown-event-classes)  
    标签：评分：6.0/10、query:speech-model
-   evidence：将空间信息集成到说话人日志化中作为语音系统预处理步骤
-3. [Cross-Layer Error Compensation and Finite-Sample Feature-Statistics Matching for Extreme Low-Bit Quantization of Large Language Models](/202607/19/2607.14630v1-cross-layer-error-compensation-and-finite-sample-feature-statistics-matching-for-extreme-low-bit-quantization-of-large-language-models)  
+   evidence：作为预处理步骤的音频分离，在分类前定位声音事件，类似于语音识别的说话人分离
+5. [Articulatory timing and form support distinct neural benefits during audiovisual speech](/202607/20/biorxiv-10-64898-2026-07-14-738583-v1-articulatory-timing-and-form-support-distinct-neural-benefits-during-audiovisual-speech)  
    标签：评分：6.0/10、query:speech-model
-   evidence：提出跨层误差补偿的极低比特量化方法，用于LLM，可迁移至大型语音模型提升推理效率。
+   evidence：视听语音处理中发音时序和形状提供不同的神经益处
 
 
 <div class="dpr-home-promo-card">
