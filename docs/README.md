@@ -6,43 +6,35 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-23
-- 运行时间：2026-07-23 21:33:43 UTC
+- 最新运行日期：2026-07-24
+- 运行时间：2026-07-24 21:44:19 UTC
 - 运行状态：成功
-- 本次总论文数：7
+- 本次总论文数：5
 - 精读区：4
-- 速读区：3
+- 速读区：1
 
 ### 今日简报（AI）
-今日聚焦语音合成与口语模型，精读了两篇高分论文。  
-低延迟语音合成和模态链式推理带来新突破，值得关注时序稀疏编码与渐进压缩策略。  
-建议优先体验StellarTTS的鲁棒生成效果，并探索多模态推理在口语助手中的应用潜力。
-- 详情：[/202607/23/README](/202607/23/README)
+语音合成提速与高效架构成今日亮点，同时多模态情感识别引入不确定性监督。特别值得关注的是Faster IndexTTS-2在GPU上实现流式零样本合成，以及VibeVoice用BitNet重构语音识别模型。建议读者重点跟进轻量级自回归生成与多模态对话系统的融合趋势。
+- 详情：[/202607/24/README](/202607/24/README)
 
 ### 精读区论文标签
-1. [StellarTTS: Sparse Temporal Embedding for Low-Latency and Robust Speech Synthesis](/202607/23/2607.19859v1-stellartts-sparse-temporal-embedding-for-low-latency-and-robust-speech-synthesis)  
+1. [Faster IndexTTS-2: Accelerating and Streaming Autoregressive Zero-Shot Text-to-Speech Synthesis on GPUs](/202607/24/2607.21042v1-faster-indextts-2-accelerating-and-streaming-autoregressive-zero-shot-text-to-speech-synthesis-on-gpus)  
+   标签：评分：10.0/10、query:speech-model
+   evidence：加速自回归TTS模型IndexTTS-2用于生产GPU部署并支持流式合成
+2. [VibeVoice-ASR-BitNet Technical Report](/202607/24/2607.21075v1-vibevoice-asr-bitnet-technical-report)  
    标签：评分：9.0/10、query:speech-model
-   evidence：提出移动端优化的非自回归TTS，使用稀疏时间嵌入实现低延迟（RTF 0.08）和精细韵律控制
-2. [Efficient Chain-of-Modality Reasoning via Progressive Compression for Spoken Language Models](/202607/23/2607.19932v1-efficient-chain-of-modality-reasoning-via-progressive-compression-for-spoken-language-models)  
+   evidence：通过异构量化压缩ASR模型以保持精度的同时实现边缘CPU实时推理
+3. [DONDO: Open w2v-BERT Speech-Recognition Base Models for African Languages](/202607/24/2607.21540v1-dondo-open-w2v-bert-speech-recognition-base-models-for-african-languages)  
    标签：评分：9.0/10、query:speech-model
-   evidence：增强口语语言模型推理能力，用于对话式AI
-3. [X-Translator: A Real-Time Multilingual Speaker-Aware Speech-to-Speech Translation System](/202607/23/2607.17544v1-x-translator-a-real-time-multilingual-speaker-aware-speech-to-speech-translation-system)  
+   evidence：基于w2v-BERT微调的开源ASR基础模型，覆盖27种非洲语言变体
+4. [X$^3$-OPD: Distilling Reasoning into Large Audio-Language Models via On-Policy Alignment](/202607/24/2607.21550v1-x3-opd-distilling-reasoning-into-large-audio-language-models-via-on-policy-alignment)  
    标签：评分：8.0/10、query:speech-model
-   evidence：用于实时会话语音翻译的级联ASR-MT-TTS系统
-4. [SimulS2ST-Omni: Data-Efficient Streaming Speech-to-Speech Translation via Explicit Trajectory Supervision](/202607/23/2607.19810v1-simuls2st-omni-data-efficient-streaming-speech-to-speech-translation-via-explicit-trajectory-supervision)  
-   标签：评分：8.0/10、query:speech-model
-   evidence：针对语音到语音翻译模型的数据高效训练方法
+   evidence：跨模态在线策略蒸馏提升音频语言模型的推理能力
 
 ### 速读区论文标签
-1. [ESCUCHA: A Spanish Speech Benchmark for Heterogeneous Acoustic Conditions](/202607/23/2607.17812v1-escucha-a-spanish-speech-benchmark-for-heterogeneous-acoustic-conditions)  
+1. [EmoEUS: Uncertainty Supervision for Multimodal Emotion Recognition in Conversation](/202607/24/2607.18336v1-emoeus-uncertainty-supervision-for-multimodal-emotion-recognition-in-conversation)  
    标签：评分：7.0/10、query:speech-model
-   evidence：针对大型音频模型的西班牙语语音基准
-2. [Cumsum-Composable Phase Transport for Low-Cost Streaming Keyword Spotting](/202607/23/2607.20086v1-cumsum-composable-phase-transport-for-low-cost-streaming-keyword-spotting)  
-   标签：评分：7.0/10、query:speech-model
-   evidence：提出一种新型流式时域层用于关键词检测，保持紧凑状态，提升效率和潜在准确性
-3. [Auditing Protocol-Level Shortcuts in Large Audio Language Model Judges for Speech Evaluation](/202607/23/2607.13477v1-auditing-protocol-level-shortcuts-in-large-audio-language-model-judges-for-speech-evaluation)  
-   标签：评分：6.0/10、query:speech-model
-   evidence：审计自动语音评估者是否依赖音频或文本捷径，保证评估质量
+   evidence：针对情绪识别的多模态不确定性融合，结合语音与视觉线索
 
 
 <div class="dpr-home-promo-card">
