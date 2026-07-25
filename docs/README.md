@@ -6,35 +6,31 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-24
-- 运行时间：2026-07-24 21:44:19 UTC
+- 最新运行日期：2026-07-25
+- 运行时间：2026-07-25 20:59:38 UTC
 - 运行状态：成功
-- 本次总论文数：5
-- 精读区：4
-- 速读区：1
+- 本次总论文数：3
+- 精读区：1
+- 速读区：2
 
 ### 今日简报（AI）
-语音合成提速与高效架构成今日亮点，同时多模态情感识别引入不确定性监督。特别值得关注的是Faster IndexTTS-2在GPU上实现流式零样本合成，以及VibeVoice用BitNet重构语音识别模型。建议读者重点跟进轻量级自回归生成与多模态对话系统的融合趋势。
-- 详情：[/202607/24/README](/202607/24/README)
+今日聚焦语音分离与多模态学习：精读一篇融合卷积门控注意力机制的高分语音分离论文，速读两篇涉及多模态微调与西班牙语语音基准的研究。
+亮点在于“TF-MossFormer”通过时频域局部-全局注意力协同，显著提升单通道语音分离性能；多模态微调方法试图解耦共享与模态专属子空间。
+建议关注语音分离中局部与全局上下文融合的新范式，可延伸思考该思路在你所处音频场景的应用潜力。
+- 详情：[/202607/25/README](/202607/25/README)
 
 ### 精读区论文标签
-1. [Faster IndexTTS-2: Accelerating and Streaming Autoregressive Zero-Shot Text-to-Speech Synthesis on GPUs](/202607/24/2607.21042v1-faster-indextts-2-accelerating-and-streaming-autoregressive-zero-shot-text-to-speech-synthesis-on-gpus)  
-   标签：评分：10.0/10、query:speech-model
-   evidence：加速自回归TTS模型IndexTTS-2用于生产GPU部署并支持流式合成
-2. [VibeVoice-ASR-BitNet Technical Report](/202607/24/2607.21075v1-vibevoice-asr-bitnet-technical-report)  
+1. [TF-MossFormer: Integrating Convolution Gated Local-Global Attentions for Enhanced Time-Frequency Domain Monaural Speech Separation](/202607/25/2607.21128v1-tf-mossformer-integrating-convolution-gated-local-global-attentions-for-enhanced-time-frequency-domain-monaural-speech-separation)  
    标签：评分：9.0/10、query:speech-model
-   evidence：通过异构量化压缩ASR模型以保持精度的同时实现边缘CPU实时推理
-3. [DONDO: Open w2v-BERT Speech-Recognition Base Models for African Languages](/202607/24/2607.21540v1-dondo-open-w2v-bert-speech-recognition-base-models-for-african-languages)  
-   标签：评分：9.0/10、query:speech-model
-   evidence：基于w2v-BERT微调的开源ASR基础模型，覆盖27种非洲语言变体
-4. [X$^3$-OPD: Distilling Reasoning into Large Audio-Language Models via On-Policy Alignment](/202607/24/2607.21550v1-x3-opd-distilling-reasoning-into-large-audio-language-models-via-on-policy-alignment)  
-   标签：评分：8.0/10、query:speech-model
-   evidence：跨模态在线策略蒸馏提升音频语言模型的推理能力
+   evidence：语音分离方法可改善噪声环境下的ASR准确率
 
 ### 速读区论文标签
-1. [EmoEUS: Uncertainty Supervision for Multimodal Emotion Recognition in Conversation](/202607/24/2607.18336v1-emoeus-uncertainty-supervision-for-multimodal-emotion-recognition-in-conversation)  
-   标签：评分：7.0/10、query:speech-model
-   evidence：针对情绪识别的多模态不确定性融合，结合语音与视觉线索
+1. [MultiLoReFT: Decoupling Shared and Modality-Specific Subspaces in Multimodal Learning via Low-Rank Representation Fine-Tuning](/202607/25/2607.16789v1-multiloreft-decoupling-shared-and-modality-specific-subspaces-in-multimodal-learning-via-low-rank-representation-fine-tuning)  
+   标签：评分：6.0/10、query:speech-model
+   evidence：低秩微调用于多模态学习，适用于视觉-语音融合
+2. [ESCUCHA: A Spanish Speech Benchmark for Heterogeneous Acoustic Conditions](/202607/25/2607.17812v1-escucha-a-spanish-speech-benchmark-for-heterogeneous-acoustic-conditions)  
+   标签：评分：6.0/10、query:speech-model
+   evidence：面向大型音频语言模型的西班牙语语音理解评测基准
 
 
 <div class="dpr-home-promo-card">
