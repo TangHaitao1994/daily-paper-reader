@@ -6,31 +6,43 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-25
-- 运行时间：2026-07-25 20:59:38 UTC
+- 最新运行日期：2026-07-26
+- 运行时间：2026-07-26 20:23:16 UTC
 - 运行状态：成功
-- 本次总论文数：3
-- 精读区：1
-- 速读区：2
+- 本次总论文数：7
+- 精读区：2
+- 速读区：5
 
 ### 今日简报（AI）
-今日聚焦语音分离与多模态学习：精读一篇融合卷积门控注意力机制的高分语音分离论文，速读两篇涉及多模态微调与西班牙语语音基准的研究。
-亮点在于“TF-MossFormer”通过时频域局部-全局注意力协同，显著提升单通道语音分离性能；多模态微调方法试图解耦共享与模态专属子空间。
-建议关注语音分离中局部与全局上下文融合的新范式，可延伸思考该思路在你所处音频场景的应用潜力。
-- 详情：[/202607/25/README](/202607/25/README)
+今日精读聚焦于低资源语言语音技术与高效文本处理，我们在约鲁巴语情境语音合成和变音符恢复算法上找到了创新解法。  
+最值得关注的是：多语种语音合成如何通过音系规则扩展声调语言，以及约束CTC解码大幅提升变音符恢复效率。  
+建议关注这些技术如何让更多方言和带音标语言在手机、辅助设备上获得更自然的语音交互。
+- 详情：[/202607/26/README](/202607/26/README)
 
 ### 精读区论文标签
-1. [TF-MossFormer: Integrating Convolution Gated Local-Global Attentions for Enhanced Time-Frequency Domain Monaural Speech Separation](/202607/25/2607.21128v1-tf-mossformer-integrating-convolution-gated-local-global-attentions-for-enhanced-time-frequency-domain-monaural-speech-separation)  
+1. [A Situational Speech Synthesizer for Yoruba: System Design, Phonological Rule Architecture, and Orthographic Extensions for Contour](/202607/26/2607.18317v2-a-situational-speech-synthesizer-for-yoruba-system-design-phonological-rule-architecture-and-orthographic-extensions-for-contour)  
    标签：评分：9.0/10、query:speech-model
-   evidence：语音分离方法可改善噪声环境下的ASR准确率
+   evidence：为约鲁巴语设计拼接式语音合成系统，提升合成质量
+2. [Constrained CTC Decoding for Efficient Diacritic Restoration](/202607/26/2607.18946v1-constrained-ctc-decoding-for-efficient-diacritic-restoration)  
+   标签：评分：9.0/10、query:speech-model
+   evidence：通过受限CTC解码恢复阿拉伯语语音识别中的变音符号,有效提升转录准确率
 
 ### 速读区论文标签
-1. [MultiLoReFT: Decoupling Shared and Modality-Specific Subspaces in Multimodal Learning via Low-Rank Representation Fine-Tuning](/202607/25/2607.16789v1-multiloreft-decoupling-shared-and-modality-specific-subspaces-in-multimodal-learning-via-low-rank-representation-fine-tuning)  
+1. [SpEmoC: A Balanced Speaker-Segment Multimodal Emotion Benchmark](/202607/26/2607.18109v1-spemoc-a-balanced-speaker-segment-multimodal-emotion-benchmark)  
+   标签：评分：7.0/10、query:speech-model
+   evidence：同步视觉、音频和文本模态的多模态情感基准
+2. [Audio-Zero: Label-Free Self-Evolution for Fine-Grained Audio Reasoning](/202607/26/2607.20166v1-audio-zero-label-free-self-evolution-for-fine-grained-audio-reasoning)  
+   标签：评分：7.0/10、query:speech-model
+   evidence：通过自对弈实现细粒度音频推理的无标签自演进框架
+3. [Explainable Lightweight Compact Deep Models for Speech Emotion Recognition](/202607/26/2607.16803v1-explainable-lightweight-compact-deep-models-for-speech-emotion-recognition)  
    标签：评分：6.0/10、query:speech-model
-   evidence：低秩微调用于多模态学习，适用于视觉-语音融合
-2. [ESCUCHA: A Spanish Speech Benchmark for Heterogeneous Acoustic Conditions](/202607/25/2607.17812v1-escucha-a-spanish-speech-benchmark-for-heterogeneous-acoustic-conditions)  
+   evidence：可解释轻量CNN用于语音情感识别
+4. [ESCUCHA: A Spanish Speech Benchmark for Heterogeneous Acoustic Conditions](/202607/26/2607.17812v1-escucha-a-spanish-speech-benchmark-for-heterogeneous-acoustic-conditions)  
    标签：评分：6.0/10、query:speech-model
-   evidence：面向大型音频语言模型的西班牙语语音理解评测基准
+   evidence：建立西班牙语语音理解基准,用于评估和提升复杂声学条件下的语音识别准确率
+5. [What the Waveform Knows: Transparent-first Speech and Audio Intelligence with Caption Studio](/202607/26/2607.18704v1-what-the-waveform-knows-transparent-first-speech-and-audio-intelligence-with-caption-studio)  
+   标签：评分：6.0/10、query:speech-model
+   evidence：语音智能平台，集成ASR、说话人分离与音频分析
 
 
 <div class="dpr-home-promo-card">
