@@ -6,43 +6,34 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-26
-- 运行时间：2026-07-26 20:23:16 UTC
+- 最新运行日期：2026-07-27
+- 运行时间：2026-07-27 21:26:20 UTC
 - 运行状态：成功
-- 本次总论文数：7
-- 精读区：2
-- 速读区：5
+- 本次总论文数：4
+- 精读区：3
+- 速读区：1
 
 ### 今日简报（AI）
-今日精读聚焦于低资源语言语音技术与高效文本处理，我们在约鲁巴语情境语音合成和变音符恢复算法上找到了创新解法。  
-最值得关注的是：多语种语音合成如何通过音系规则扩展声调语言，以及约束CTC解码大幅提升变音符恢复效率。  
-建议关注这些技术如何让更多方言和带音标语言在手机、辅助设备上获得更自然的语音交互。
-- 详情：[/202607/26/README](/202607/26/README)
+今日精读两篇语音理解新论文，速读一项对话状态多模态研究，共处理4篇文献。  
+最值得看：让模型“听而不抄”的内化音频上下文技术大幅提升全能语音鲁棒性，MEUSLI 多语言投影器为 LLM 语音识别开辟高效路径。  
+建议亲手实验“投影器+大模型”范式，在多语言或口语场景中检验不依赖简单复制的理解能力。
+- 详情：[/202607/27/README](/202607/27/README)
 
 ### 精读区论文标签
-1. [A Situational Speech Synthesizer for Yoruba: System Design, Phonological Rule Architecture, and Orthographic Extensions for Contour](/202607/26/2607.18317v2-a-situational-speech-synthesizer-for-yoruba-system-design-phonological-rule-architecture-and-orthographic-extensions-for-contour)  
+1. [Listen, Do Not Copy: Internalizing Audio-Grounded Scaffold Context for Robust Omni-Model Speech Understanding](/202607/27/2607.21943v1-listen-do-not-copy-internalizing-audio-grounded-scaffold-context-for-robust-omni-model-speech-understanding)  
    标签：评分：9.0/10、query:speech-model
-   evidence：为约鲁巴语设计拼接式语音合成系统，提升合成质量
-2. [Constrained CTC Decoding for Efficient Diacritic Restoration](/202607/26/2607.18946v1-constrained-ctc-decoding-for-efficient-diacritic-restoration)  
+   evidence：通过音频线索防止模型走捷径，提升重叠语音和噪声场景的识别准确率
+2. [MEUSLI: a Multilingual Projector for LLM-based ASR and Beyond](/202607/27/2607.22100v1-meusli-a-multilingual-projector-for-llm-based-asr-and-beyond)  
    标签：评分：9.0/10、query:speech-model
-   evidence：通过受限CTC解码恢复阿拉伯语语音识别中的变音符号,有效提升转录准确率
+   evidence：多语言投影器连接Whisper与LLM实现28语种ASR
+3. [Synthetic Speech, Real Signal: Paralinguistic Preservation and Cross-Lingual Augmentation via Voice Cloning](/202607/27/2607.22304v1-synthetic-speech-real-signal-paralinguistic-preservation-and-cross-lingual-augmentation-via-voice-cloning)  
+   标签：评分：8.0/10、query:speech-model
+   evidence：语音克隆作为副语言任务的数据增强
 
 ### 速读区论文标签
-1. [SpEmoC: A Balanced Speaker-Segment Multimodal Emotion Benchmark](/202607/26/2607.18109v1-spemoc-a-balanced-speaker-segment-multimodal-emotion-benchmark)  
+1. [How Reliable Are Multimodal Signals of Conversational State? Evidence from Remote Dyadic Collaborative Tasks](/202607/27/2607.17452v1-how-reliable-are-multimodal-signals-of-conversational-state-evidence-from-remote-dyadic-collaborative-tasks)  
    标签：评分：7.0/10、query:speech-model
-   evidence：同步视觉、音频和文本模态的多模态情感基准
-2. [Audio-Zero: Label-Free Self-Evolution for Fine-Grained Audio Reasoning](/202607/26/2607.20166v1-audio-zero-label-free-self-evolution-for-fine-grained-audio-reasoning)  
-   标签：评分：7.0/10、query:speech-model
-   evidence：通过自对弈实现细粒度音频推理的无标签自演进框架
-3. [Explainable Lightweight Compact Deep Models for Speech Emotion Recognition](/202607/26/2607.16803v1-explainable-lightweight-compact-deep-models-for-speech-emotion-recognition)  
-   标签：评分：6.0/10、query:speech-model
-   evidence：可解释轻量CNN用于语音情感识别
-4. [ESCUCHA: A Spanish Speech Benchmark for Heterogeneous Acoustic Conditions](/202607/26/2607.17812v1-escucha-a-spanish-speech-benchmark-for-heterogeneous-acoustic-conditions)  
-   标签：评分：6.0/10、query:speech-model
-   evidence：建立西班牙语语音理解基准,用于评估和提升复杂声学条件下的语音识别准确率
-5. [What the Waveform Knows: Transparent-first Speech and Audio Intelligence with Caption Studio](/202607/26/2607.18704v1-what-the-waveform-knows-transparent-first-speech-and-audio-intelligence-with-caption-studio)  
-   标签：评分：6.0/10、query:speech-model
-   evidence：语音智能平台，集成ASR、说话人分离与音频分析
+   evidence：多模态对话状态信号对VUI设计的可靠性
 
 
 <div class="dpr-home-promo-card">
