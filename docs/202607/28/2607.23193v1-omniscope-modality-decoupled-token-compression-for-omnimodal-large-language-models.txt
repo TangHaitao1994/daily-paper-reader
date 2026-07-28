@@ -1,0 +1,710 @@
+Title: OmniScope: Modality-Decoupled Token Compression for Omnimodal Large Language Models
+
+URL Source: https://arxiv.org/pdf/2607.23193v1
+
+Published Time: Tue, 28 Jul 2026 00:44:17 GMT
+
+Number of Pages: 17
+
+Markdown Content:
+# OmniScope: Modality-Decoupled Token Compression for Omnimodal Large Language Models 
+
+## Jinsen Su 1,2 , Yongdong Luo 1,2,3 , Yuexiao Ma 1,2 , Yibo Hu 3
+
+## Meiguang Jin 3, Xiaowu Zheng 1,2, B
+
+> 1
+
+Media Analytics and Computing Lab, Xiamen University, Xiamen, China 
+
+> 2
+
+Institute of Artificial Intelligence, Xiamen University, Xiamen, China 
+
+> 3
+
+Alibaba Group 
+
+B Corresponding Author 
+
+## Abstract 
+
+Existing token compression methods for omnimodal large language models typically rely on one modality to determine what to retain in the other. We show that this assumption often breaks down: for the same query, audio and video relevance often peaks at different moments. This cross-modal salience mismatch makes unidirectional guidance prone to discarding answer-critical cues under aggressive compression. We propose OmniScope, a training-free token compression framework that uses the query as a shared semantic anchor while estimating relevance separately for audio and video. OmniScope allocates modality-specific token budgets, prunes visual tokens with an anchor-delta strategy that preserves both global context and temporal changes, and merges audio tokens within each second to reduce redundancy while maintaining temporal continuity. Across four audio-video benchmarks and two Qwen2.5-Omni model scales, OmniS-cope achieves the best average accuracy across all compression settings. At 25% overall token retention, it delivers up to 3.53x prefill speedup and more than 15% GPU memory reduction, with only a 0.35-point drop in average accuracy. These results suggest a simple design principle for OmniLLM inference: share the query across modalities, but not the salience estimates. The code is available at the GitHub repository: 
+
+https://github.com/MAC-AutoML/OmniScope .
+
+# 1 Introduction 
+
+Omnimodal large language models (OmniLLMs) [10, 22, 34, 36, 44, 46–48, 50, 52] can jointly process visual, auditory, and textual modalities, enabling end-to-end audio-video understanding and representing a major advance in multimodal intelligence. Compared with models that handle only images or text, OmniLLMs capture the synergistic semantics between visual scenes and acoustic signals, delivering significant advantages in applications such as video question answering, content moderation, and real-time interaction. However, deploying OmniLLMs in practice poses severe efficiency challenges. A typical OmniLLM decomposes a video into visual frames and an audio stream, and encodes them into token sequences via separate encoders. As video duration increases, the total number of audio-visual tokens grows rapidly, incurring substantial computational and memory overhead while severely degrading the quality of contextual interaction, limiting real-time deployment on resource-constrained devices. Token compression offers a direct means to alleviate this bottleneck. In vision-only multimodal LLMs, a variety of token compression methods have been proposed to reduce inference cost by pruning or merging redundant visual to-kens [2, 30, 37, 45, 49]. However, these methods target purely visual settings and cannot directly address the joint compression of audio and video tokens. The few methods designed for omnimodal scenarios, such as OmniZip [38], adopt unidirectional cross-modal guidance strategies, letting one modality determine what is retained in the other. 
+
+> 1arXiv:2607.23193v1 [cs.CV] 25 Jul 2026 MAC-AutoML
+
+Query: After the whistle , what does the referee signal? 
+
+video 
+
+visual 
+
+salience same query, different peaks 
+
+audio 
+
+salience 
+
+(a) Query -conditioned cross -modal salience mismatch 
+
+# ... ... 
+
+(b) Why explicit cross -modal guidance can fail 
+
+Failure modes of cross -modal guidance vs. modality -decoupled compression    
+
+> Video -to -audio guidance
+> Answer lost
+> Audio -to -video guidance Modality -Decoupled
+> Cue lost
+
+…… …    
+
+> Audio cue Visual answer
+> Figure 1. One query, two modalities, and often two very different sparsity patterns. (a) Audio salience peaks early (whistle) while visual salience peaks late (hand signal), illustrating cross-modal salience mismatch. (b) Unidirectional cross-modal guidance loses critical information, while modality-decoupled compression preserves both.
+
+However, in OmniLLMs, the query is shared across modalities, but the relevance pattern is often not—visually decisive moments may be acoustically unremarkable, while audio-critical segments may exhibit little visual change. As illus-trated in Fig. 1, this misalignment of cross-modal salience peaks means that low-salience regions in one modality may carry critical cues for the other, making unidirectional guidance prone to erroneously discarding key information under high compression ratios. Our analysis of the attention distribution in OmniLLMs further reveals that the consequences of this mismatch are more severe than they may appear: as shown in Fig. 2, token compression significantly strengthens cross-window modal interaction, but when unidirectional guidance discards critical tokens under salience mismatch, the enhanced cross-window attention is instead steered toward secondary cues. Conversely, if each modality retains only its own query-relevant tokens, the amplified cross-window attention naturally falls on task-relevant cues from both sides. This motivates the core design principle of OmniScope: using the query as a shared semantic anchor while letting each modality independently decide its own compression strategy, ensuring that critical information from both modalities is preserved and that the interaction enhancement brought by compression is directed toward task-relevant cues. Building on this principle, we propose OmniScope, a training-free token compression framework for OmniLLMs. OmniScope uses the query as a shared semantic anchor while allowing audio and visual tokens to independently as-sess their importance and allocate compression budgets. On this basis, the visual side employs Anchor-Delta Spatio-Temporal Compression (AD-STC) to balance global semantic coverage and temporal increments, while the audio side adopts per-second Token Merging to reduce redundancy while maintaining temporal continuity. We validate OmniScope on four multimodal video understanding benchmarks at two model scales (7B and 3B). Om-niScope achieves the best average performance at all compression ratios, with nearly lossless accuracy at 45% retention. At the more aggressive 25% retention, OmniScope still maintains significantly stronger robustness than all competing methods, while delivering up to 3.53 × prefilling speedup and over 15% GPU memory reduction. Our contributions are summarized as follows: 
+
+• We identify that the unidirectional cross-modal guidance assumed by prior omnimodal compression methods is unreliable under cross-modal salience mismatch, and propose OmniScope, a training-free, modality-decoupled token compression framework that uses the query as a shared semantic anchor while allowing each modality to 
+
+> 2MAC-AutoML
+
+independently compress its tokens without explicit cross-modal guidance. 
+
+• We propose AD-STC, an anchor-delta spatio-temporal compression strategy that addresses the loss of global semantic coverage in existing video token compression methods. 
+
+• On the audio side, we introduce per-second bipartite soft matching on post-encoder temporal embeddings, ad-dressing the coarse granularity of existing audio compression while preserving temporal continuity. 
+
+• On four benchmarks and two model scales, OmniScope achieves the best average performance at all compression ratios, with nearly lossless accuracy at 45% retention. 
+
+# 2 Related Work 
+
+2.1 Omnimodal Large Language Models 
+
+Omnimodal large language models (OmniLLMs) [10, 22, 34, 36, 44, 46–48, 50, 52] aim to unify visual, auditory, and textual modalities within a single model for end-to-end audio-video understanding. Compared with vision-language models [3, 4, 16, 19, 21, 40] that handle only visual and textual modalities, OmniLLMs capture the synergistic seman-tics between visual scenes and acoustic signals, delivering significant advantages in applications such as video ques-tion answering, content moderation, and real-time interaction. Representative open-source systems include Qwen2.5-Omni [46] and VITA-1.5 [10], while proprietary systems such as GPT-4o [13] and Gemini [39] further demonstrate the effectiveness of this paradigm. These systems typically employ modality-specific encoders and a time-window in-terleaving mechanism to organize multimodal tokens. As video duration increases, the total number of audio-visual tokens grows rapidly, incurring substantial computational and memory overhead. Existing approaches improve effi-ciency through multiple techniques, including token compression [1, 31, 37], model quantization [25, 26, 43], and network pruning [8, 24, 53]. Among them, token compression directly addresses the growing audio-visual sequence length, making it a key problem [14] for efficient OmniLLM inference. 
+
+2.2 Token Compression in Multimodal Models 
+
+In the visual domain, token compression methods have been extensively studied [32] and mainly include similarity-based token merging [1, 31], query-based text-guided compression [23, 33, 35, 51], and attention-based token prun-ing [2, 30, 45, 49]. In the video domain, spatio-temporal compression methods [12, 31, 37, 41] further exploit inter-frame redundancy to reduce the token count. However, existing video spatio-temporal compression methods typically apply the same compression strategy to all temporal incremental frames, overlooking the differences in semantic den-sity and temporal variation across frames, which tends to cause a loss of global semantic coverage under high com-pression ratios. On the audio side, representative token reduction techniques include adjacent token merging [18] and importance-based pruning [15, 20], which are constrained by the encoder’s internal structure or coarse-grained com-pression strategies, making it difficult to flexibly adapt to the compression ratios required by downstream LLMs and to minimize information loss during compression. Recent work has begun to explore audio–visual joint compression. Om-niZip [38] is a training-free method that uses audio importance scores to guide video token pruning, while OmniSIFT [6] requires end-to-end fine-tuning of both an additional compression module and the LLM decoder, and employs vision-guided modality-asymmetric compression. Although the two methods guide compression in opposite directions, both rely on unidirectional cross-modal guidance—using one modality’s importance to determine the retention strategy of the other. Moreover, the training dependency of OmniSIFT limits its generalizability across different models. 
+
+# 3 Method 
+
+3.1 Preliminaries 
+
+Omnimodal large language models (OmniLLMs) aim to jointly process visual, auditory, and textual modalities for end-to-end audio-video understanding. Taking Qwen2.5-Omni [46] as a representative example, a typical OmniLLM comprises four components: a vision encoder Φv , an audio encoder Φa, a projector, and an LLM backbone. Given a video, the system first decomposes it into a sequence of video frames Xvid and the corresponding audio segments Xaud .The vision encoder and audio encoder convert them into token sequences respectively: 
+
+Zv = Φ v (Xvid ) ∈ RNv ×D , Za = Φ a(Xaud ) ∈ RNa×D , (1)  
+
+> 3MAC-AutoML
+> Figure 2. Comparison of attention maps at Layer 3 of Qwen2.5-Omni-3B. Under the Full Token setting, attention is concentrated locally; after random pruning, both cross-window (the off-diagonal regions highlighted by red dashed boxes are notably enhanced) and cross-modal attention are significantly strengthened.
+
+where Nv and Na denote the number of visual and audio tokens, and D is the embedding dimension. The projector maps both token types into the LLM’s embedding space, where they are processed together with text tokens to generate a response. To organize the audio-video tokens, OmniLLMs adopt a time-window interleaving mechanism. Specifically, the audio and video streams are segmented into W time windows of fixed duration. Within each window, co-temporal visual tokens and audio tokens are aligned and concatenated into a cross-modal block; these blocks are then arranged chrono-logically to form the full input sequence to the LLM. Let the i-th time window contain n(i) 
+
+> v
+
+visual tokens and n(i) 
+
+> a
+
+audio tokens. The sequence received by the LLM can be expressed as: 
+
+XLLM = B1, B 2, . . . , B W
+
+, Bi = Z(i) 
+
+> v
+
+; Z(i)
+
+> a
+
+, (2) where [ · ; · ] denotes concatenation along the sequence dimension. Under this mechanism, visual and audio tokens within each window jointly participate in the LLM’s self-attention computation. As the video duration increases, the total number of audio-visual tokens grows rapidly, not only incurring substantial computational and memory overhead but also allowing a large volume of redundant tokens to participate in attention computation, posing challenges to both the efficiency and quality of the model’s reasoning. 
+
+3.2 Motivation: From Attention Dilution to Salience Mismatch 
+
+Since tokens within each temporal window jointly participate in softmax-normalized self-attention, redundant tokens within the window can dilute the attention budget available to truly important cross-window tokens. To verify this, we visualize the attention distribution across different layers of Qwen2.5-Omni-3B, as illustrated in Fig. 2 (showing Layer 3 as a representative example). Under the uncompressed Full Token setting, attention is heavily concentrated within the diagonal blocks of local temporal windows, while both cross-window attention and cross-modal attention are extremely weak. After random token compression, the number of tokens within each window is reduced, and notable attention activation emerges in the off-diagonal cross-window regions, with cross-modal attention similarly strengthened. This finding demonstrates that compression can effectively enhance cross-window modal interaction. Unidirectional cross-modal guidance methods [38] essentially exploit this property: by using one modality as the guide and removing redundant tokens of the other modality around it, these methods strengthen the interaction between the guiding modality’s information and other temporal windows, thereby maintaining accuracy after compression. However, since the two modalities often exhibit very different relevance patterns for the same query (as illustrated in Fig. 1), the importance scores of the guiding modality cannot reliably reflect the information value of the other modality. We further quantify the pervasiveness of this mismatch: across 1,197 query-video pairs, approximately 78.3% exhibit only weak correlation between visual and audio salience scores (see Appendix F). Under high compression ratios, this mismatch 
+
+> 4
+
+MAC-AutoML Query 
+
+Query -Aware Scoring  
+
+> Vision  Pruning
+> Anchor group
+> Delta  group
+
+# ... ...   
+
+> ball is he
+> E-norm
+> Scores
+
+# ... ...        
+
+> Visual Text Audio
+> Anchor preserve token Delta preserve token
+
+# ... 
+
+> Audio Embeds
+> Merge
+> odd
+> even
+
+Audio Merging  
+
+> even odd
+> Global coverage
+> Local detail
+
+Similarity     
+
+> Low compr High compr CLIP
+> Similarity
+> What playing
+> Audio
+> tokens
+> odd
+> even
+> Unique
+> Similar
+> Incremental information Long -range information interaction
+> 4x4 example
+
+Model generate 
+
+> cos -sim
+> Token
+> budget
+> Query
+> 4x4 example
+> cos -sim
+
+Figure 3. Overview of OmniScope. OmniScope operates in three stages: (1) Query-Aware Scoring independently estimates the importance of visual and audio tokens relative to the query and allocates per-position compression budgets; (2) Vision Pruning balances global semantic coverage and temporal increments through anchor–delta frame alternation; (3) Audio Merging fuses redundant tokens via per-second bipartite soft matching. 
+
+causes critical tokens in the non-guiding modality to be erroneously discarded, resulting in the loss of key cross-modal information. This directly inspires the modality-decoupled design of OmniScope: using the query as a shared semantic anchor, each modality independently removes task-irrelevant redundant tokens, so that the retained core tokens cluster around the same task semantics. 
+
+3.3 OmniScope 
+
+We introduce OmniScope, a training-free, query-aware omni-token compression framework. As illustrated in Fig. 3, OmniScope operates in three stages: (1) Query-Aware Scoring, which independently assesses the importance of visual and audio tokens based on their relevance to the input query and allocates per-position compression budgets accordingly; (2) Vision Pruning, which compresses visual tokens through anchor–delta interleaved spatio-temporal pruning; and (3) Audio Merging, which compresses audio tokens through per-second bipartite soft matching. 
+
+3.3.1 Visual Scoring. 
+
+To assess the semantic relevance of each video frame to the input query, we adopt CLIP [29] as the visual scorer (Fig. 3, Query-Aware Scoring, right). This scorer operates independently of the OmniLLM’s vision encoder, thereby decoupling importance estimation from model inference. Given sampled video frames and a query q, we extract the image feature 
+
+f (t) 
+
+> I
+
+∈ RDc for the t-th frame and the query feature fQ ∈ RDc , and compute a frame-level importance score via cosine similarity: 
+
+s(t) 
+
+> v
+
+= f (t) 
+
+> I
+
+· fQ
+
+∥f (t) 
+
+> I
+
+∥2 ∥fQ∥2
+
+. (3) 
+
+3.3.2 Audio Scoring. 
+
+A natural counterpart on the audio side would be an external cross-modal model such as CLAP [42]. However, models of this family are designed for clip-level audio–text alignment and typically operate at a granularity of several seconds or longer, whereas OmniScope requires per-second or even per-token importance estimation. This coarse temporal resolution makes CLAP ill-suited for the fine-grained scoring needed by our compression framework. We instead observe that the OmniLLM’s audio encoder outputs, after passing through the projector, are already mapped into the same embedding space as the LLM tokens, allowing the relevance between audio tokens and the query text to 
+
+5MAC-AutoML 
+
+be computed directly without an external model (Fig. 3, Query-Aware Scoring). In principle, the same strategy could be applied to the visual side, but as shown in Appendix D, the model’s internal vision–text alignment is not yet sufficient for reliable scoring; the visual side therefore still relies on the external CLIP scorer. Concretely, let the audio encoder output be Za ∈ RNa×D and the query embedding obtained from the LLM’s embedding layer be EQ ∈ RL×D . Prior work has shown that the squared norm of word embeddings encodes the information gain conveyed by the word, with semantically informative words exhibiting larger norms and high-frequency function words exhibiting smaller norms [27]. We therefore use the embedding norm as a simple gating signal to down-weight uninformative tokens: 
+
+gj = ∥E(j) 
+
+> Q
+
+∥
+
+max k ∥E(k) 
+
+> Q
+
+∥ . (4) We compute the gated cross-modal similarity matrix and aggregate it into a per-token importance score: 
+
+Sij = ¯ z(i) 
+
+> a
+
+· ¯e(j) 
+
+> Q
+
+, w ij = softmax j
+
+ gj Sij 
+
+τ
+
+
+
+, s (i) 
+
+> audio
+
+= P 
+
+> j
+
+wij Sij , (5) where ¯· denotes ℓ2-normalization, and i indexes audio tokens while j indexes query tokens. Scores are then aggregated at one-second granularity by averaging the top-k token scores within each second, yielding per-second importance values s(s) 
+
+> a
+
+. Since audio signals exhibit strong temporal continuity, the context surrounding a high-scoring second is often equally informative. We therefore apply a decaying score propagation to positions near key seconds. We initialize 
+
+ˆs(s) 
+
+> a
+
+← s(s) 
+
+> a
+
+for all s, and let H denote the set of seconds whose score exceeds the P -th percentile. For each second s,we compute a boost factor from all nearby high-scoring seconds and apply it: 
+
+bs = max  
+
+> s′∈H ,0<|s−s′|≤ R
+
+ 1 + ( β − 1) · γ |s−s′|, ˆs(s) 
+
+> a
+
+← ˆs(s) 
+
+> a
+
+· bs, (6) where β controls the base boost magnitude, γ is the distance decay rate, and R is the propagation radius. 
+
+3.3.3 Token Budget Allocation. 
+
+Once the importance scores are obtained, each modality is allocated a compression budget independently. Given a modality’s global retention ratio 1−ρ, the total number of retained tokens is N budget = (1 −ρ) · Ntotal . Based on the position-level importance scores {s(i)} (frame-level for vision, second-level for audio), the number of tokens retained at each position is allocated proportionally: 
+
+n(i)keep =
+
+$
+
+s(i)
+
+P 
+
+> j
+
+s(j) · N budget + 0 .5
+
+%
+
+. (7) The compression ratios ρv and ρa are configured independently—each modality determines its retained token count based solely on its own query relevance, without cross-modal comparison. 
+
+3.4 AD-STC 
+
+This section addresses which tokens to retain within each frame. Existing video token compression methods [12, 31, 37, 41] typically apply a uniform strategy to temporal incremental frames, which tends to lose global semantic coverage under high compression ratios. We therefore propose AD-STC (Anchor-Delta Spatio-Temporal Compression), which alternately assigns frames to two complementary roles (Fig. 3, Vision Pruning). Anchor frames (even-indexed) retain the most spatially distinctive tokens, capturing the core semantics of the current moment. Delta frames (odd-indexed) retain only the tokens that represent the most significant information increment relative to the preceding anchor frame, and adaptively switch scoring strategies according to the compression ratio—maintaining both global coverage and local detail when the budget is generous, while concentrating the limited resources on capturing dense, locally complete temporal increments to avoid information fragmentation when the budget is tight. Alternating between the two roles ensures a balanced preservation of both spatial and temporal information. 
+
+> 6MAC-AutoML
+
+3.4.1 Anchor Frame: Spatial Density Selection. 
+
+Anchor frames aim to retain the most spatially informative tokens within the allocated budget. We adopt a density-peak clustering approach with k-nearest neighbors (DPC-KNN) [7]. For each token hi in the frame, we compute its local density as the mean similarity to its k nearest neighbors: 
+
+di = 1
+
+k
+
+X  
+
+> hj∈KNN( hi)
+
+sim( hi, hj ). (8) A high di indicates that the token closely resembles its neighbors and is therefore spatially redundant, while a low di
+
+indicates that it is relatively isolated in the feature space and carries distinctive semantic content. We rank all tokens by 
+
+di in ascending order and retain the n(t)keep tokens with the lowest values. 
+
+3.4.2 Delta Frame: Adaptive Temporal Selection. 
+
+Delta frames aim to capture the information increment relative to the preceding anchor frame. We adaptively switch between two scoring strategies according to the retention ratio r = n(t)keep /n total : when r ≥ τr , a joint spatio-temporal criterion is used; when r < τ r , a temporal-difference criterion is applied instead. 
+
+Low compression (generous budget). When the retention ratio is high, we employ a joint irreplaceability score that accounts for both spatial and temporal dimensions simultaneously. Let {hi} denote the tokens of the current delta frame and {hprev  
+
+> k
+
+} denote the tokens of the preceding anchor frame. For each token hi, we compute a spatial replaceability term and a temporal replaceability term: 
+
+αintra  
+
+> i
+
+= max   
+
+> j̸=i
+
+sim( hi, hj ), αinter  
+
+> i
+
+= max  
+
+> l
+
+sim( hi, hprev  
+
+> l
+
+), (9) where αintra  
+
+> i
+
+measures how well a token can be substituted by another token in the same frame (a high value indicates spatial redundancy), and αinter  
+
+> i
+
+measures how well it can be substituted by a token in the preceding anchor frame (a high value indicates temporal redundancy).The two terms are fused multiplicatively into an overall replaceability score: 
+
+replaceability i = αintra  
+
+> i
+
+× αinter  
+
+> i
+
+. (10) The product attains a high value only when a token is highly replaceable along both dimensions simultaneously; it is then deemed redundant and removed. A token that is replaceable along only one dimension—for instance, spatially similar to its neighbors yet temporally novel—still yields a low product and is therefore retained. Consequently, removed tokens must satisfy both spatial and temporal redundancy. Compared with single-dimension criteria, the multiplicative fusion yields a more dispersed retained set in the spatio-temporal domain, providing more uniform global coverage when the token budget is sufficient. Accordingly, we rank all tokens by replaceability in ascending order and retain the n(t)keep 
+
+tokens with the lowest scores. 
+
+High compression (tight budget). When the retention ratio is low, the token budget is severely constrained. Under such conditions, the joint spatio-temporal criterion tends to scatter the few retained tokens across both spatial and temporal dimensions, yielding sparse, fragmented information that lacks local coherence. We therefore concentrate the limited budget on capturing dense, locally complete temporal increments: we compute the per-position cosine similarity between the current and the preceding frame, ci = sim( hi, hprev  
+
+> i
+
+), and retain the n(t)keep tokens with the lowest similarity—i.e., those that have changed the most. 
+
+3.5 Audio Token Compression 
+
+Due to the short-term stationarity of audio signals [28], temporally adjacent tokens overlap substantially yet each carries subtle acoustic differences; directly pruning tokens would cause irrecoverable information gaps along the temporal axis. Unlike the coarse compression granularity of existing audio compression methods [18, 20], we perform per-second token merging on the one-dimensional temporal embeddings after the encoder, fusing overlapping information at a finer granularity rather than discarding it, thereby minimizing information loss and preserving temporal coverage integrity (Fig. 3, Audio Merging).      
+
+> 7MAC-AutoML
+> Table 1. Comparison on omnimodal (audio & video) QA benchmarks at 45% and 25% retained ratios. The best result among compression methods for each metric is bolded. ∆denotes the difference relative to the Full Tokens baseline.
+
+Method Ratio WorldSense DailyOmni OmniVideoBench Video-MME Avg. ∆
+
+Qwen2.5-Omni-7B 
+
+Full Tokens 100% 46.0 62.0 34.1 63.3 51.35 −
+
+Random 45% 44.7 58.7 34.2 63.3 50.23 −1.12 
+
+FastV (A&V) 45% 45.8 59.5 35.8 63.4 51.13 −0.22 
+
+OmniZip 45% 45.7 60.0 35.6 63.3 51.15 −0.20 
+
+OmniScope (Ours) 45% 46.3 60.5 35.5 64.3 51.65 +0.30 
+
+Random 25% 44.9 56.9 34.9 62.4 49.78 −1.57 
+
+FastV (A&V) 25% 44.7 58.4 35.6 63.4 50.53 −0.82 
+
+OmniZip 25% 44.8 57.8 33.7 62.9 49.80 −1.55 
+
+OmniScope (Ours) 25% 45.7 58.8 35.8 63.7 51.00 −0.35 
+
+Qwen2.5-Omni-3B 
+
+Full Tokens 100% 46.1 60.7 32.7 61.1 50.15 −
+
+Random 45% 44.1 57.6 32.4 60.9 48.75 −1.40 
+
+FastV (A&V) 45% 44.2 59.7 33.0 61.2 49.53 −0.62 
+
+OmniZip 45% 45.4 59.1 33.2 61.1 49.70 −0.45 
+
+OmniScope (Ours) 45% 46.1 59.3 33.2 62.1 50.18 +0.03 
+
+Random 25% 42.5 55.7 31.7 59.8 47.43 −2.72 
+
+FastV (A&V) 25% 42.9 55.8 32.8 60.4 47.98 −2.17 
+
+OmniZip 25% 44.0 56.6 33.1 59.4 48.28 −1.87 
+
+OmniScope (Ours) 25% 44.5 56.9 33.1 60.1 48.65 −1.50 
+
+Given the per-second token budgets {n(s)keep } produced by the allocation described in Sec. 3.3, we perform token merging via bipartite soft matching [1] independently within each one-second segment. The N tokens in a segment are first partitioned into two disjoint sets by alternating index: a source set A = {h0, h2, . . . } (even-indexed) and a destination 
+
+set B = {h1, h3, . . . } (odd-indexed). A similarity matrix between the two sets is then computed as: 
+
+M = ¯HA ¯H⊤B , (11) where ¯· denotes ℓ2-normalization. Each source token is paired with its most similar destination token. Among all such pairs, the m = N − n(s)keep pairs with the highest similarity scores are selected for merging. Each selected source token is fused into its matched destination through averaging: 
+
+h′ 
+
+> dst
+
+=
+
+hdst + X 
+
+> i∈ S (dst)
+
+hi
+
+1 + |S (dst) | , (12) where S(dst) is the set of source tokens assigned to the destination token. If the required reduction exceeds ⌊N/ 2⌋,this step is applied iteratively. 
+
+# 4 Experiments 
+
+4.1 Experimental Setup 
+
+Benchmarks. We evaluate OmniScope on four audio-video understanding benchmarks that span diverse task types and video durations: (1) WorldSense [11], which assesses joint audio-video comprehension across eight domains—Tech & Science, Culture & Politics, Daily Life, Film & TV, Performance, Games, Sports, and Music; (2) DailyOmni [54], which targets omnimodal question answering in everyday scenarios; (3) OmniVideoBench [17], a comprehensive           
+
+> 8MAC-AutoML 0.4 0.5 0.6 0.7 0.8
+> Video Pruning Ratio _v
+> 42.0
+> 42.5
+> 43.0
+> 43.5
+> 44.0
+> 44.5
+> 45.0
+> 45.5
+> 46.0
+> 46.5
+> Accuracy (%)
+> Random
+> FastV(A&V)
+> OmniZip
+> Ours 0.15 0.25 0.35 0.45 0.55
+> Audio Pruning Ratio _a
+> 40.5
+> 41.0
+> 41.5
+> 42.0
+> 42.5
+> 43.0
+> 43.5
+> 44.0
+> 44.5
+> 45.0
+> Accuracy (%)
+> Random
+> FastV(A&V)
+> OmniZip
+> Ours
+
+Figure 4. Ablation results for video and audio compression ratios , evaluated on Qwen2.5-Omni-3B using the WorldSense benchmark. Left: Varying the video compression ratio ρv with audio compression ratio ρa = 0 .35 . Right: Varying the audio compression ratio ρa with video compression ratio ρv = 0 .8.
+
+benchmark for omnimodal video understanding; and (4) Video-MME [9], a widely adopted video understanding bench-mark in which incorporating audio further improves accuracy. Together, these benchmarks cover a broad range of video durations, task types, and audio-visual modality balance. 
+
+Base Models. Following prior work [38], we implement OmniScope on Qwen2.5-Omni [46] at two parameter scales, 7B and 3B. FlashAttention-2 [5] is enabled in all experiments. 
+
+Comparison Methods. Token compression methods designed specifically for OmniLLMs remain scarce. We there-fore adapt several representative approaches for comparison. Full Tokens serves as the uncompressed baseline. Random applies equal-ratio random pruning to both modalities. OmniZip [38], the current state-of-the-art open-source training-free omnimodal token compression method, employs audio-guided dynamic video token pruning coupled with an in-terleaved spatio-temporal compression module. FastV (A&V) [2] performs attention-based token pruning at a shallow decoder layer, applied jointly to audio and video tokens; we adapt the original implementation for FlashAttention com-patibility by computing importance scores solely from the attention distribution of the last text token at the designated layer, which also reduces its memory overhead. We do not compare with OmniSIFT [6], as it requires additional training and its code is not publicly available at the time of submission, precluding reproducible inference-time comparison. 
+
+Implementation Details. All experiments are conducted on NVIDIA A800 (80 GB) GPUs. Audio scoring leverages the model’s own audio encoder. Visual scoring employs CLIP ViT-L/14@336px [29]. Detailed hyperparameter settings are provided in Appendix B. All hyperparameters are fixed across all benchmarks and both model scales without per-dataset tuning. We report results under two compression settings, referred to as 45% retention ( ρv =0 .6, ρ a=0 .25 ) and 25% retention ( ρv =0 .8, ρ a=0 .35 ), where the percentages denote the approximate overall token retention ratio. Video input is uniformly capped at 128 frames across all benchmarks. 
+
+4.2 Main Results 
+
+State-of-the-Art Compression Performance. As shown in Table 1, we evaluate OmniScope on four omnimodal audio-video understanding benchmarks under 45% and 25% token retention ratios. Across all settings, OmniScope consis-tently achieves the highest average accuracy among compression methods, with nearly lossless accuracy at 45% reten-tion. Under the more aggressive 25% retention setting, OmniScope incurs the smallest accuracy drop relative to the Full Tokens baseline at both model scales. For example, on the 7B model, OmniScope incurs only a 0.35-point drop while OmniZip drops by 1.55 points. This is consistent with our analysis of cross-modal salience mismatch—when the token budget is severely limited, unidirectional cross-modal guidance is more prone to erroneously discarding information at critical moments of one modality. In contrast, OmniScope allows each modality to independently assess its own query relevance, and therefore remains robust at high compression ratios. 
+
+Fine-Grained Category Results. WorldSense spans eight diverse domains. As shown in Appendix A, OmniScope achieves the highest average accuracy at both 45% and 25% retention across both model scales, and remains competitive across individual domains. In contrast, competing methods exhibit uneven performance across domains—for instance, 
+
+9MAC-AutoML 
+
+Table 2. Efficiency comparison on WorldSense. GPU Mem denotes peak GPU memory usage, Prefilling Time is the time for the prefilling stage, and E2E Lat. is the end-to-end latency.                                                     
+
+> Method Ratio GPU Mem (G) Prefill (ms) E2E Lat. (s) Acc
+> Qwen2.5-Omni-7B
+> Full Tokens 100% 28.31 6299.90 10.965 46.0 FastV (A&V) 45% 26.73 2242.46 4.584 45.8 OmniZip 45% 26.65 2179.73 4.508 45.7
+> OmniScope (Ours) 45% 25.14 2195.90 5.284 46.3 OmniScope (Ours) 25% 24.00 1784.45 4.792 45.7
+> Qwen2.5-Omni-3B
+> Full Tokens 100% 18.04 2401.11 4.521 46.1 FastV (A&V) 45% 16.82 1814.27 4.136 44.2 OmniZip 45% 16.78 1808.51 4.016 45.4
+> OmniScope (Ours) 45% 15.20 1845.17 4.728 46.1 OmniScope (Ours) 25% 14.24 1544.31 4.410 44.5
+
+Table 3. Ablation on query-guided scoring. WS and DO denote WorldSense and DailyOmni, respectively (same for Tables 5 and 4). “Uniform” denotes equal compression across all positions without query-aware budget allocation. “X-guide Y” compresses Y less at positions where X is less compressed. “X-guide Y (inv.)” compresses Y more at positions where X is less compressed. All variants use Qwen2.5-Omni-3B with (ρv =0 .6, ρ a=0 .25 ).                                     
+
+> Variant WS DO Avg. ∆
+> Ours (full) 46.1 59.3 52.70 –A&V uniform 44.5 57.6 51.05 −1.65
+> Audio uniform 45.7 59.0 52.35 −0.35
+> Visual uniform 44.7 57.6 51.15 −1.55
+> Audio-guide Visual (inv.) 45.2 58.2 51.70 −1.00
+> Visual-guide Audio (inv.) 45.6 57.8 51.70 −1.00
+> Audio-guide Visual 45.0 58.2 51.60 −1.10
+> Visual-guide Audio 45.9 58.9 52.40 −0.30
+
+on the 7B model, OmniZip performs well on Culture & Politics but drops sharply on Performance and Games at 25% retention. This confirms that independently compressing each modality based on query relevance provides consistent robustness across diverse audio-visual scenarios, without being sensitive to the specific modality balance of a given domain. 
+
+Robustness Across Compression Ratios. As shown in Fig. 4, we evaluate the stability of OmniScope by independently sweeping the video and audio compression ratios. On the visual side, as ρv increases from 0.4 to 0.8, OmniScope consistently maintains the highest accuracy with the smallest decline. On the audio side, as ρa increases from 0.15 to 0.55, OmniScope similarly displays the most graceful degradation curve. In contrast, OmniZip with cross-modal guidance and attention-based FastV both exhibit sharp performance drops at high compression ratios. This stability stems from the decoupled compression mechanism, which concentrates the limited token budget on the most query-relevant temporal positions, thereby preserving the most critical information within fewer tokens. This further validates that the modality-decoupled compression strategy remains robust across varying compression ratios. 
+
+4.3 Efficiency Analysis 
+
+In the QA tasks evaluated in this work, the model generates only a short option answer, making the decoding-stage KV cache and computation overhead negligible. The speedup from token compression therefore manifests primarily in the prefilling stage. As shown in Table 2, OmniScope achieves the lowest GPU memory footprint at both model scales. On the 7B model, OmniScope achieves a 2.87 × prefilling speedup at 45% retention (6299 ms → 2195 ms), further increasing to 3.53 × at 25% retention (6299 ms → 1784 ms), while maintaining competitive accuracy. It is worth noting that OmniZip, the current state-of-the-art omnimodal compression method, requires extracting the full attention matrix from the audio encoder to assess token importance, incurring memory overhead that grows quadratically with audio length. In contrast, OmniScope’s audio scoring reuses embeddings already produced during normal inference, introducing no additional memory overhead, giving it a significant scalability advantage in long-video scenarios. The end-to-end latency of OmniScope at 45% retention is higher than FastV and OmniZip due to the one-time overhead of CLIP visual scoring, which runs outside the LLM inference pipeline. Nevertheless, compared with the uncompressed Full Token baseline, OmniScope still achieves approximately 2.1× end-to-end speedup on the 7B model (10.965 s 
+
+→ 5.284 s). Moreover, this cost is fixed: as shown in Appendix C, the proportion of CLIP scoring in end-to-end latency drops from approximately 13% when generating 1 token to around 7% at 100 tokens, decreasing steadily as the generation length grows. In longer generation scenarios such as video captioning, the prefilling speedup and KV cache savings from token compression become the dominant factors, while the fixed CLIP cost is progressively amortized, making OmniScope’s end-to-end latency advantage increasingly pronounced. 
+
+10 MAC-AutoML 
+
+Table 4. Ablation on vision pruning strategy. All variants use Qwen2.5-Omni-3B with ( ρv =0 .6, ρ a=0 .25 ).                         
+
+> Variant WS DO Avg. ∆
+> Ours (full) 46.1 59.3 52.70 –Delta: temporal diff only 45.6 58.7 52.15 −0.55
+> Delta: irreplaceability only 46.0 57.9 51.95 −0.75
+> All Anchor 45.2 58.0 51.60 −1.10
+> All Delta 45.0 57.1 51.05 −1.65
+
+Table 5. Ablation on audio compression strategy. We compare our audio compression method against mainstream compression alternatives. Qwen2.5-Omni-3B with (ρv =0 .6, ρ a=0 .25 ).                         
+
+> Variant WS DO Avg. ∆
+> Ours (full) 46.1 59.3 52.70 –Uniform sampling 45.7 59.2 52.45 −0.25
+> Average pooling 45.4 58.2 51.80 −0.90
+> Random drop 45.3 58.2 51.75 −0.95
+> Energy-based 44.1 55.8 49.95 −2.75
+
+4.4 Ablation Study 
+
+Ablation Study of Query-Guided Scoring. Table 3 compares the proposed query-aware scoring with various alternative strategies. Experimental results indicate that applying uniform compression to both modalities simultaneously at the same compression ratio causes a substantial performance degradation, with an average drop of 1.65 points. Applying uniform compression to only a single modality similarly impairs performance, confirming that dynamic compression is indispensable for both modalities. Furthermore, OmniScope consistently outperforms both vision-guided audio com-pression and audio-guided visual compression variants. This further validates that the scores from a single modality cannot reliably predict the token importance of another modality. In contrast, decoupling and independently compress-ing different modalities based on query relevance more robustly preserves key information. 
+
+Ablation Study of Visual Pruning Strategy. As shown in Table 4, both the All Anchor and All Delta variants lead to noticeable performance degradation, demonstrating that simultaneously preserving temporal dynamics and spatial structural information is crucial for video understanding. Under this alternating framework, applying dynamic compres-sion to Delta frames consistently outperforms the fixed compression strategy. This indicates the necessity of an optimal trade-off between incremental information density and global semantic information across varying compression rates. Furthermore, we conduct a sensitivity analysis on the switching threshold τr evaluated on the DailyOmni dataset. As illustrated in Appendix E, the performance curve exhibits a clear inverted U-shaped trend, reaching its optimal peak in the middle region. This demonstrates that our method possesses excellent robustness regarding threshold selection. 
+
+Ablation Study of Audio Compression Strategy. As shown in Table 5, we compare our method against four mainstream alternatives. Methods that directly discard tokens (random drop, energy-based filtering) suffer the largest degradation, as they break temporal continuity and irreversibly lose information; energy-based filtering performs worst because token energy in the audio embedding space reflects acoustic loudness rather than semantic importance. Uniform sampling and average pooling preserve temporal structure but do not fully exploit the information carried by the compressed tokens. Our method merges similar tokens rather than discarding them, maximally preserving information while maintaining global temporal ordering, and therefore achieves the best performance. 
+
+# 5 Conclusion 
+
+We present OmniScope, a training-free, modality-decoupled token compression framework for omnimodal large lan-guage models. OmniScope uses the query as a shared semantic anchor while allowing visual and audio tokens to independently assess their importance and allocate compression budgets, avoiding the fragility of unidirectional guid-ance under cross-modal salience mismatch. On top of this decoupled allocation, the visual side employs anchor-delta spatio-temporal compression and the audio side adopts per-second token merging, each minimizing information loss for its respective modality. On four audio-video understanding benchmarks at two model scales, OmniScope achieves the best average performance at all compression ratios, while delivering substantial prefilling speedup and memory savings. 
+
+> 11 MAC-AutoML
+
+# References 
+
+[1] Daniel Bolya, Cheng-Yang Fu, Xiaoliang Dai, Peizhao Zhang, Christoph Feichtenhofer, and Judy Hoffman. Token merging: Your vit but faster. arXiv preprint arXiv:2210.09461 , 2022. [2] Liang Chen, Haozhe Zhao, Tianyu Liu, Shuai Bai, Junyang Lin, Chang Zhou, and Baobao Chang. An image is worth 1/2 tokens after layer 2: Plug-and-play inference acceleration for large vision-language models. In European Conference on Computer Vision , pages 19–35. Springer, 2024. [3] Zhe Chen, Weiyun Wang, Hao Tian, Shenglong Ye, Zhangwei Gao, Erfei Cui, Wenwen Tong, Kongzhi Hu, Jiapeng Luo, Zheng Ma, et al. How far are we to gpt-4v? closing the gap to commercial multimodal models with open-source suites. Science China Information Sciences , 67(12):220101, 2024. [4] Wenliang Dai, Junnan Li, Dongxu Li, Anthony Tiong, Junqi Zhao, Weisheng Wang, Boyang Li, Pascale N Fung, and Steven Hoi. Instructblip: Towards general-purpose vision-language models with instruction tuning. Advances in neural information processing systems , 36:49250–49267, 2023. [5] Tri Dao. Flashattention-2: Faster attention with better parallelism and work partitioning. arXiv preprint arXiv:2307.08691 ,2023. [6] Yue Ding, Yiyan Ji, Jungang Li, Xuyang Liu, Xinlong Chen, Junfei Wu, Bozhou Li, Bohan Zeng, Yang Shi, Yushuo Guan, et al. Omnisift: Modality-asymmetric token compression for efficient omni-modal large language models. arXiv preprint arXiv:2602.04804 , 2026. [7] Mingjing Du, Shifei Ding, and Hongjie Jia. Study on density peaks clustering based on k-nearest neighbors and principal component analysis. Knowledge-Based Systems , 99:135–145, 2016. [8] Elias Frantar and Dan Alistarh. Sparsegpt: Massive language models can be accurately pruned in one-shot. In International conference on machine learning , pages 10323–10337. PMLR, 2023. [9] Chaoyou Fu, Yuhan Dai, Yongdong Luo, Lei Li, Shuhuai Ren, Renrui Zhang, Zihan Wang, Chenyu Zhou, Yunhang Shen, Mengdan Zhang, et al. Video-mme: The first-ever comprehensive evaluation benchmark of multi-modal llms in video analysis. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 24108–24118, 2025. [10] Chaoyou Fu, Haojia Lin, Xiong Wang, Yi-Fan Zhang, Yunhang Shen, Xiaoyu Liu, Haoyu Cao, Zuwei Long, Heting Gao, Ke Li, et al. Vita-1.5: Towards gpt-4o level real-time vision and speech interaction. arXiv preprint arXiv:2501.01957 , 2025. [11] Jack Hong, Shilin Yan, Jiayin Cai, Xiaolong Jiang, Yao Hu, and Weidi Xie. Worldsense: Evaluating real-world omnimodal understanding for multimodal llms. arXiv preprint arXiv:2502.04326 , 2025. [12] Xiaohu Huang, Hao Zhou, and Kai Han. Prunevid: Visual token pruning for efficient video large language models. In Findings of the Association for Computational Linguistics: ACL 2025 , pages 19959–19973, 2025. [13] Aaron Hurst, Adam Lerer, Adam P Goucher, Adam Perelman, Aditya Ramesh, Aidan Clark, AJ Ostrow, Akila Welihinda, Alan Hayes, Alec Radford, et al. Gpt-4o system card. arXiv preprint arXiv:2410.21276 , 2024. [14] Yizhang Jin, Jian Li, Tianjun Gu, Yexin Liu, Bo Zhao, Jinxiang Lai, Zhenye Gan, Yabiao Wang, Chengjie Wang, Xin Tan, et al. Efficient multimodal large language models: A survey. Visual Intelligence , 3(1):27, 2025. [15] Taehan Lee and Hyukjun Lee. Token pruning in audio transformers: Optimizing performance and decoding patch importance. 
+
+arXiv preprint arXiv:2504.01690 , 2025. [16] Bo Li, Yuanhan Zhang, Dong Guo, Renrui Zhang, Feng Li, Hao Zhang, Kaichen Zhang, Peiyuan Zhang, Yanwei Li, Ziwei Liu, et al. Llava-onevision: Easy visual task transfer. arXiv preprint arXiv:2408.03326 , 2024. [17] Caorui Li, Yu Chen, Yiyan Ji, Jin Xu, Zhenyu Cui, Shihao Li, Yuanxing Zhang, Wentao Wang, Zhenghao Song, Dingling Zhang, et al. Omnivideobench: Towards audio-visual understanding evaluation for omni mllms. arXiv preprint arXiv:2510.10689 ,2025. [18] Yuang Li, Yu Wu, Jinyu Li, and Shujie Liu. Accelerating transducers through adjacent token merging. arXiv preprint arXiv:2306.16009 , 2023. [19] Bin Lin, Yang Ye, Bin Zhu, Jiaxi Cui, Munan Ning, Peng Jin, and Li Yuan. Video-llava: Learning united visual representation by alignment before projection. In Proceedings of the 2024 conference on empirical methods in natural language processing ,pages 5971–5984, 2024. 
+
+> 12 MAC-AutoML
+
+[20] Yueqian Lin, Yuzhe Fu, Jingyang Zhang, Yudong Liu, Jianyi Zhang, Jingwei Sun, Hai Helen Li, and Yiran Chen. Speechprune: Context-aware token pruning for speech information retrieval. In 2025 IEEE International Conference on Multimedia and Expo (ICME) , pages 1–6. IEEE, 2025. [21] Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee. Visual instruction tuning. Advances in neural information processing systems , 36:34892–34916, 2023. [22] Kai Liu, Jungang Li, Yuchong Sun, Shengqiong Wu, Jianzhang Gao, Daoan Zhang, Wei Zhang, Sheng Jin, Sicheng Yu, Geng Zhan, et al. Javisgpt: A unified multi-modal llm for sounding-video comprehension and generation. arXiv preprint arXiv:2512.22905 , 2025. [23] Yongdong Luo, Wang Chen, Weizhong Huang, Shukang Yin, Haojia Lin, Jinfa Huang, Chaoyou Fu, Jiayi Ji, Xiawu Zheng, and Jiebo Luo. Quota: Query-oriented token assignment via cot query decouple for long video comprehension. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 40, pages 24160–24168, 2026. [24] Xinyin Ma, Gongfan Fang, and Xinchao Wang. Llm-pruner: On the structural pruning of large language models. Advances in neural information processing systems , 36:21702–21720, 2023. [25] Yuexiao Ma, Taisong Jin, Xiawu Zheng, Yan Wang, Huixia Li, Yongjian Wu, Guannan Jiang, Wei Zhang, and Rongrong Ji. Ompq: Orthogonal mixed precision quantization. In Proceedings of the AAAI conference on artificial intelligence , volume 37, pages 9029–9037, 2023. [26] Yuexiao Ma, Huixia Li, Xiawu Zheng, Feng Ling, Xuefeng Xiao, Rui Wang, Shilei Wen, Fei Chao, and Rongrong Ji. Affinequant: Affine transformation quantization for large language models. In International Conference on Learning Rep-resentations , volume 2024, pages 50932–50951, 2024. [27] Momose Oyama, Sho Yokoi, and Hidetoshi Shimodaira. Norm of word embedding encodes information gain. In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing , pages 2108–2130, 2023. [28] Lawrence Rabiner and Biing-Hwang Juang. Fundamentals of speech recognition . Prentice-Hall, Inc., 1993. [29] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural language supervision. In International conference on machine learning , pages 8748–8763. PmLR, 2021. [30] Yuzhang Shang, Mu Cai, Bingxin Xu, Yong Jae Lee, and Yan Yan. Llava-prumerge: Adaptive token reduction for efficient large multimodal models. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 22857–22867, 2025. [31] Kele Shao, Keda Tao, Can Qin, Haoxuan You, Yang Sui, and Huan Wang. Holitom: Holistic token merging for fast video large language models. arXiv preprint arXiv:2505.21334 , 2025. [32] Kele Shao, Keda Tao, Kejia Zhang, Sicheng Feng, Mu Cai, Yuzhang Shang, Haoxuan You, Can Qin, Yang Sui, and Huan Wang. When tokens talk too much: A survey of multimodal long-context token compression across images, videos, and audios. arXiv preprint arXiv:2507.20198 , 2025. [33] Dingjie Song, Wenjun Wang, Shunian Chen, Xidong Wang, Michael Guan, and Benyou Wang. Less is more: A simple yet effective token reduction method for efficient multi-modal llms, 2024. [34] Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao Chen, Tian Tan, Wei Li, Lu Lu, Zejun Ma, Yuxuan Wang, and Chao Zhang. video-salmonn: Speech-enhanced audio-visual large language models. arXiv preprint arXiv:2406.15704 , 2024. [35] Yizheng Sun, Yanze Xin, Hao Li, Jingyuan Sun, Chenghua Lin, and Riza Theresa Batista-Navarro. Lvpruning: An effective yet simple language-guided vision token pruning approach for multi-modal large language models. In Findings of the Association for Computational Linguistics: NAACL 2025 , pages 4299–4308, 2025. [36] Changli Tang, Yixuan Li, Yudong Yang, Jimin Zhuang, Guangzhi Sun, Wei Li, Zejun Ma, and Chao Zhang. video-salmonn 2: Caption-enhanced audio-visual large language models. arXiv preprint arXiv:2506.15220 , 2025. [37] Keda Tao, Can Qin, Haoxuan You, Yang Sui, and Huan Wang. Dycoke: Dynamic compression of tokens for fast video large language models. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 18992–19001, 2025. [38] Keda Tao, Kele Shao, Bohan Yu, Weiqiang Wang, Huan Wang, et al. Omnizip: Audio-guided dynamic token compression for fast omnimodal large language models. arXiv preprint arXiv:2511.14582 , 2025. 
+
+> 13 MAC-AutoML
+
+[39] Gemini Team, Rohan Anil, Sebastian Borgeaud, Jean-Baptiste Alayrac, Jiahui Yu, Radu Soricut, Johan Schalkwyk, An-drew M Dai, Anja Hauth, Katie Millican, et al. Gemini: a family of highly capable multimodal models. arXiv preprint arXiv:2312.11805 , 2023. [40] Peng Wang, Shuai Bai, Sinan Tan, Shijie Wang, Zhihao Fan, Jinze Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, et al. Qwen2-vl: Enhancing vision-language model’s perception of the world at any resolution. arXiv preprint arXiv:2409.12191 ,2024. [41] Yuetian Weng, Mingfei Han, Haoyu He, Xiaojun Chang, and Bohan Zhuang. Longvlm: Efficient long video understanding via large language models. In European Conference on Computer Vision , pages 453–470. Springer, 2024. [42] Yusong Wu, Ke Chen, Tianyu Zhang, Yuchen Hui, Taylor Berg-Kirkpatrick, and Shlomo Dubnov. Large-scale contrastive language-audio pretraining with feature fusion and keyword-to-caption augmentation. In ICASSP 2023-2023 IEEE Interna-tional Conference on Acoustics, Speech and Signal Processing (ICASSP) , pages 1–5. IEEE, 2023. [43] Guangxuan Xiao, Ji Lin, Mickael Seznec, Hao Wu, Julien Demouth, and Song Han. Smoothquant: Accurate and efficient post-training quantization for large language models. In International conference on machine learning , pages 38087–38099. PMLR, 2023. [44] Zhifei Xie and Changqiao Wu. Mini-omni2: Towards open-source gpt-4o with vision, speech and duplex capabilities. arXiv preprint arXiv:2410.11190 , 2024. [45] Long Xing, Qidong Huang, Xiaoyi Dong, Jiajie Lu, Pan Zhang, Yuhang Zang, Yuhang Cao, Conghui He, Jiaqi Wang, Feng Wu, et al. Pyramiddrop: Accelerating your large vision-language models via pyramid visual redundancy reduction. arXiv preprint arXiv:2410.17247 , 2024. [46] Jin Xu, Zhifang Guo, Jinzheng He, Hangrui Hu, Ting He, Shuai Bai, Keqin Chen, Jialin Wang, Yang Fan, Kai Dang, et al. Qwen2.5-omni technical report. arXiv preprint arXiv:2503.20215 , 2025. [47] Jin Xu, Zhifang Guo, Hangrui Hu, Yunfei Chu, Xiong Wang, Jinzheng He, Yuxuan Wang, Xian Shi, Ting He, Xinfa Zhu, et al. Qwen3-omni technical report. arXiv preprint arXiv:2509.17765 , 2025. [48] Qize Yang, Shimin Yao, Weixuan Chen, Shenghao Fu, Detao Bai, Jiaxing Zhao, Boyuan Sun, Bowen Yin, Xihan Wei, and Jingren Zhou. Humanomniv2: From understanding to omni-modal reasoning with context. arXiv preprint arXiv:2506.21277 ,2025. [49] Senqiao Yang, Yukang Chen, Zhuotao Tian, Chengyao Wang, Jingyao Li, Bei Yu, and Jiaya Jia. Visionzip: Longer is better but not necessary in vision language models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 19792–19802, 2025. [50] Hanrong Ye, Chao-Han Huck Yang, Arushi Goel, Wei Huang, Ligeng Zhu, Yuanhang Su, Sean Lin, An-Chieh Cheng, Zhen Wan, Jinchuan Tian, et al. Omnivinci: Enhancing architecture and data for omni-modal understanding llm. arXiv preprint arXiv:2510.15870 , 2025. [51] Yuan Zhang, Chun-Kai Fan, Junpeng Ma, Wenzhao Zheng, Tao Huang, Kuan Cheng, Denis Gudovskiy, Tomoyuki Okuno, Yohei Nakata, Kurt Keutzer, et al. Sparsevlm: Visual token sparsification for efficient vision-language model inference. arXiv preprint arXiv:2410.04417 , 2024. [52] Jiaxing Zhao, Xihan Wei, and Liefeng Bo. R1-omni: Explainable omni-multimodal emotion recognition with reinforcement learning. arXiv preprint arXiv:2503.05379 , 2025. [53] Xiawu Zheng, Yuexiao Ma, Teng Xi, Gang Zhang, Errui Ding, Yuchao Li, Jie Chen, Yonghong Tian, and Rongrong Ji. An information theory-inspired strategy for automatic network pruning. arXiv preprint arXiv:2108.08532 , 2021. [54] Ziwei Zhou, Rui Wang, and Zuxuan Wu. Daily-omni: Towards audio-visual reasoning with temporal alignment across modal-ities. arXiv preprint arXiv:2505.17862 , 2025. 
+
+> 14 MAC-AutoML
+
+# Appendix 
+
+# A Per-Domain Results on WorldSense 
+
+WorldSense spans eight diverse domains. As shown in Table 6, OmniScope achieves the highest average accuracy at both 45% and 25% retention across both model scales, and remains competitive across individual domains. In contrast, competing methods exhibit uneven performance across domains—for instance, on the 7B model, OmniZip performs well on Culture & Politics but drops sharply on Performance and Games at 25% retention. This further validates that independently compressing each modality based on query relevance provides consistent robustness across diverse audio-visual scenarios. 
+
+Table 6. Per-domain results on WorldSense. The best result among compression methods for each metric is bolded. 
+
+Method Ratio Tech & Sci. Cul. & Pol. Daily Life Film & TV Perform. Games Sports Music Avg 
+
+Qwen2.5-Omni-7B 
+
+Full Tokens 100% 48.0 48.9 45.0 47.0 46.1 40.3 44.0 47.3 46.0 Random 45% 48.8 49.2 43.9 42.5 43.1 39.9 42.6 45.8 44.7 FastV (A&V) 45% 47.6 49.5 46.4 43.5 46.1 41.2 44.2 46.6 45.8 OmniZip 45% 49.4 50.2 45.9 44.1 43.1 39.9 43.3 46.8 45.7 
+
+OmniScope (Ours) 45% 48.6 50.2 46.8 45.1 47.6 40.3 43.7 46.1 46.3 
+
+Random 25% 48.4 47.2 44.2 44.3 42.7 41.2 42.1 47.0 44.9 FastV (A&V) 25% 46.9 48.5 45.9 42.7 44.9 41.6 40.7 44.8 44.7 OmniZip 25% 46.9 50.5 45.4 42.7 41.9 38.2 42.3 46.8 44.8 
+
+OmniScope (Ours) 25% 48.4 49.5 46.2 44.3 44.9 38.6 43.5 47.0 45.7 
+
+Qwen2.5-Omni-3B 
+
+Full Tokens 100% 52.7 49.8 43.6 46.2 41.6 42.5 44.2 46.3 46.1 Random 45% 50.6 45.0 44.5 42.7 40.4 40.3 40.7 44.6 44.1 FastV (A&V) 45% 51.4 46.9 44.4 43.0 39.3 40.3 40.2 44.1 44.2 OmniZip 45% 52.2 46.6 45.1 44.9 40.4 42.5 41.6 46.1 45.4 
+
+OmniScope (Ours) 45% 52.4 47.6 45.0 45.9 42.7 41.2 43.3 47.0 46.1 
+
+Random 25% 48.8 44.0 40.6 43.5 40.8 36.1 40.0 43.6 42.5 FastV (A&V) 25% 49.6 43.0 42.9 43.3 41.6 35.6 39.3 43.6 42.9 OmniZip 25% 49.8 47.6 43.8 42.5 40.8 39.9 40.2 44.6 44.0 
+
+OmniScope (Ours) 25% 52.9 46.9 43.8 43.5 41.6 40.3 38.8 45.1 44.5 
+
+# B Hyperparameter Settings 
+
+Table 7 lists all hyperparameters used in OmniScope. The same configuration is used across all benchmarks and both model scales without per-dataset tuning. The audio scoring module includes the temperature coefficient, top-k aggre-gation count, and neighbor boost parameters; the AD-STC module includes the switching threshold and the number of DPC-KNN neighbors. 
+
+Table 7. Hyperparameter settings for OmniScope. Module Parameter Value Audio scoring Temperature τ 0.05 Top-k aggregation 5Neighbor boost β, γ, R, P 1.5, 0.5, 3, 80 AD-STC Switching threshold τr 0.4 DPC-KNN neighbors k 5
+
+15 MAC-AutoML 
+
+# C CLIP Scoring Overhead Analysis 
+
+The CLIP visual scorer introduces a fixed one-time overhead. Fig. 5 shows that its share of end-to-end latency drops from approximately 13% when generating a single token to around 7% at 100 tokens, confirming that this cost is progressively amortized in longer generation scenarios. CLIP / E2E (%) 
+
+## Max new tokens 
+
+Figure 5. Ratio of CLIP visual scoring overhead to end-to-end latency as the number of generated tokens increases, measured on Qwen2.5-Omni-7B with 45% retention. 
+
+# D Visual Scoring Strategy Ablation 
+
+Table 8 compares the external CLIP scorer with the OmniLLM’s own visual embeddings (Self-Embed) for frame-level importance estimation. CLIP scoring consistently achieves higher overall average accuracy across both model scales and compression ratios. Notably, the performance drop of Self-Embed on the 7B model is relatively small (approximately 0.5 points on average), whereas the drop on the 3B model is more pronounced (approximately 0.9 points on average), indicating that larger models already achieve substantially better vision–text alignment. 
+
+Table 8. Ablation on visual scoring strategy. “Self-Embed” replaces the external CLIP scorer with the OmniLLM’s own visual embeddings. ∆ denotes the difference relative to the CLIP scoring variant. WS, DO, OVB, and VMME denote WorldSense, DailyOmni, OmniVideoBench, and Video-MME, respectively. Variant Ratio WS DO OVB VMME Avg. ∆
+
+Qwen2.5-Omni-7B 
+
+Ours (CLIP) 45% 46.3 60.5 35.5 64.3 51.65 −
+
+Self-Embed 45% 45.8 59.1 35.8 64.0 51.18 −0.47 
+
+Ours (CLIP) 25% 45.7 58.8 35.8 63.7 51.00 −
+
+Self-Embed 25% 45.1 57.8 35.8 63.4 50.53 −0.47 
+
+Qwen2.5-Omni-3B 
+
+Ours (CLIP) 45% 46.1 59.3 33.2 62.1 50.18 −
+
+Self-Embed 45% 45.1 57.2 33.4 61.3 49.25 −0.93 
+
+Ours (CLIP) 25% 44.5 56.9 33.1 60.1 48.65 −
+
+Self-Embed 25% 43.7 55.5 32.5 59.7 47.85 −0.80 
+
+# E Ratio Threshold Sensitivity Analysis 
+
+We conduct a sensitivity analysis on the switching threshold τr that controls the transition between the two Delta frame scoring strategies in AD-STC. As shown in Fig. 6, evaluated on the DailyOmni benchmark, the performance curve 
+
+> 16 MAC-AutoML
+
+exhibits a clear inverted U-shaped trend, reaching its optimal peak in the middle region. This indicates that our method is robust to threshold selection, with a wide optimal range that does not require fine-grained tuning. Accuracy (%) 
+
+RATIO_THRESHOLD       
+
+> Figure 6. Effect of the ratio threshold τron accuracy. τrcontrols the switching point between the two Delta frame scoring strategies in AD-STC. Evaluated on Qwen2.5-Omni-3B using the DailyOmni benchmark with ( ρv=0 .6, ρ a=0 .25 ).
+
+# F Cross-Modal Salience Mismatch Analysis 
+
+To quantify the pervasiveness of cross-modal salience mismatch, we compute the Spearman correlation coefficient between query-conditioned visual and audio importance scores on the DailyOmni dataset. Visual scores are obtained via CLIP cosine similarity between each frame and the query, while audio scores are obtained via CLAP cosine similarity between each one-second segment and the query. Here, CLIP and CLAP serve as an external probe independent of the actual scoring pipeline in OmniScope (Sec. 3.3), so that the observation of this phenomenon does not depend on our method design. We compute the correlation pairwise across 1,197 query-video pairs, aligned at one-second granularity. As shown in Fig. 7, the distribution is centered around zero, with approximately 78.3% of samples exhibiting only weak correlation ( |ρ| < 0.3). This confirms that cross-modal salience mismatch is a pervasive phenomenon on this dataset. 0.8 0.6 0.4 0.2 0.0 0.2 0.4 0.6 0.8 
+
+Spearman (visual vs. audio) 
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+> Count
+
+| | < 0.3: 78.3%
