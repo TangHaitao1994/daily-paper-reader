@@ -1,0 +1,689 @@
+Title: Omni-Prune: Query-Aware Unified Token Pruning for Efficient Omnimodal Large Language Models
+
+URL Source: https://arxiv.org/pdf/2607.23445v1
+
+Published Time: Tue, 28 Jul 2026 01:06:22 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# Omni-Prune: Query-Aware Unified Token Pruning for Efficient Omnimodal Large Language Models 
+
+Yiming Zhong 1, Chang Nie 1, Caifeng Shan 1,∗
+
+> 1
+
+Nanjing University 
+
+zym@smail.nju.edu.cn 
+
+§ Code: github.com/kimberlyii/Omni-Prune 
+
+Abstract 
+
+Omnimodal large language models (Om-niLLMs) are rapidly extending multimodal rea-soning to cover synchronized audio and video. However, the resulting audio-video token se-quences are long, leading to high prefill latency and GPU memory usage at inference time. Ex-isting token pruning methods, designed mainly for vision-only inputs, miss both the cross-modal links between audio and video and the user query that decides which content matters. To bridge this gap, we present Omni-Prune ,a training-free, query-aware audio-visual to-ken pruning framework that jointly removes redundancy from both modalities while keep-ing task-relevant cross-modal evidence. Specif-ically, Omni-Prune first splits the token se-quence into adaptive time windows placed at audio saliency peaks, then scores audio and video tokens on a single scale that combines en-coder attention with text-query relevance, and pairs related audio-video tokens so that they are kept together. Within each window, a final K-medoids step then selects a few represen-tative tokens, adding diverse cues that score-based selection alone would miss. Extensive experiments demonstrate that Omni-Prune out-performs established baseline methods, deliv-ering up to 3.25 × prefill speedup and 1.3 ×
+
+memory reduction while retaining over 99% of full-model performance. 
+
+1 Introduction 
+
+Recent omnimodal large language models (Om-niLLMs) (Xu et al., 2025; Fu et al., 2026; Li et al., 2025c; Wu et al., 2024; Lu et al., 2024) extend the multimodal paradigm beyond vision and language. They jointly ingest text, audio, and video within a single autoregressive backbone, and project all signals into a shared token space. This unified de-sign unlocks fine-grained audiovisual reasoning, such as lip-synchronized dialogue understanding 
+
+> *
+
+Corresponding author. Daily-Omni     
+
+> WorldSense
+> VideoMME OmniVideoBench
+> FutureOmni
+> Random FastV DyCoke OmniZip Omni -Prune (Ours)
+
+Figure 1: Performance comparison on five omni-modal video benchmarks. Compared with other to-ken compression baselines, our proposed Omni-Prune achieves the best performance with a matched or lower budget, and remains close to the full-token upper bound. 
+
+and sound-grounded event localization, that vision-only or audio-only systems cannot support. Realizing this capability at scale, however, is bottlenecked by token volume. A one-minute clip at moderate sampling rates already produces on the order of 10 4 interleaved audio-visual tokens (Xu et al., 2025). Self-attention scales quadratically with sequence length (Vaswani et al., 2017), so prefill latency and GPU memory quickly dominate inference cost. Token pruning is therefore a prereq-uisite for practical deployment. Token pruning has been extensively studied for image and video large language models (Chen et al., 2024a; Yang et al., 2025; Xing et al., 2024; Tao et al., 2025a; Fan et al., 2026; Zhang et al., 2025c,b; Shen et al., 2025; Ye et al., 2025). Extending these methods to OmniLLMs is non-trivial, since au-dio carries complementary, temporally aligned evi-dence that a vision-only design cannot exploit (Shi et al., 2022; Sun et al., 2024). Recent omnimodal pruning methods (Tao et al., 2025b; Ding et al., 2026) take a step further (Figure 2 (a,b)), but they arXiv:2607.23445v1 [cs.CV] 26 Jul 2026 (c) Query-Aware Unified Pruning (Ours) (b) Modality-Guided Pruning (a) Modality -Decoupled Pruning            
+
+> Query
+> Audio
+> Encoder
+> Primary
+> Pruner
+> Video
+> Prune r
+> Vision
+> Encoder
+> Audio
+> Prune r
+> Audio
+> Encoder
+> Large Language Model
+> Video Audio
+> Guided
+> Pruner
+> Guidance
+> Large Language Model
+> Query-Aware Cross -Modal Query-Aware Cross-Modal Query-Aware Cross-Modal
+> Large Language Model
+> Audio
+> Encoder
+> Query
+> Vision
+> Encoder Vision
+> Encoder
+> Unified Prune r
+> Query
+> Guidance
+> Coupled
+> Video Audio Video Audio
+
+Figure 2: Paradigms of token pruning methods. (a) Modality-Decoupled Pruning: each modality is pruned independently, ignoring cross-modal redundancy and the user query. (b) Modality-Guided Pruning: a primary modality unilaterally drives the pruning of the other. (c) Query-Aware Unified Pruning (Ours): a query-conditioned pruner jointly scores and couples audio-video tokens. 
+
+still fail to fully leverage all available modalities. The audio and video streams are processed in a sequential, one-way pipeline, where one modality unilaterally drives the reduction of the other rather than informing each other symmetrically. The text query, although central to the downstream task, is left out of the pruning decision entirely. So far, a token pruning approach that fully exploits all modalities has yet to be developed. To this end, we propose Omni-Prune , a training-free token pruning framework for OmniLLMs (Fig-ure 2(c)) that introduces several technical innova-tions. First, we use audio saliency peaks as tem-poral boundaries to partition the token sequence into content-aware windows. Second, within each window, we integrate encoder attention with text-query relevance to score audio and video tokens on a unified scale, so that the resulting ranking reflects both modality importance and task intent. Third, building on these scores, we pair semanti-cally correlated audio-video tokens and retain them jointly, ensuring that the pruning preserves cross-modal coherence rather than treating each modality in isolation. Extensive experiments on five omnimodal bench-marks demonstrate that Omni-Prune consistently outperforms prior pruning methods while substan-tially reducing computational cost (Figure 1). Our contributions in this work are as follows: • To the best of our knowledge, Omni-Prune is the first token pruning framework that incorpo-rates all available modalities, including audio, video, and text, into the pruning decision. • We design a unified scoring and cross-modal coupling mechanism that enables query-aware audio-video token selection within content-adaptive temporal windows. • Evaluations on five benchmarks with 3B and 7B backbones show that Omni-Prune retains strong accuracy under aggressive token reduc-tion while yielding notable savings in prefill latency and GPU memory consumption. 
+
+2 Related Work 
+
+Omnimodal Large Language Models. The ex-pansion of multimodal large language models to-ward richer perceptual channels has given rise to OmniLLMs, which receive text, image, video, and audio within a unified token sequence for end-to-end joint reasoning. Compared with Vide-oLLMs (Zhang et al., 2025a, 2024; Bai et al., 2025; Chen et al., 2024b; Li et al., 2024) that primarily target visual content understanding, OmniLLMs emphasize cross-modal collaborative perception, particularly the temporal alignment and semantic complementarity between audio and visual streams. Qwen2.5-Omni (Xu et al., 2025) achieves stream-ing comprehension through a Thinker-Talker archi-tecture with TMRoPE-based temporal alignment, while VITA-1.5 (Fu et al., 2026) introduces speech dialogue via multi-stage progressive training. How-ever, the massive number of audio and visual tokens in omnimodal inputs creates severe efficiency and memory bottlenecks that demand effective pruning. 
+
+Token Pruning. Existing token pruning methods have primarily been developed for multimodal mod-els (Chen et al., 2024a; Shang et al., 2025; Yang et al., 2025; Xing et al., 2024; Li et al., 2025b; Audio-Anchor Adaptive Windowing    
+
+> Time
+> W1W2W4W3Wn
+
+. . . 
+
+> Cross-Modal Relation Map
+> Diversity-Preserving Clustering
+> Unselected Tokens From Step 2
+> vi
+> (Joint-Norm
+> Attention)
+> ritext
+> Cosine
+> Query
+
+... 
+
+...   
+
+> Keep High-Score Tokens
+> CW
+> Similarity
+> Matrix
+> v1v2vn
+
+... 
+
+> a1
+> a2
+> am
+> ...
+
+... 
+
+...   
+
+> Pairing Gate
+> γ
+> Coupled
+> Vision Encoder Audio Encoder
+
+. . . 
+
+. . .      
+
+> Window 1Window 2Window N
+
+DUET Query 
+
+Large Language Model        
+
+> Audio Token Video Token Text Token Pruned Token
+> Selected Medoid Non-Medoid Token Coverage Region
+> Stage 2 Cross-Modal coupling
+> Audio Peaks
+> Window
+> Boundaries
+> Stage 1 Token Scoring
+
+Figure 3: Overview of the proposed Omni-Prune framework . Given interleaved audio-video tokens from omnimodal encoders, the framework (1) segments the sequence into adaptive temporal windows anchored at audio saliency peaks, (2) scores and couples tokens via a cross-modal relation map, and (3) recovers representative residuals through K-medoids clustering. The pruned multimodal sequence is then passed to the LLM backbone for downstream reasoning. 
+
+Tao et al., 2025a; Li et al., 2024; Fan et al., 2026). Representative approaches include attention-based pruning and merging (Chen et al., 2024a; Shang et al., 2025), entropy-guided token selection (Yang et al., 2025), layer-wise progressive dropping (Xing et al., 2024), and spatiotemporal merging for video tokens (Fan et al., 2026). For OmniLLMs, Om-niZip (Tao et al., 2025b) uses audio attention as an-chors to allocate video compression budgets. Con-versely, OmniSIFT (Ding et al., 2026) reverses this flow by pruning video first and then guiding audio retention with visual semantics. 
+
+3 Method 
+
+In this section, we present Omni-Prune, a training-free cross-modal token pruning framework for OmniLLMs, illustrated in Figure 3. The frame-work is built around two core modules: Audio-Anchor Adaptive Windowing (AAW), which seg-ments the token sequence into content-aware tem-poral windows aligned with audio-salient events, and Cross-Modal Relation Map (CMRM), which jointly scores audio and video tokens within each window and identifies cross-modal merge pairs. To further preserve representational diversity, we em-ploy K-medoids clustering to recover a compact set of representative tokens. 
+
+3.1 Background 
+
+A typical OmniLLM follows an encoder-decoder architecture: modality-specific encoders first con-vert raw video and audio into token embeddings, which are then interleaved with text tokens and fed into a shared LLM decoder for autoregressive gen-eration. Specifically, the video is sampled into F
+
+frames {I1, . . . , I F }, and each modality is encoded via dedicated encoders Fvis , Faud :
+
+Zvis = Fvis (I1, . . . , I F ) ∈ RNv ×D, (1) 
+
+Zaud = Faud (w) ∈ RNa×D, (2) where w denotes the raw audio waveform, Nv/Na
+
+are the numbers of visual/audio tokens, and D is the hidden dimension. These token sequences are interleaved with text tokens by temporal order and projected into a shared embedding space, producing a flat sequence 
+
+X = [ x1, . . . , xL] ∈ RL×D, where each token xi
+
+belongs to one of three modalities: video ( V), au-dio ( A), or text ( T ). The encoders additionally yield attention scores sv ∈ R|V| and sa ∈ R|A| ,which reflect the encoder-level saliency of each to-ken. Given a keep ratio α ∈ (0 , 1] , Omni-Prune selects at most B = ⌊α · (|A| + |V| )⌉ audio-visual tokens (the total budget ) to retain while keeping all text tokens intact. 3.2 Audio-Anchor Adaptive Windowing 
+
+Prior pruning approaches typically operate on fixed temporal windows (Tao et al., 2025b; Ding et al., 2026) or process the entire sequence globally (Chen et al., 2024a), ignoring that semantically mean-ingful events are unevenly distributed over time. We observe that audio-salient events (speech on-sets, sound effects, music transitions) frequently co-occur with important video moments, making audio attention peaks natural segment boundaries. 
+
+Audio Saliency Computation. To bridge these two temporal granularities, we uniformly partition the audio token sequence into F segments, each temporally aligned with one video frame. The au-dio saliency of the f -th segment is then defined as the mean encoder attention score over its con-stituent tokens: 
+
+Ef = 1
+
+|Tf |
+
+X
+
+> i∈Tf
+
+sai , f = 1 , . . . , F, (3) where Tf denotes the set of audio token indices assigned to the f -th segment. This per-segment energy reflects how much the audio encoder attends to each temporal region. The raw energy curve is subsequently smoothed via 1D average pooling with kernel size 3 to suppress transient fluctuations, yielding the smoothed saliency ˜E.
+
+Peak-Guided Segmentation. Local peaks in ˜E
+
+(i.e., ˜Ef ≥ ˜Ef −1 and ˜Ef ≥ ˜Ef +1 ) serve as can-didate window boundaries. Since they correspond to audio-salient time points where cross-modal in-formation density is highest. To balance granular-ity and context, consecutive boundaries are con-strained to a minimum gap of fmin = 2 , which suppresses spurious noisy peaks and avoids frag-menting a coherent event. 
+
+3.3 Cross-Modal Relation Map 
+
+Once the token sequence is partitioned into adap-tive windows, Omni-Prune scores each audio and video token within a window to determine its re-tention priority. Since the two modalities originate from separate encoders, we construct the Cross-Modal Relation Map (CMRM) that fuses attention saliency with text-query relevance into a unified scoring framework. 
+
+Token Importance Scoring. Within each win-dow w, we jointly evaluate the importance of audio and video tokens. The encoder attention score of each token i is derived from the last self-attention layer by averaging across all heads and summing over all query positions: 
+
+si = X
+
+> j
+
+1
+
+H
+
+> H
+
+X
+
+> h=1
+
+softmax q(h) 
+
+> j
+
+· k(h)
+
+> i
+
+√dk
+
+!
+
+, (4) where H is the number of attention heads, q(h) 
+
+> j
+
+and 
+
+k(h) 
+
+> i
+
+are the query of the j-th token and key of the 
+
+i-th token at head h, respectively. Joint min-max normalization is then applied across both modali-ties within the window: 
+
+vi = swi − min( sw)max( sw) − min( sw) + ϵ , ϵ = 10 −6. (5) By normalizing audio and video scores together rather than independently, this places both modali-ties on a shared [0 , 1] scale and enables direct cross-modal comparison within each window. Encoder attention alone captures modality-internal saliency but is agnostic to the user’s intent. To incorporate task awareness, we measure how semantically close each multimodal token is to the user query. The text-query relevance is defined as: 
+
+rtext  
+
+> i
+
+= 12
+
+
+
+max 
+
+> j
+
+x⊤ 
+
+> i
+
+tj
+
+∥xi∥ · ∥ tj ∥ + 1 
+
+
+
+, (6) where xi is the embedding of the i-th multimodal token and tj is the j-th text token from the user query. The cosine similarity ∈ [−1, 1] is rescaled to [0 , 1] via the affine mapping. The final composite score integrates both signals: 
+
+ϕi = vi + rtext  
+
+> i
+
+. (7) Tokens whose normalized value vi exceeds the per-window average ¯vw or whose text relevance rtext 
+
+> i
+
+exceeds max(¯ rtext , τ ) are designated as keep can-didates , where τ serves as a floor threshold corre-sponding to marginal semantic relevance. Within each window, candidates are ranked by ϕi and at most Bw 
+
+> keep
+
+= ⌊α · ρkeep · (|A w| + |V w|)⌉ are se-lected, where ρkeep caps the keep fraction to leave room for cross-modal paired retention. 
+
+Cross-Modal Coupling. The composite scoring identifies important tokens independently. To fur-ther exploit the cross-modal structure of omni-modal inputs, we observe that certain audio and video tokens represent the same underlying event Table 1: Performance of different token pruning methods on omnimodal QA benchmarks. Bold indicates the best result and underline the second best. The “-” symbol indicates an Out-of-Memory (OOM) failure, and such entries are excluded from the average.                                                                                                                                                                  
+
+> Method Retained Daily-Omni WorldSense VideoMME OmniVideoBench FutureOmni Avg.
+> Qwen2.5-Omni-7B
+> Full Tokens 100% 62.5 46.8 66.0 33.8 47.5 100% Random 55% 59.0 43.7 65.3 32.3 46.3 96.0% FastV 50% 59.3 44.3 –31.8 47.0 95.6% DyCoke 50% 58.7 44.6 65.5 32.3 46.7 96.5% OmniZip 45% 59.6 45.9 66.3 33.7 47.0 98.5%
+> Omni-Prune (Ours) 45% 60.3 46.4 66.4 33.8 47.4 99.2%
+> Random 40% 58.1 42.9 64.8 31.1 45.8 94.2% FastV 35% 58.7 43.6 –31.7 46.4 94.6% DyCoke 35% 57.8 43.8 65.2 31.9 46.2 95.3% OmniZip 35% 58.8 45.3 66.1 34.3 46.5 98.1%
+> Omni-Prune (Ours) 35% 60.4 46.2 66.3 34.3 46.5 99.0%
+> Qwen2.5-Omni-3B
+> Full Tokens 100% 61.9 46.4 62.8 33.6 46.5 100% Random 55% 56.9 43.1 60.9 31.2 46.1 94.8% FastV 50% 58.0 44.4 –30.6 46.5 95.1% DyCoke 50% 57.5 44.0 61.6 31.0 46.0 95.4% OmniZip 45% 58.0 45.2 62.8 32.4 46.8 97.6%
+> Omni-Prune (Ours) 45% 58.8 45.9 63.3 32.6 47.0 98.6%
+> Random 40% 55.8 42.2 60.3 30.8 45.2 93.2% FastV 35% 57.2 43.7 –30.1 46.1 93.8% DyCoke 35% 56.2 43.2 61.0 30.6 45.4 93.9% OmniZip 35% 56.8 44.3 62.7 32.0 46.5 96.5%
+> Omni-Prune (Ours) 35% 58.5 45.4 62.9 31.6 46.9 97.5%
+
+and should be retained as a pair to preserve coher-ence. We thus compute the audio-video similarity within each window: 
+
+Cwij = a⊤ 
+
+> i
+
+vj
+
+∥ai∥ · ∥ vj ∥ , Cw ∈ [−1, 1] |A w |×|V w |,
+
+(8) where ai and vj are the embeddings of the i-th audio token and j-th video token within window 
+
+w. Each entry Cwij measures the cosine similarity between an audio-video token pair. For unselected tokens, bidirectional greedy matching pairs each audio token with its most similar video counterpart using normalized similarity sim (ai, v j ) = ( Cwij +1) /2. Pairs exceeding a gate threshold γ are jointly retained. Any remaining budget is then filled from unselected tokens sorted by ϕi, with a preference for the minority modality so as to maintain cross-modal balance. 
+
+3.4 Diversity-Preserving Clustering 
+
+The preceding stages retain the most important and semantically coupled tokens. However, the uns-elected tokens are not uniformly uninformative, as some carry complementary details such as am-bient sounds, background objects, and peripheral scene context that would otherwise be lost entirely. Discarding them outright risks collapsing the re-tained set onto a narrow region of the embedding space dominated by high-scoring events, which is harmful for long-horizon or scene-heavy queries where minor cues can disambiguate the answer. We therefore reintroduce a small fraction of these tokens chosen to maximize representational cov-erage rather than per-token importance, providing the LLM with a coarse-grained backdrop. To this end, Omni-Prune applies K-medoids clus-tering (Park and Jun, 2009) independently within each window and modality. We choose K-medoids over K-means (McQueen, 1967) because each medoid is itself a real token already produced by the encoder, whereas a K-means centroid is an averaged vector and would therefore be out-of-distribution for the downstream LLM. For each group of unselected tokens, a fraction ρc of them are selected as medoids via farthest-first traversal in cosine distance space to maximize representational spread, a greedy procedure that runs in O(k · n) per window and adds negligible overhead. Operating per window and per modality avoids spurious clus-ters that would otherwise span unrelated temporal segments or mix heterogeneous modality statistics. Finally, all remaining tokens are discarded from the sequence. 
+
+4 Experiments 
+
+4.1 Experimental Setting Benchmarks. We evaluate Omni-Prune on five omnimodal video understanding benchmarks that together cover both general-purpose and audio-centric reasoning. VideoMME (Fu et al., 2025) provides a comprehensive multi-domain testbed, with short, medium, and long clips paired with synchronized audio tracks. Centered on every-day scenes, Daily-Omni (Zhou et al., 2025) re-quires models to jointly reason over speech, ambi-ent sound, and visual context. WorldSense (Hong et al., 2025) further stresses real-world knowledge grounding by sourcing diverse audio-visual events at scale. OmniVideoBench (Li et al., 2025a) is cu-rated specifically to probe fine-grained omnimodal understanding. Finally, FutureOmni (Chen et al., 2026) targets long-horizon, future-oriented reason-ing over synchronized audio-visual streams. 
+
+Baselines. We compare Omni-Prune against sev-eral state-of-the-art (SOTA) token pruning ap-proaches. OmniZip (Tao et al., 2025b) lever-ages audio attention for video token pruning. 
+
+FastV (Chen et al., 2024a) prunes visual tokens in a layer-wise manner, while DyCoke (Tao et al., 2025a) reduces temporal redundancy by merging video tokens across frames and dynamically evict-ing KV cache entries during decoding. We also include a random pruning baseline for rigorous comparison. 
+
+Implementation Details. Omni-Prune is built on the Qwen2.5-Omni (7B and 3B) and runs on NVIDIA A6000 (48GB) GPUs, with FlashAtten-tion (Dao et al., 2022) enabled throughout to re-duce memory consumption. For hyperparameter settings, we set the text-relevance floor τ = 0 .55 ,the cross-modal pairing gate γ = 0 .6, and the resid-ual cluster ratio ρc = 0 .1. In addition, we set α to 
+
+0.4 and 0.28 , corresponding to retention rates of 
+
+45% and 35% , respectively. 
+
+4.2 Main Results 
+
+We follow a unified evaluation protocol for every token pruning method in Table 1, keeping the de-coding configuration, prompt template, and input pipeline identical. Each method is run at two dis-tinct retention rates, covering both a moderate and an aggressive budget. To make the benchmarks comparable despite their different absolute scales, we normalize each entry by the full-token score on the same benchmark and report Avg. as the mean of them, with the full-token model anchored at 100% .
+
+Comparison with SOTAs. The headline take-away from Table 1 is that Omni-Prune is essen-tially lossless on the 7B backbone. At the moderate 
+
+45% budget it retains 99 .2% of full-model accuracy and ranks first on every benchmark, and even after discarding roughly two-thirds of the input tokens at the aggressive 35% budget it still holds 99 .0% .The competing strategies fall short, and the way they fall short is informative. As a sanity check, the random baseline trails our method by a clear margin even when given a more generous budget, confirming that which tokens are retained matters more than how many are kept. Specifically, FastV scores tokens from attention magnitudes alone, a single-criterion design whose quadratic cost makes it prohibitive on long interleaved audio-video se-quences and triggers out-of-memory failures on VideoMME. DyCoke targets temporal redundancy by merging similar tokens across consecutive video frames and evicting KV cache entries during de-coding. The merging is locality-based and assumes that adjacent frames are near-duplicates, a prior that holds for static scenes but breaks down on audio-driven benchmarks, where the discrimina-tive content shifts on the audio cadence. By con-trast, OmniZip is the most competitive baseline and retains its second-place ranking, but its audio-to-video saliency rule is unidirectional and query-agnostic, so a silent yet visually critical token is easily down-weighted by its loud neighbor while a loud yet off-query token is kept. 
+
+Behavior Across Model Scales. The 3B back-bone is uniformly more fragile to pruning than the 7B one, and the methods separate more clearly at the smaller scale. On the 7B backbone the methods are bunched within a few points of full accuracy; on the 3B backbone the gap between Omni-Prune and the other methods steadily widens, especially under the aggressive 35% budget. Crucially, this gap grows rather than shrinks as model capacity decreases, indicating that the advantage stems from genuinely better token selection rather than from the larger backbone having enough spare capacity to mask other methods’ pruning errors. 
+
+Fine-Grained Analysis. A striking observation in Table 1 is that Omni-Prune actually exceeds the Table 2: Efficiency comparison on Daily-Omni. Peak GPU memory and prefill time are measured on a sin-gle A6000 GPU with Qwen2.5-Omni-7B and 3B. Bold 
+
+and underline values indicate the best and second-best results among the pruning methods, respectively. 
+
+Method GPU Mem. ↓ Prefill Time ↓
+
+Qwen2.5-Omni-7B 
+
+Full Tokens (100%) 28.7G 899ms (1.00 ×)DyCoke (50%) 22.9G (⇓5.8) 403ms (2.23 ×)OmniZip (45%) 22.5G (⇓6.2) 373ms (2.41 ×)Omni-Prune (45%) 22.5G (⇓6.2) 345ms (2.61 ×)Omni-Prune (35%) 22.3G (⇓6.4) 277ms (3.25 ×)
+
+Qwen2.5-Omni-3B 
+
+Full Tokens (100%) 18.4G 567ms (1.00 ×)DyCoke (50%) 13.0G (⇓5.4) 209ms (2.71 ×)OmniZip (45%) 12.8G (⇓5.6) 223ms (2.54 ×)Omni-Prune (45%) 12.9G (⇓5.5) 175ms (3.24 ×)Omni-Prune (35%) 12.8G (⇓5.6) 156ms (3.63 ×)
+
+full-token baseline on several benchmarks, most notably VideoMME , OmniVideoBench , and Future-Omni . These benchmarks tend to contain a sub-stantial amount of redundant or off-topic context, where pruning can act as a mild denoiser that helps surface the answer-bearing signal. 
+
+4.3 Efficiency Analyses 
+
+Beyond accuracy, practical deployment of Om-niLLMs demands low latency and manageable memory footprint. Table 2 reports the prefill time and peak GPU memory on Daily-Omni. On the 7B model, Omni-Prune at 35% retention reduces pre-fill time from 899 ms to 277 ms (3.25 ×) and trims peak memory by 6.4 G. On the 3B backbone the gap widens further, reaching 3.63 × acceleration with 5.6 G less memory. Notably, DyCoke keeps 50% of tokens and OmniZip keeps 45%, yet Omni-Prune still achieves the shortest prefill time under a more aggressive pruning ratio. 
+
+4.4 Ablation Study Ablation Study on AAW. We examine the role of content-aware windowing by sweeping the fixed window size fw on WorldSense and Daily-Omni and comparing each setting against our audio-anchor adaptive windows (Figure 4). The fixed-window curves are non-monotonic and noticeably sensitive to fw on both benchmarks, but the best operating point differs: WorldSense peaks at fw=8 
+
+while Daily-Omni peaks at fw=2 , and either choice is suboptimal on the other benchmark. With a fixed stride the boundaries are content-agnostic and 2 4 8 16 32    
+
+> Fixed window size fw
+> 46.00
+> 46.25
+> 46.50
+> 46.75
+> 47.00
+> WorldSense Acc. (\%)
+> 46.4
+> 46.3
+> 46.7
+> 46.2
+> 46.4
+> WorldSense Daily-Omni AAW (Ours)
+> 59.75
+> 60.00
+> 60.25
+> 60.50
+> 60.75
+> 61.00
+> Daily-Omni Acc. (\%)
+> 60.7
+> 60.3
+> 60.1
+> 60.2
+> 60.4
+
+Figure 4: Ablation study of AAW. We sweep the fixed window size fw under the 45% retention budget on Qwen2.5-Omni-7B and compare against our audio-anchor adaptive windows, on both WorldSense (left axis) and Daily-Omni (right axis). 
+
+frequently cut through ongoing speech events, so the resulting windows mix unrelated material and the per-window token scoring becomes less stable. The optimal fw also depends on the cadence of each dataset, which is why no single fixed choice dominates across the sweep. AAW instead places boundaries at audio saliency peaks, so each win-dow stays content-coherent and adapts to the ac-tual event rhythm of the input. As a result, AAW lands close to the best fixed setting on both datasets without any per-task tuning, confirming that audio-anchored adaptive windowing is a more reliable default than any fixed stride. 
+
+Ablation Study on CMRM. Table 4 reports the ablation study that isolates the two key ingredients of CMRM, namely the token importance scoring and the cross-modal coupling. Disabling the scor-ing stage tends to incur the larger drop on the three benchmarks. Without a dedicated importance sig-nal, every token is treated as roughly equally worth keeping, and the budget gets spread evenly rather than concentrated on the few tokens that actually carry the answer. As a result, informative content is more easily crowded out by redundant background. Removing the coupling step is less damaging in isolation but still leaves a visible gap, because per-modality ranking can independently keep an audio token while dropping its visually grounded coun-terpart (or vice versa), breaking pairs that are only useful when retained jointly. Overall, the two ingre-dients are complementary, with scoring deciding which individual tokens deserve the budget and coupling preserving the cross-modal pairs. 
+
+Ablation Study on Diversity-Preserving Cluster-ing. As shown in Table 3, we evaluate the effect Variant Daily-Omni WorldSense VideoMME OmniVideoBench FutureOmni Full 60.3 46.4 66.4 33.8 47.4 w/o Clustering 60.1 (−0.2) 46.1 (−0.3) 66.1 (−0.3) 33.4 (−0.4) 47.2 (−0.2) 
+
+Full 60.4 46.2 66.3 34.3 46.5 w/o Clustering 59.2 (−1.2) 46.0 (−0.2) 64.5 (−1.8) 34.1 (−0.2) 46.4 (−0.1) 
+
+Table 3: Effect of diversity-preserving clustering on Qwen2.5-Omni-7B. We compare Omni-Prune with and without the residual K-medoids step on five benchmarks, and report per-benchmark scores together with the absolute drop. The top block corresponds to the 45% budget and the bottom block to the 35% budget. Table 4: Ablation study of CMRM on Qwen2.5-Omni-7B at the 45% budget. To verify the contribution of each design choice in CMRM, we run an ablation that measures how the two core ingredients shape final accuracy: token importance scoring (Scoring) and cross-modal coupling (Coupling).                        
+
+> Settings Benchmark
+> Scoring Coupling Daily-Omni OmniV. FutureO.
+> ✓✓60.3 33.8 47.4
+> ×✓59.2 (−1.1) 33.1 (−0.7) 46.5 (−0.9)
+> ✓×59.7 (−0.6) 33.6 (−0.2) 47.1 (−0.3)
+
+of the residual K-medoids step. Primarily, cluster-ing yields consistent gains, and its benefit scales with how aggressive the pruning is. At the looser 
+
+45% budget the drops are uniformly mild, whereas at the tighter 35% budget the gap widens markedly, most notably on VideoMME and Daily-Omni. A plausible explanation is that these two benchmarks tend to involve relatively dense audio-visual ac-tivity throughout the clip, so the answer-bearing tokens are likely distributed across many regions and the diverse medoids recovered from the resid-ual pool become more useful. In contrast, on the remaining benchmarks the discriminative content appears to be more localized within a smaller num-ber of salient segments, so the top-scoring tokens already capture most of the relevant signal and clus-tering contributes minimally. Overall, these results suggest that the benefit of diversity-preserving clus-tering tends to grow with both audio-visual density and pruning aggressiveness. 
+
+Ablation Study on ρkeep . Figure 5 plots accuracy against the per-window keep ratio ρkeep , which con-trols how much of the budget is committed by the score-based top-k stage before cross-modal cou-pling. The curve is mildly concave and peaks at 
+
+ρkeep =0 .6 on both benchmarks. Lowering it to 0.5
+
+starves the scoring stage and forces coupling to fill from less reliable candidates, while raising it to 0.5 0.6 0.7      
+
+> Keep ratio keep
+> 33.4
+> 33.6
+> 33.8
+> 34.0
+> Accuracy (\%)
+> 33.5
+> 33.8 33.8
+> OmniVideoBench
+> 0.5 0.6 0.7
+> Keep ratio keep
+> 47.0
+> 47.5
+> Accuracy (\%)
+> 46.7
+> 47.4
+> 47.0
+> FutureOmni
+
+Figure 5: Ablation study of the per-window keep ratio ρkeep . We evaluate ρkeep on OmniVideoBench and FutureOmni to test its sensitivity, using Qwen2.5-Omni-7B at the 45% retention budget. 
+
+0.7 leaves less budget for pairing and drops pairs that coupling would have retained. This confirms that ρkeep =0 .6 best balances independent scoring and joint pairing. Moreover, accuracy stays within one point, indicating robustness to ρkeep . More Experiments can be found in Appendix A. 
+
+5 Conclusion 
+
+This paper presents Omni-Prune, a novel plug-and-play framework that jointly prunes audio-video to-kens for efficient OmniLLMs without requiring any training. Specifically, the framework partitions the interleaved token sequence at audio saliency peaks to form adaptive temporal windows, evaluates each token by combining encoder attention with text-query relevance, and binds matching audio-video tokens to preserve cross-modal consistency. As far as we are aware, this is the first pruning method designed for OmniLLMs that exploits all three modalities in the token selection process. Exten-sive experiments across diverse omnimodal un-derstanding benchmarks with two model scales (3B, 7B) demonstrate that Omni-Prune consistently surpasses prior baselines. Notably, our method achieves significant memory reduction and prefill speedup while maintaining comparable accuracy. Limitations 
+
+Evaluation Scope. Our study focuses on omni-modal video question answering across five widely used benchmarks spanning general-purpose, audio-centric, and long-form scenarios. While this pro-tocol is sufficient to characterize the accuracy-efficiency profile of Omni-Prune, it does not ex-haust the downstream tasks supported by omni-modal LLMs. Other tasks such as open-ended captioning and multi-turn dialogue may respond differently to token reduction, and their evaluation typically relies on human judgment rather than au-tomatic metrics, which we leave to future work. 
+
+Hyperparameter Configuration. Omni-Prune exposes a few control knobs, including the text-relevance floor τ , the residual cluster ratio ρc, and the minimum window gap fmin . To keep compar-isons clean and demonstrate out-of-the-box usabil-ity, we adopt a single configuration across all bench-marks and both backbone scales. This setting is necessarily a compromise, since clip length and au-dio richness vary substantially across datasets, and lightweight per-dataset or adaptive tuning could yield further accuracy-efficiency gains. 
+
+References 
+
+Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wen-bin Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang, and 1 others. 2025. Qwen2.5-VL technical report. arXiv preprint arXiv:2502.13923 .Liang Chen, Haozhe Zhao, Tianyu Liu, Shuai Bai, Jun-yang Lin, Chang Zhou, and Baobao Chang. 2024a. An image is worth 1/2 tokens after layer 2: Plug-and-play inference acceleration for large vision-language models. In ECCV .Qian Chen, Jinlan Fu, Changsong Li, See-Kiong Ng, and Xipeng Qiu. 2026. FutureOmni: Evaluating future forecasting from omni-modal context for mul-timodal LLMs. arXiv preprint arXiv:2601.13836 .Zhe Chen, Weiyun Wang, Yue Cao, Yangzhou Liu, Zhangwei Gao, Erfei Cui, Jinguo Zhu, Shenglong Ye, Hao Tian, and 1 others. 2024b. Expanding perfor-mance boundaries of open-source multimodal mod-els with model, data, and test-time scaling. arXiv preprint arXiv:2412.05271 .Tri Dao, Daniel Y. Fu, Stefano Ermon, Atri Rudra, and Christopher Ré. 2022. FlashAttention: Fast and memory-efficient exact attention with IO-awareness. In NeurIPS .Yue Ding, Yiyan Ji, Jungang Li, Xuyang Liu, Xinlong Chen, Junfei Wu, Bozhou Li, Bohan Zeng, Yang Shi, Yushuo Guan, and 1 others. 2026. OmniSIFT: Modality-asymmetric token compression for efficient omni-modal large language models. arXiv preprint arXiv:2602.04804 .Ziyang Fan, Keyu Chen, Ruilong Xing, Yulin Li, Li Jiang, and Zhuotao Tian. 2026. FlashVID: Ef-ficient video large language models via training-free tree-based spatiotemporal token merging. In ICLR .Chaoyou Fu, Yuhan Dai, Yongdong Luo, Lei Li, Shuhuai Ren, Renrui Zhang, Zihan Wang, Chenyu Zhou, Yunhang Shen, Mengdan Zhang, and 1 others. 2025. Video-MME: The first-ever comprehensive evaluation benchmark of multi-modal LLMs in video analysis. In CVPR .Chaoyou Fu, Haojia Lin, Xiong Wang, Yunhang Shen, Xiaoyu Liu, Haoyu Cao, Zuwei Long, Heting Gao, Ke Li, Long Ma, and 1 others. 2026. VITA-1.5: Towards GPT-4o level real-time vision and speech interaction. NeurIPS .Jack Hong, Shilin Yan, Jiayin Cai, Xiaolong Jiang, Yao Hu, and Weidi Xie. 2025. WorldSense: Evaluating real-world omnimodal understanding for multimodal LLMs. arXiv preprint arXiv:2502.04326 .Caorui Li, Yu Chen, Yiyan Ji, Jin Xu, Zhenyu Cui, Shihao Li, Yuanxing Zhang, Wentao Wang, Zheng-hao Song, and 1 others. 2025a. OmniVideoBench: Towards audio-visual understanding evaluation for omni MLLMs. arXiv preprint arXiv:2510.10689 .Wentong Li, Yuqian Yuan, Jian Liu, Dongqi Tang, Song Wang, Jie Qin, Jianke Zhu, and Lei Zhang. 2025b. TokenPacker: Efficient visual projector for multi-modal LLM. International Journal of Computer Vi-sion .Yadong Li, Jun Liu, Tao Zhang, Song Chen, Tian-peng Li, Zehuan Li, Lijun Liu, Lingfeng Ming, Guosheng Dong, Da Pan, and 1 others. 2025c. Baichuan-Omni-1.5 technical report. arXiv preprint arXiv:2501.15368 .Yanwei Li, Chengyao Wang, and Jiaya Jia. 2024. LLaMA-VID: An image is worth 2 tokens in large language models. ECCV .Jiasen Lu, Christopher Clark, Sangho Lee, Zichen Zhang, Savya Khosla, Ryan Marten, Derek Hoiem, and Aniruddha Kembhavi. 2024. Unified-IO 2: Scal-ing autoregressive multimodal models with vision, language, audio, and action. CVPR .James B McQueen. 1967. Some methods for classifi-cation and analysis of multivariate observations. In 
+
+Proc. of 5th Berkeley Symposium on Math. Stat. and Prob. 
+
+Hae-Sang Park and Chi-Hyuck Jun. 2009. A simple and fast algorithm for K-medoids clustering. Expert Systems with Applications .Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sas-try, Amanda Askell, Pamela Mishkin, Jack Clark, and 1 others. 2021. Learning transferable visual models from natural language supervision. In ICML .Yuzhang Shang, Mu Cai, Bingxin Xu, Yong Jae Lee, and Yan Yan. 2025. LLaVA-PruMerge: Adaptive token reduction for efficient large multimodal models. In 
+
+ICCV .Xiaoqian Shen, Yunyang Xiong, Changsheng Zhao, Lemeng Wu, Jun Chen, Chenchen Zhu, Zechun Liu, Fanyi Xiao, Balakrishnan Varadarajan, Florian Bor-des, Zhuang Liu, Hu Xu, Hyunwoo J. Kim, Bilge Soran, Raghuraman Krishnamoorthi, Mohamed El-hoseiny, and Vikas Chandra. 2025. LongVU: Spa-tiotemporal adaptive compression for long video-language understanding. ICML .Bowen Shi, Wei-Ning Hsu, Kushal Lakhotia, and Ab-delrahman Mohamed. 2022. Learning audio-visual speech representation by masked multimodal cluster prediction. In ICLR .Guangzhi Sun, Wenyi Yu, Changli Tang, Xianzhao Chen, Tian Tan, Wei Li, Lu Lu, Zejun Ma, Yuxuan Wang, and Chao Zhang. 2024. video-SALMONN: Speech-enhanced audio-visual large language mod-els. In ICML .Changli Tang, Wenyi Yu, Guangzhi Sun, Xianzhao Chen, Tian Tan, Wei Li, Lu Lu, Zejun Ma, and Chao Zhang. 2024. SALMONN: Towards generic hearing abilities for large language models. In ICLR .Keda Tao, Can Qin, Haoxuan You, Yang Sui, and Huan Wang. 2025a. DyCoke: Dynamic compression of to-kens for fast video large language models. In CVPR .Keda Tao, Kele Shao, Bohan Yu, Weiqiang Wang, Jian Liu, and Huan Wang. 2025b. OmniZip: Audio-guided dynamic token compression for fast om-nimodal large language models. arXiv preprint arXiv:2511.14582 .Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia Polosukhin. 2017. Attention is all you need. NeurIPS .Shengqiong Wu, Hao Fei, Leigang Qu, Wei Ji, and Tat-Seng Chua. 2024. NExT-GPT: Any-to-any multi-modal LLM. In ICML .Long Xing, Qidong Huang, Xiaoyi Dong, Jiajie Lu, Pan Zhang, Yuhang Zang, Yuhang Cao, Conghui He, Ji-aqi Wang, Feng Wu, and Dahua Lin. 2024. Pyramid-Drop: Accelerating your large vision-language mod-els via pyramid visual redundancy reduction. arXiv preprint arXiv:2410.17247 .Jin Xu, Zhifang Guo, Jinzheng He, Hangrui Hu, Ting He, Shuai Bai, Keqin Chen, Jialin Wang, Yang Fan, and 1 others. 2025. Qwen2.5-Omni technical report. 
+
+arXiv preprint arXiv:2503.20215 .Senqiao Yang, Yukang Chen, Zhuotao Tian, Chengyao Wang, Jingyao Li, Bei Yu, and Jiaya Jia. 2025. Vi-sionZip: Longer is better but not necessary in vision language models. In CVPR .Xubing Ye, Yukang Gan, Xiaoke Huang, Yixiao Ge, and Yansong Tang. 2025. VoCo-LLaMA: Towards vision compression with large language models. In 
+
+CVPR .Boqiang Zhang, Kehan Li, Zesen Cheng, Zhiqiang Hu, Yuqian Yuan, Guanzheng Chen, Sicong Leng, Yum-ing Jiang, Hang Zhang, Xin Li, and 1 others. 2025a. VideoLLaMA 3: Frontier multimodal foundation models for image and video understanding. arXiv preprint arXiv:2501.13106 .Hang Zhang, Xin Li, and Lidong Bing. 2023. Video-LLaMA: An instruction-tuned audio-visual language model for video understanding. In EMNLP .Shaolei Zhang, Qingkai Fang, Zhe Yang, and Yang Feng. 2025b. LLaVA-Mini: Efficient image and video large multimodal models with one vision token. ICLR .Yuan Zhang, Chun-Kai Fan, Junpeng Ma, Wenzhao Zheng, Tao Huang, Kuan Cheng, Denis Gudovskiy, Tomoyuki Okuno, Yohei Nakata, Kurt Keutzer, and Shanghang Zhang. 2025c. SparseVLM: Visual to-ken sparsification for efficient vision-language model inference. ICML .Yuanhan Zhang, Jinming Wu, Wei Li, Bo Li, Zejun Ma, Ziwei Liu, and Chunyuan Li. 2024. LLaVA-Video: Video instruction tuning with synthetic data. Trans-actions on Machine Learning Research (TMLR) .Ziwei Zhou, Rui Wang, Zuxuan Wu, and Yu-Gang Jiang. 2025. Daily-Omni: Towards audio-visual reasoning with temporal alignment across modalities. arXiv preprint arXiv:2505.17862 .
+
+A More Experimental Results 
+
+This section provides two additional ablations that complement the main paper: an extended sweep of the per-window keep ratio ρkeep , and a transfer of the diversity-preserving clustering ablation to the smaller Qwen2.5-Omni-3B backbone. 
+
+Table 5: Extended ablation of ρkeep on Qwen2.5-Omni-7B at the 45% budget. We extend the sweep in Figure 5 with two more extreme settings on Om-niVideoBench and FutureOmni.         
+
+> ρkeep OmniVideoBench FutureOmni 0.4 33.4 46.1 0.6 (default) 33.8 47.4 0.8 33.9 47.1
+
+Extended Ablation on ρkeep . Table 5 extends the main-paper sweep of ρkeep to the two more ex-treme settings 0.4 and 0.8. Pushing ρkeep down to 
+
+0.4 leaves too little budget for the scoring stage and triggers visible drops on both benchmarks, whereas raising it to 0.8 stays close to the peak at 
+
+0.6 but slightly under-allocates to cross-modal pair-ing. The full 0.4–0.8 range remains within roughly one accuracy point of the default, reinforcing the observation that Omni-Prune is robust to the exact choice of ρkeep as long as scoring and pairing both receive a non-trivial share of the budget. 
+
+Table 6: Effect of diversity-preserving clustering on Qwen2.5-Omni-3B. We compare Omni-Prune with and without the residual K-medoids step at the 45% and 
+
+35% budgets, and report per-benchmark scores.                             
+
+> Variant Daily-Omni WorldSense OmniV. FutureO. Full ( 45% )58.8 45.9 32.6 47.0 w/o Clustering 58.7 (−0.1) 45.8 (−0.1) 32.5 (−0.1) 47.0 (−0.0)
+> Full ( 35% )58.5 45.4 31.6 46.9 w/o Clustering 57.5 (−1.0) 45.0 (−0.4) 31.3 (−0.3) 46.8 (−0.1)
+
+Diversity-Preserving Clustering on Qwen2.5-Omni-3B. Table 6 mirrors the 7B clustering abla-tion in the main paper on the smaller 3B backbone. The trend observed at the 7B scale carries over: at the looser 45% budget the drops from remov-ing clustering are uniformly mild, whereas at the tighter 35% budget the gap widens, most notice-ably on Daily-Omni. This is consistent with the picture in the main paper. 
+
+B Related Work 
+
+This section expands Section 2 with a treatment of audio-visual representation learning. 
+
+Audio-Visual Representation Learning. Joint audio-visual learning predates OmniLLMs. AV-HuBERT (Shi et al., 2022) pre-trains a uni-fied audio-visual transformer via masked predic-tion; Video-LLaMA (Zhang et al., 2023) bridges audio and visual encoders to an LLM via Q-Formers; SALMONN (Tang et al., 2024) and Video-SALMoNN (Sun et al., 2024) extend LLMs with auditory perception including non-speech sounds; CLIP-style cross-modal alignment (Rad-ford et al., 2021) underlies many vision-language encoders used today. 
+
+C Notation and Implementation Details 
+
+Table 7 summarizes the notation used by Omni-Prune. The appendix follows the same formatting as Section 3: bold symbols denote vectors or ma-trices, calligraphic symbols denote token sets, and superscript w denotes quantities restricted to a win-dow. 
+
+Table 7: Notation summary for Omni-Prune.                                 
+
+> Symbol Meaning
+> XInterleaved audio-video-text token sequence
+> A,V,TAudio, video, and text token index sets
+> ai,vj,tjAudio, video, and text token embeddings
+> sa,svEncoder attention scores for audio/video tokens
+> F, E f,˜EfFrame count and raw/smoothed per-frame audio energy
+> w, WAdaptive window and the full window set
+> Aw,VwAudio/video tokens inside window wviJointly normalized encoder saliency
+> rtext
+> iText-query relevance score
+> ϕiComposite retention score
+> CwAudio-video cosine relation map in window w
+> Kw,PwPer-window keep set and cross-modal paired set
+> mBinary retention mask over all tokens
+> α, ρ keep , ρ cGlobal keep ratio, per-window keep cap, cluster ratio
+> τ, γ Text-relevance floor and cross-modal pairing gate
+> B, B w
+> keep Global and per-window keep budgets
+
+Attention Score Extraction. We compute sa and 
+
+sv from the last encoder self-attention layer, fol-lowing the definition in Section 3.3. Scores are averaged across heads and accumulated over query positions, then assigned back to their correspond-ing audio or video tokens before the two modalities are jointly normalized inside each window. 
+
+Mask Construction. The binary mask m spans the entire token sequence X, but pruning is applied only to audio and video tokens: text tokens are always retained ( mi = 1 for all i ∈ T ). After mask determination, the original token order in 
+
+X is preserved when constructing the pruned se-quence X′ = X[m]. This makes Omni-Prune plug-and-play for autoregressive OmniLLM decoders, as it does not alter token embeddings, positional indexing, or model parameters. 
+
+Budget Allocation. The global audio-video bud-get is B = ⌊α(|A| + |V| )⌉. Within each window, 
+
+Bw 
+
+> keep
+
+caps the high-confidence keep set so that the subsequent cross-modal coupling stage still has capacity to retain paired evidence. 
+
+D Case Study 
+
+Figure 6 shows how query-aware scoring di-rects the budget toward the answer-bearing region. Guided by text relevance, Omni-Prune concentrates tokens on the interviewers’ torsos and hands, and Figure 6: Showcases of Omni-Prune vs. OmniZip with Qwen2.5-Omni 7B on a video input case. 
+
+the cross-modal coupling stage pairs each gesture-bearing token with the synchronized speech. Om-niZip relies primarily on audio attention, which leads it to retain more of the surrounding scenery. Figure 7a illustrates how Omni-Prune tracks the entities named in the question. Tokens are reallo-cated toward the banana bowl, blueberry cup and lemon-squeezing hand, as text relevance aligns in-gredient nouns with the corresponding patches and cross-modal pairing anchors them to the synchro-nized narration, so all three pieces of evidence sur-vive the global selection step. Figure 7b shows that, when the answer lies in the background, the same mechanism shifts the budget there. While maintaining comparable coverage of the foreground speakers, Omni-Prune additionally retains the window panes, purple studio gradient and stadium sky, because backdrop-related terms in the query are matched to the corresponding back-ground patches through text relevance. 
+
+E Overall Algorithm 
+
+The complete Omni-Prune pipeline consists of three stages. We present the first two stages as separate algorithms below. Unless otherwise spec-ified, all symbols follow Section 3: w denotes an adaptive temporal window, W = {w1, . . . , w K }
+
+denotes the set of windows, and Aw/Vw denote the audio/video tokens inside window w.
+
+E.1 Stage 1: Audio-Anchor Adaptive Windowing 
+
+Algorithm 1 segments the token sequence into content-aware temporal windows using audio saliency peaks. 
+
+Algorithm 1 Audio-Anchor Adaptive Windowing                                                                               
+
+> Require: Audio scores sa, frames F, gap fmin
+> Ensure: Windows W={w1, . . . , w K}
+> 1: Ef← | Tf|−1P
+> i∈Tfsai
+> 2: ˜E←AvgPool1D (E, k =3)
+> 3: P ← ∅
+> 4: for f= 2 to F−1do
+> 5: if ˜Ef≥˜Ef−1and ˜Ef≥˜Ef+1 then
+> 6: P.append (f)
+> 7: end if
+> 8: end for
+> 9: B ← [0] ; last ←0
+> 10: for p∈ P do
+> 11: if p−last ≥fmin then
+> 12: B.append (p); last ←p
+> 13: end if
+> 14: end for
+> 15: if B[−1] ̸=Fthen
+> 16: B.append (F)
+> 17: end if
+> 18: Derive W={w1, . . . , w K}from B
+> 19: return W
+
+Figure 7: Showcases of Omni-Prune vs. OmniZip with Qwen2.5-Omni 7B on two additional video inputs. E.2 Stage 2: Cross-Modal Relation Map and Budget Allocation 
+
+Algorithm 2 scores tokens within each window and allocates the global budget. 
+
+Algorithm 2 Cross-Modal Relation Map 
+
+Require: X, W, sa, sv , {tj }, α, ρkeep , τ , γ
+
+Ensure: Binary mask m
+
+1: B ← ⌊ α · (|A| + |V| )⌉
+
+2: for each window w ∈ W do 
+
+3: Mw ← A w ∪ V w
+
+4: sw ← [sa 
+
+> Aw
+
+; sv 
+
+> Vw
+
+]
+
+5: dw ← max( sw ) − min( sw ) + ϵ
+
+6: vi ← (swi − min( sw )) /d w
+
+7: cij ← x⊤ 
+
+> i
+
+tj /(∥xi∥ ∥ tj ∥)
+
+8: rtext  
+
+> i
+
+←  max j cij + 1 /2
+
+9: ϕi ← vi + rtext 
+
+> i
+
+10: ηw ← max(¯ rtext , τ )
+
+11: Qw ← { i ∈ M w : vi > ¯vw }
+
+12: Qw ← Q w ∪ { i ∈ M w : rtext  
+
+> i
+
+> η w }
+
+13: Bw 
+
+> keep
+
+← ⌊ αρ keep (|A w | + |V w |)⌉
+
+14: Kw ← topk (Qw , B w
+
+> keep
+
+, key =ϕi)
+
+15: Cwij ← a⊤ 
+
+> i
+
+vj /(∥ai∥ ∥ vj ∥)
+
+16: Pw ← bi_greedy_match (Cw , γ )
+
+17: end for 
+
+18: kept ← 0
+
+19: K ← sorted (S 
+
+> w∈W
+
+Kw , desc )
+
+20: for (ϕi, i ) ∈ K do 
+
+21: if kept < B then 
+
+22: mi ← 1; kept + =1 
+
+23: end if 
+
+24: end for 
+
+25: P ← sorted (S 
+
+> w∈W
+
+Pw , desc )
+
+26: for (s, i, j ) ∈ P do 
+
+27: if mi = 0 and mj = 0 and kept + 2 ≤ B then 
+
+28: mi, m j ← 1; kept + =2 
+
+29: end if 
+
+30: end for 
+
+31: Fill remaining B − kept slots by ϕi, minority modality first 32: return m
+
+F Discussion 
+
+This section further discusses two key design choices in Omni-Prune: audio anchoring and the text-relevance floor. 
+
+Audio as the Temporal Anchor. In OmniLLMs, the audio stream is typically much shorter than the video stream after tokenization yet carries strong temporal cues such as speech onsets, sound events, and silence boundaries. Using audio saliency to drive window partitioning therefore offers two prac-tical advantages. First, audio peaks tend to align with semantic transitions in the video, so windows produced by audio-anchor segmentation rarely cut across coherent events. Second, because the audio sequence is short, peak detection and minimum-gap filtering only cost O(F ) and contribute negli-gible overhead to the overall prefill pipeline. 
+
+Role of the Text-Relevance Floor. The compos-ite score ϕi = vi + rtext  
+
+> i
+
+mixes encoder saliency and text-query relevance. Without a floor, the per-window average ¯rtext would dominate when the question is generic (e.g., “what happens in this video?”), causing almost all tokens to look relevant and degenerating the selection into a pure saliency ranking. The floor τ =0 .55 ensures that text rele-vance only fires when a token is genuinely close to the query, which is particularly important for fine-grained question answering on benchmarks such as OmniVideoBench and FutureOmni.
