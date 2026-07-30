@@ -6,46 +6,46 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-29
-- 运行时间：2026-07-29 21:51:43 UTC
+- 最新运行日期：2026-07-30
+- 运行时间：2026-07-30 21:07:38 UTC
 - 运行状态：成功
 - 本次总论文数：8
-- 精读区：4
-- 速读区：4
+- 精读区：6
+- 速读区：2
 
 ### 今日简报（AI）
-今日聚焦语音智能前沿，两篇9分精读论文分别探索了可落地的对话智能框架与从冻结TTS模型中逆向提取声音风格的方法。
-最值得关注：操作型对话智能的系统化框架，以及用梯度逆优化实现零样本声音风格解耦。
-建议关注这些技术如何推动个性化语音交互落地，并尝试在端侧应用上验证其效率。
-- 详情：[/202607/29/README](/202607/29/README)
+今日精读两篇满分语音大模型论文：揭示如何让LLM真正“听懂”并“生成”语音的潜在交互机制。
+最值得关注的是，通过潜在交互管理让语音LLM告别“有声无神”，以及Qwen-Audio-3.0如何将声音理解和生成一体化。
+建议动手比对“将语音直接送入大模型”与“先文本再语音”的差距，这是你理解下一代语音AI的关键。
+- 详情：[/202607/30/README](/202607/30/README)
 
 ### 精读区论文标签
-1. [Towards Operational Conversational Intelligence: A Speech Intelligence Framework](/202607/29/2607.24958v1-towards-operational-conversational-intelligence-a-speech-intelligence-framework)  
+1. [Latent-IM: Latent Interaction Management for Speech LLMs](/202607/30/2607.26928v1-latent-im-latent-interaction-management-for-speech-llms)  
+   标签：评分：10.0/10、query:speech-model
+   evidence：在语音大模型中恢复内部对话管理,实现确认、查询等对话动作
+2. [Qwen-Audio-3.0-Gen-Preview Technical Report](/202607/30/2607.27011v1-qwen-audio-30-gen-preview-technical-report)  
+   标签：评分：10.0/10、query:speech-model
+   evidence：统一的大规模音频生成模型
+3. [Dissecting Sensitivity to Training Language in Self-Supervised Speech Learning Using Neural Audio Codec Tokens](/202607/30/2607.26350v1-dissecting-sensitivity-to-training-language-in-self-supervised-speech-learning-using-neural-audio-codec-tokens)  
    标签：评分：9.0/10、query:speech-model
-   evidence：提出融合说话人日志和语音识别的双路框架处理嘈杂穿戴相机音频，提升识别准确性
-2. [Extracting Voice Styles from Frozen TTS Models via Gradient-Based Inverse Optimization](/202607/29/2607.25351v1-extracting-voice-styles-from-frozen-tts-models-via-gradient-based-inverse-optimization)  
+   evidence：分析基于编解码器的自监督预训练中的语言敏感性,支持大规模语音模型
+4. [Voice Memory for Agentic Speech Recognition](/202607/30/2607.26410v1-voice-memory-for-agentic-speech-recognition)  
    标签：评分：9.0/10、query:speech-model
-   evidence：基于梯度的逆优化从冻结TTS模型中提取音色向量，无需转录文本，提升声音克隆质量。
-3. [SpeechLLM Meets Federated Learning for End-to-End ASR: English and Italian Case Studies](/202607/29/2607.25716v1-speechllm-meets-federated-learning-for-end-to-end-asr-english-and-italian-case-studies)  
-   标签：评分：9.0/10、query:speech-model
-   evidence：基于联邦学习的 SpeechLLM 端到端语音识别，在隐私保护下提升准确率
-4. [Evaluation of forced alignment of code-mixed speech: the case of Hindi-English](/202607/29/2607.25581v1-evaluation-of-forced-alignment-of-code-mixed-speech-the-case-of-hindi-english)  
+   evidence：基于记忆的推理方法用于智能语音识别纠错，提升ASR准确率。
+5. [Speech2Grasp: Data-Efficient Transfer of Text-Conditioned Grasp Detection to Speech in Humanoid Robots](/202607/30/2607.26567v1-speech2grasp-data-efficient-transfer-of-text-conditioned-grasp-detection-to-speech-in-humanoid-robots)  
    标签：评分：8.0/10、query:speech-model
-   evidence：针对代码混合语音的强制对齐评估，是ASR/TTS数据预处理的关键步骤
+   evidence：将文本条件的视觉模型迁移到语音，实现视觉-语音多模态交互，用于机器人抓取检测
+6. [Zero-Shot Face-to-Speech Synthesis via Latent Space Adaptation of a Style-Diffusion TTS Model](/202607/30/2607.26742v1-zero-shot-face-to-speech-synthesis-via-latent-space-adaptation-of-a-style-diffusion-tts-model)  
+   标签：评分：8.0/10、query:speech-model
+   evidence：通过TTS模型潜空间适配实现人脸到语音合成，展示视觉到语音多模态生成
 
 ### 速读区论文标签
-1. [Omni-Prune: Query-Aware Unified Token Pruning for Efficient Omnimodal Large Language Models](/202607/29/2607.23445v1-omni-prune-query-aware-unified-token-pruning-for-efficient-omnimodal-large-language-models)  
+1. [Text-Prompted CLAP: Learning Query-Conditioned Audio Representations via Contrastive Learning](/202607/30/2607.25085v1-text-prompted-clap-learning-query-conditioned-audio-representations-via-contrastive-learning)  
    标签：评分：7.0/10、query:speech-model
-   evidence：针对视听输入的全模态大语言模型的token剪枝框架提升推理效率，有助于视觉-语音多模态学习。
-2. [VAD to the Bone: Ultra-Tiny Speech Activity Detection for Edge Deployment](/202607/29/2607.25870v1-vad-to-the-bone-ultra-tiny-speech-activity-detection-for-edge-deployment)  
-   标签：评分：7.0/10、query:speech-model
-   evidence：语音活动检测是语音模型预处理的关键步骤，实现了高效的边缘部署。
-3. [What the Waveform Knows: Transparent-first Speech and Audio Intelligence with Caption Studio](/202607/29/2607.18704v1-what-the-waveform-knows-transparent-first-speech-and-audio-intelligence-with-caption-studio)  
+   evidence：提出文本提示的CLAP，一种参数高效的查询条件音频表示学习方法，基于对比学习
+2. [AMRD: Adaptive Multi-Teacher Relational Distillation for Lightweight Speech Emotion Recognition](/202607/30/2607.25289v1-amrd-adaptive-multi-teacher-relational-distillation-for-lightweight-speech-emotion-recognition)  
    标签：评分：6.0/10、query:speech-model
-   evidence：基于自动语音识别的语音转录和分析平台，赋能语音交互应用。
-4. [OmniDelta: Skill-Driven Budget Allocation for Token Compression in OmniLLMs](/202607/29/2607.25669v1-omnidelta-skill-driven-budget-allocation-for-token-compression-in-omnillms)  
-   标签：评分：6.0/10、query:speech-model
-   evidence：全模态大模型中的音视频令牌压缩以高效多模态理解
+   evidence：提出先进的多教师关系蒸馏方法，用于压缩大型自监督语音模型，可应用于训练高效语音模型。
 
 
 <div class="dpr-home-promo-card">
