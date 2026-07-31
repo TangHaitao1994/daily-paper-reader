@@ -1,0 +1,363 @@
+Title: How Meta-Learning Shapes LoRA Adapter Geometry in Speech Deepfake Detection
+
+URL Source: https://arxiv.org/pdf/2607.22010v1
+
+Published Time: Mon, 27 Jul 2026 00:26:06 GMT
+
+Number of Pages: 7
+
+Markdown Content:
+# How Meta-Learning Shapes LoRA Adapter Geometry in Speech Deepfake Detection 
+
+Ivan Kukanov 1, Janne Laakkonen 2, Ville Hautam¨ aki 2
+
+1KLASS Engineering & Solutions, Singapore 
+
+2 University of Eastern Finland, Finland 
+
+Abstract —Meta-learning for domain generalization (MLDG) improves out-of-distribution speech deepfake detection over em-pirical risk minimization (ERM) when both objectives train low-rank adapters on the same frozen self-supervised speech model. Because the architecture and adapter capacity are held fixed, this gap points to differences in how the training objective shapes the adapter, yet the field characterizes objectives through error rates rather than through the geometry of the solution they reach. We introduce a descriptive diagnostic for this question: holding architecture, rank, data, and seeds fixed and varying only the objective, we use the empirical Fisher on the finished adapter to compare the geometry that ERM and MLDG leave behind. We characterize each adapter with effective-rank diagnostics that separate where the adapter changes from where those changes matter to the loss, resolved by projection and by depth. Applied to ERM and MLDG, the diagnostic shows that the objective does not reshape all adapter projections alike: the loss-relevant update concentrates in the query and key projections while becoming more distributed in the output projection, consistently across six corpora and most strongly in the upper layers. The same contrast appears in the merged update independently of the low-rank factorization, indicating that it reflects the geometry of the effective update rather than the parameterization. These results show that the gap between ERM and MLDG is not only a difference in error rate, but a difference in how loss-relevant capacity is organized inside the adapter, and that loss-aware adapter geometry is a way to see it. 
+
+Index Terms —Meta-Learning, Fisher Matrix Estimation, Speech Deepfake Detection, Generalizability 
+
+I. I NTRODUCTION 
+
+Speech deepfake detection is fundamentally a generaliza-tion problem [1]. A detector is trained on the synthesizers available today, but it will be used against the synthesizers that exist tomorrow, built from new vocoders, new text-to-speech models, or existing ones retrained from different seeds. Each generator leaves its own acoustic artifacts, so a detector that learns the artifacts of known attacks captures cues the next generator does not share, and its accuracy drops on attacks it has not seen [2]. Bonafide speech also varies across corpora, languages, and recording conditions, but the attack side adds a further open-ended source of shift, since each new generator can introduce artifacts unlike any seen before. This makes detection a domain-generalization problem [3]: the detector must use cues that separate synthetic from real across generators, not the signature of any single one. One way to address this problem is meta-learning [4]. A common use of meta-learning is few-shot learning or adaptation: rather than training a model to solve one task, it MLDG collapses into a compact, low-dim subspace         
+
+> Fisher RankME Fisher RankME
+> q_proj / k_proj Attention Routing
+> Gradient Space Gradient Space
+> Lower RankME
+> ERM
+> Higher RankME
+> MLDG
+> MLDG spreads across many Fisher directions
+> out_proj Output Projection
+> Lower RankME Higher RankME
+> Gradient Space Gradient Space
+> ERM MLDG
+> Fisher RankME Fisher RankME
+> No consistent pattern across experiments
+> v_proj Value Projection
+> Gradient Space Gradient Space
+> ERM MLDG
+> Fisher RankME Fisher RankME
+> Some experiments lower / higher RankME
+
+Fig. 1. ERM- vs. MLDG-trained LoRA adapters in a frozen Wav2Vec-AASIST deepfake detector, compared via Fisher effective rank RankME F
+
+diagnostic: MLDG reallocates Fisher energy, gradient space of query/key projections are concentrated, while output projection is distributed (purple color). The effect is consistent across seeds × layers × corpora . The effect is faded for value projection (gray color) 
+
+trains across many tasks to produce a model that can adapt to a new task quickly, using only a few examples and a few gradient steps. In gradient-based meta-learning, this is often implemented as a bilevel loop: an inner step adapts the model to a task, and an outer objective rewards parameters from which that adaptation succeeds [5], [6]. Meta-learning for domain generalization (MLDG) [1], [7] re-purposes this machinery for domain shift rather than few-shot adaptation. It treats domains as the tasks: at each step it adapts on a subset of training domains and then evaluates that adapted state on held-out domains, so the objective favors updates that transfer to domains the model was not adapted on [7]. Recent work applies MLDG to speech deepfake detection in a parameter-arXiv:2607.22010v1 [eess.AS] 24 Jul 2026 efficient setting, training only small low-rank adapters (LoRA) [8] inserted into a frozen self-supervised speech model [1]. At a fixed adapter budget, replacing standard training, or empir-ical risk minimization (ERM) [9], with MLDG substantially improves out-of-distribution detection without adding capacity, pointing to the training objective, rather than adapter size, as the source of the gain [1]. The prior study reported this gain through error rates [1], without examining the geometry of the solution each objective produces, and left the analysis of what the adapters learn as an open direction. The question is therefore not whether the objective matters, which is established, but how it reshapes the adapter: given the same architecture, adapter capacity, and data, how does training with MLDG rather than ERM change the geometry of the learned adapter? 
+
+Answering this needs a way to read a finished adapter, not a way to train a better one. We treat the trained adapter as a displacement from its initialization and ask, for each attention projection and each layer, how concentrated that displacement is, both on its own and after weighting each direction by how much the loss depends on it. This separates where the adapter changed from where those changes matter. Holding architecture, rank, data, and seeds fixed and varying only the objective, the comparison isolates the effect of the objective alone. The diagnostic combines two established tools, the empirical Fisher [10] and effective rank [11], [12], but uses them descriptively rather than to define or guide the training objective. This paper makes two contributions:  
+
+> •
+
+We introduce a descriptive, objective-comparative diag-nostic of adapter geometry: holding the parameterization fixed and varying only the objective, we use the empirical Fisher and effective rank to localize, by projection and by depth, where a training objective places the loss-relevant part of the adapter update.  
+
+> •
+
+Applying this diagnostic to ERM and MLDG, we find that MLDG concentrates the loss-relevant update in the query and key projections while distributing it in the output projection, rather than reshaping the adapter uniformly. This pattern also appears after merging the LoRA factors into the effective update ∆W , reducing the concern that it is only an artifact of the factor coordinates. Together, these results show that the out-of-distribution gap between ERM and MLDG is not only a difference in error rate, but a difference in how the loss-relevant capacity of the adapter is organized. Weighting the adapter update by loss sensitivity makes this loss-relevant organization explicit, whereas raw update magnitude alone does not. II. R ELATED WORK 
+
+Low-rank adaptation and the geometry of trained adapters. LoRA [8] freezes the pretrained model and learns an additive low-rank update, motivated by evidence that task adaptation often lies in a low-dimensional subspace [13]. Much of the LoRA literature studies how to allocate, initialize, or regularize this capacity [14], [15]. A separate line treats the trained adapter itself as the object of study, examining its singular structure, factor asymmetry, or relation to forget-ting [16]–[18]. These analyses read a finished adapter under a single training objective; they do not ask how the same adapter parameterization changes when only the objective is varied. 
+
+Fisher and effective-rank diagnostics. Recent adapter methods use Fisher, curvature, or related gradient information constructively to precondition LoRA updates, select initializa-tion directions, or steer rank allocation [19]–[21], all of which shape adaptation before or during training. We instead use the empirical Fisher descriptively, on the finished adapter, reading it as a loss-sensitivity summary of the trained adapter rather than as a curvature estimate for optimization [22]. To quantify this concentration, we use entropy-based effective rank, which measures how concentrated a distribution or spectrum is [11] and has been applied to representation quality as RankMe [12]. Our starting point is MLDG-LoRA for speech deepfake de-tection [1], where replacing empirical risk minimization with a meta-learning objective improved cross-condition general-ization without increasing adapter capacity, but the learned adapter itself was not analyzed. To our knowledge, prior work has not used descriptive, objective-comparative geometry to study how a training objective reshapes a fixed low-rank adapter in a frozen self-supervised speech model. III. M ETHODOLOGY 
+
+We analyze the geometry of low-rank adaptation under empirical risk minimization (ERM) and meta-learning for do-main generalization (MLDG). Using the detector architecture of [1] as a fixed testbed, we ask a question: How does the training objective shape the geometry of the learned LoRA adapters? The same rank-r (r = 16 ) LoRA parameterization is inserted into a frozen Wav2Vec 2.0–AASIST backbone [23], [24] and trained twice: once with ERM and once with first-order MLDG [7]. Let fθ0,ϕ denote a frozen Wav2Vec backbone with LoRA parameters ϕ inserted into the self-attention projections (q, k, v, and out). For each adapted linear block Wℓ ∈ Rdout ×din ,LoRA parameterizes the update as 
+
+W ′ 
+
+> ℓ
+
+= Wℓ + ∆ Wℓ, ∆Wℓ = BℓAℓ, (1) where Aℓ ∈ Rr×din and Bℓ ∈ Rdout ×r are trainable low-rank factors and r ≪ min( din , d out ) [8]. We analyze the learned adapter displacement 
+
+∆ϕ = ϕ − ϕ0, (2) where ϕ0 = [vec( Ainit ), vec( Binit )] vectorized and concate-nated LoRA initializations, Ainit is drawn from a scaled Gaus-sian and Binit is initialized to zero, and ϕ = [vec( A), vec( B)] 
+
+- trained LoRA weights. 
+
+A. Training Objectives 
+
+Given source domains S = {D 1, . . . , DM } and task loss 
+
+ℓ(·), pooled-source ERM minimizes 
+
+LERM (ϕ) = X
+
+> d∈S
+
+E(x,y )∼D d
+
+ℓ fθ0,ϕ (x), y  . (3) MLDG simulates train–test domain shift inside each iteration by splitting source domains into meta-train and meta-test subsets and optimizing 
+
+LMLDG (ϕ) = Ltr (ϕ) + β Lte (ϕ − α∇ϕLtr (ϕ)) , (4) where α and β denote the inner-step size and meta-test weighting coefficient, respectively [3], [7]. 
+
+B. Diagnostic: Fisher-Weighted Geometry of LoRA Updates 
+
+To quantify where the loss-relevant adapter update is con-centrated, we weight the learned displacement ∆ϕ from (2) by an empirical Fisher estimate over the LoRA parameters only. For a probe set Dprobe = {(xi, y i)}Ni=1 , we accumulate squared per-example gradients to obtain the diagonal of the empirical Fisher, 
+
+bFp = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+∂ℓ  fθ0,ϕ (xi), y i
+
+
+
+∂ϕ p
+
+!2
+
+, (5) for each LoRA parameter ϕp, p = 1, . . . , P . We use the diagonal estimate bF ∈ RP rather than the full P × P
+
+Fisher; it is a practical curvature diagnostic motivated by natural-gradient geometry, and we interpret it explicitly as an empirical-Fisher approximation rather than the exact Fisher metric [25]–[27]. We define the Fisher-weighted importance of each LoRA coordinate as 
+
+πp =
+
+bFp ∆ϕ2
+
+> p
+
+PPq=1 bFq ∆ϕ2
+
+> q
+
+, (6) which is large where the adapter both moved and the loss is sensitive. The importance is computed per adapted block, with p ranging over the concatenated Aℓ and Bℓ factors of that block. We summarize the importance distribution {πp}Pp=1 with three complementary statistics: 
+
+Ck =
+
+> k
+
+X
+
+> p=1
+
+π(p), (7) 
+
+E(m) = 
+
+> m
+
+X
+
+> p=1
+
+π(p), (8) 
+
+RankME F = exp −
+
+> P
+
+X
+
+> p=1
+
+πp log( πp + ε)
+
+!
+
+, (9) where π(p) denotes the importance sorted in descending order, 
+
+Ck measures concentration in the top-k coordinates, E(m)
+
+is the cumulative importance curve, and RankME F is the effective rank of the importance spectrum [28]–[31]. A lower 
+
+RankME F indicates that the loss-relevant update is carried by fewer coordinates. 
+
+C. Evaluation protocol 
+
+We evaluate these diagnostics under cross-domain audio deepfake detection. Following prior work [1], each dataset or generator family is treated as a domain, and we perform leave-one-domain-out evaluation over benchmarks such as ASVspoof 2019 LA Eval [32], ASVspoof 2021 LA and DF [33], ASVspoof 5 [34], InTheWild [2], FakeAVCeleb [35]. We report Fisher alignment, domain-wise Fisher stability, and output-space effective rank per layer and projection type, and then correlate these diagnostics with out-of-domain detection metrics. This protocol is motivated by the well-documented generalization gap of audio deepfake detectors across datasets, attacks, and recording conditions [2], [36], [37]. IV. E XPERIMENTAL SETUP 
+
+A. Backbone and adapters 
+
+All diagnostics are computed on the checkpoints from [1]: frozen self-supervised (SSL) speech encoder Wav2Vec 2.0 XLSR-53 front-end (24 transformer layers, 1024 -dim em-beddings); followed by AASIST back-end spectro-temporal graph-attention classifier with a binary (bonafide/spoof) output trained under a negative log-likelihood objective. The SSL encoder and the classifier head are kept frozen; the probing diagnostic was done on pretrained LoRA adapters. LoRA adapters of rank r=16 and scaling αLoRA =2 inserted into the query, key, value, and output projections of every self-attention block of SSL ( 4 × 24 = 96 adapters). Training objectives are pooled-source ERM or first-order MLDG [7]. We analyze the five released seeds {42 , 123 , 555 , 999 , 2023 }, yielding five paired ERM/MLDG checkpoints [1]. For a fixed seed, the LoRA adapter displacement ∆ϕ = ϕ − ϕ0 equation (2) is frozen. 
+
+B. Probe Dataset for Empirical Fisher and Alignment 
+
+For each trained checkpoint, we characterize how the learned LoRA update ∆ϕ aligns with the loss curvature through the empirical Fisher information equation (5). We adopt the diagonal Fisher bFp, estimated by accumulating squared gradients of the LoRA parameters only, the SSL backbone and AASIST are frozen. Restricting attention to the diagonal amounts to measuring alignment in the coordinate basis ( ∆ϕp, bFp) and induces a per-parameter importance πp ∝ bFp ∆ϕ2
+
+> p
+
+, normalized to a distribution over the adapter coordinates πp. The update 
+
+∆ϕ0 is taken per-seed checkpoint initialization. All alignment statistics are computed per seed × dataset × projection ×
+
+layer in Fig. 5. Adapters from [1] are trained on ASVspoof 2019 LA, and the Fisher information is estimated on six evaluation corpora from Sec. III-C, spanning a range of distribution shifts. Because the importance πp depends only on the frozen update and the curvature, each corpus is subsampled to a class-balanced set (1000 bonafide and 1000 spoof utterances) to remove class-prior effects from the estimate; inputs are raw 16KHz waveforms cropped to ≈ 4s windows. From the sorted importance distribution {πp} of each mod-ule we report the Fisher effective rank RankME F , which is high when the update spreads across many curvature directions and low when it concentrates. TABLE I PER -MODULE RankME F OF THE LORA TRAINED UNDER ERM VS . MLDG, AVERAGED OVER 5 SEEDS , 6 CORPORA , AND 24 LAYERS (HIGHER - 
+
+> ENERGY SPREAD OVER MORE
+
+FISHER DIRECTIONS ). ∆ = MLDG − ERM ; Seeds agree COUNTS SIGN -CONSISTENT SEEDS ; Consistency IS THE DESCRIPTIVE SEED ×DATASET COUNT . MLDG CONCENTRATES Wq /Wk (≈ − 19% ) AND DISTRIBUTES Wout (+29% ), BOTH 5/5 SEEDS .
+
+Module ERM RankME F MLDG RankME F ∆ ∆% Effect Seeds agree Consistency 
+
+q proj 3174 2559 −615 −19 .4% concentrate ↓ 5/5 30/30 k proj 2912 2350 −562 −19 .3% concentrate ↓ 5/5 30/30 v proj 3768 4015 +247 +6 .6% distribute ↑ 3/5 18/30 out proj 3787 4901 +1114 +29 .4% distribute ↑ 5/5 30/30 
+
+V. R ESULTS 
+
+A. Fisher Alignment: ERM vs MLDG LoRA Updates 
+
+Analysis of Fisher RankME F and concentration metrics across six evaluation datasets from Sec. III-C and five seeds 
+
+{42 , 123 , 555 , 999 , 2023 }, which is 30 runs, on the rank-
+
+16 LoRA adapters of a 24 -layer Wav2Vec 2.0–AASIST model [1], see Tab. I and Fig. 5. Empirically, there is no significant global difference be-tween ERM and MLDG in terms of the globally aver-aged RankME F metric (ERM RankME F = 3410, MLDG 
+
+RankME F = 3456). ERM and MLDG spend roughly the same total estimated Fisher energy, but MLDG relocates it across projection modules and layer depth. Effects are extremely consistent across seeds, Tab I. The q proj and k proj are concentrated and out proj is distributed, effects are consistent across seed × dataset (30/30 experiments). While v proj trend is noisier (18/30 experiments). 
+
+Depth structure of the reallocation (per-module × depth) .Splitting each projection into lower (layers 0–11) and up-per (12–23) shows the reallocation is not flat with depth layers, Tab. II. The q/k concentrate effect sharpens toward the top: q proj -10.9% lower vs -33.0% upper, k proj -13.5% vs -30.8% upper (both 5/5 seeds). The attention routing is compressed hardest in the task-specific upper layers. The out proj distribute effect runs the other way, strongest low and fading up: +42.2% lower (5/5) vs +15.8% upper (4/5). V proj distributes only in the lower layers (+15.3%, 5/5) and is flat/noisy at the top (-3.0%, 3/5). The MLDG spreads generic acoustic content across many directions in the lower layers while tightening task-specific routing into few directions high up. 
+
+The reallocation holds in every dataset (per-dataset × per-module) . Broken out by evaluation sets Tab. III, the per-module signs are identical across all 6 datasets - q and k negative everywhere (q -15% to -23%, k -16% to -22%), out proj strongly positive everywhere (+26% to +32%), v proj weakly positive everywhere (+3% to +10%). No dataset flips any module’s direction. Since displacement ∆ϕ is frozen within a seed and only the Fisher estimate changes across datasets, this per-dataset uniformity is descriptive corroboration that the q/k-concentrate + out proj-distribute structure is a property of the learned adapter, not of the data used to probe it. query key value output    
+
+> Attention projection
+> −20
+> −10
+> 0
+> 10
+> 20
+> 30
+> Effective-rank change (%)  Δϕ2FFΔϕ2
+
+Fig. 2. Per-module effective-rank change under MLDG versus ERM, 
+
+100 × (MLDG − ERM) /ERM . The measures isolate the ingredients of 
+
+RankME F : the update magnitude ∆ϕ2, the empirical Fisher F , and their product F ∆ϕ2, which is RankME F itself (Table I). The Fisher-based measures F and F ∆ϕ2 are means over 30 dataset–seed cells (six corpora, five seeds); the magnitude measure ∆ϕ2 is data-free and reflects five seeds. query key value output 
+
+> Attention projection
+> −10
+> 0
+> 10
+> Stable-rank change (%)
+
+Fig. 3. Stable rank of the merged update ∆W = αAB , 100 × (MLDG −
+
+ERM) /ERM . This measure uses neither the Fisher nor any data and is invariant to the LoRA factor coordinates; values are means over five seeds. 
+
+B. Decomposing the Fisher-Weighted Effect 
+
+The per-module RankME F contrast combines two factors: how much the adapter moved and how much the loss depends on where it moved. To separate them, we recomputed the effective rank from each factor alone: the squared update magnitude ∆ϕ2, the empirical Fisher F , and their product 
+
+F ∆ϕ2 (the full diagnostic). Figure 2 reports the percent change from ERM to MLDG for each. The magnitude-only effective rank changed in the opposite direction from the full diagnostic on the query and key projections. Under the magnitude-only measure, MLDG raised the effective rank of every projection ( +16 .0% query, +11 .6% 
+
+key, +12 .7% value, +17 .4% output), with the positive di-rection reproduced across all five seeds. Under the Fisher-TABLE II PER -MODULE × PER -DEPTH RankME F UNDER ERM VS . MLDG, SPLIT INTO LOWER (0–11) AND UPPER (12–23) BACKBONE LAYERS , AVERAGED OVER 5 SEEDS AND 6 CORPORA . ∆ = MLDG − ERM ; Seeds agree COUNTS SIGN -CONSISTENT SEEDS ; Consistency IS THE DESCRIPTIVE SEED ×DATASET COUNT . T HE Wq /Wk CONCENTRATION AND Wout DISTRIBUTION BOTH INTENSIFY WITH DEPTH , AND joint STATISTICS MLDG SHIFTS DISTRIBUTED ADAPTATION TOWARD THE LOWER ACOUSTIC LAYERS WHILE TIGHTENING THE UPPER TASK -SPECIFIC ONES .
+
+Module Layer range ERM MLDG ∆ ∆% Effect Seeds agree Consistency 
+
+q proj lower (0–11) 3913 3487 −427 −10 .9% concentrate ↓ 5/5 25/30 upper (12–23) 2435 1631 −803 −33 .0% concentrate ↓ 5/5 29/30 k proj lower (0–11) 3866 3344 −522 −13 .5% concentrate ↓ 5/5 27/30 upper (12–23) 1958 1356 −602 −30 .8% concentrate ↓ 5/5 29/30 v proj lower (0–11) 3932 4533 +601 +15 .3% distribute ↑ 5/5 28/30 upper (12–23) 3604 3497 −107 −3.0% concentrate ↓ 3/5 16/30 out proj lower (0–11) 3900 5548 +1648 +42 .2% distribute ↑ 5/5 30/30 upper (12–23) 3674 4254 +581 +15 .8% distribute ↑ 4/5 24/30 joint lower (0–11) 3903 4228 +325 +8.3% distribute ↑ 4/5 20/30 upper (12–23) 2918 2685 -233 -8.0% concentrate ↓ 4/5 21/30 TABLE III PER -DATASET × PER -MODULE RankME F UNDER ERM VS . MLDG ACROSS THE 6 EVALUATION CORPORA , AVERAGED OVER 5 SEEDS AND 24 LAYERS .
+
+∆% = (MLDG − ERM) /ERM . T HE REALLOCATION PATTERN - Wq /Wk CONCENTRATE (≈ − 15% TO −23% ), Wout DISTRIBUTES (≈ + 26% TO 
+
++32% ) - HOLDS ON EVERY CORPUS , INDICATING A DATASET -INVARIANT SIGNATURE OF THE MLDG OBJECTIVE RATHER THAN A SHIFT -SPECIFIC ARTIFACT .
+
+Dataset ERM MLDG ∆% 
+
+q k v out q k v out q k v out 
+
+ASV19 LA Eval 3052 2795 3564 3612 2551 2359 3906 4702 −16 .4% −15 .6% +9 .6% +30 .2% 
+
+ASV21 LA 2993 2732 3799 3885 2394 2154 4000 4934 −20 .0% −21 .2% +5 .3% +27 .0% 
+
+ASV21 DF 3031 2794 3823 4018 2384 2181 3935 5068 −21 .3% −21 .9% +2 .9% +26 .1% 
+
+ASV5 3298 2910 3713 3762 2540 2287 3941 4965 −23 .0% −21 .4% +6 .1% +32 .0% 
+
+InTheWild 3411 3189 4035 3878 2894 2687 4368 5043 −15 .2% −15 .7% +8 .3% +30 .0% 
+
+FakeAVCeleb 3260 3052 3673 3568 2592 2432 3940 4696 −20 .5% −20 .3% +7 .3% +31 .6% 
+
+weighted measure, the query and key projections fell ( −19 .4% 
+
+and −19 .3% ). The concentration of the loss-relevant update on the query and key projections is therefore not a reduction in how far those projections moved: the raw update broadened while the Fisher-weighted update concentrated. The output projection moved in the distributing direction under all three measures, increasing most strongly under the Fisher-only and Fisher-weighted measures ( +31 .8% and 
+
++29 .4% ). For the Fisher-weighted measure, the query and key signs were unanimous across the 30 dataset–seed cells. The value projection was the only low-agreement case, with the sign matching the aggregate direction in 18 of 30 cells. The same query/key decrease and value/output increase also appeared in the stable rank of the merged update ∆W
+
+(Figure 3), which requires no Fisher estimate and no probe data. MLDG lowered the query and key stable rank ( −10 .8% 
+
+and −10 .9% ) and raised the value and output stable rank (+10 .7% and +14 .6% ). Because this measure is invariant to the LoRA factor coordinates, the projection-wise reorganiza-tion is present in the effective update itself and not only in the particular A and B factor coordinates. 
+
+C. Local Score Sensitivity to LoRA Perturbations 
+
+We next examined whether the adapter difference is re-flected in the detector’s local score function. For each trained checkpoint, we added random perturbations of relative radius 
+
+ϵ to the front-end LoRA factors, scaling a unit-norm random direction to ∥δ∥2 = ϵ ∥ϕLoRA ∥2, held the AASIST back-end fixed, and measured the variance of the output score over five perturbation directions on In-The-Wild. This probes local sensitivity in the trained LoRA parameterization and is not gauge-invariant; it is not used to train or select the model. The ERM adapter was more sensitive to this perturbation than the MLDG adapter at every nonzero radius (Fig. 4). At the largest radius ( ϵ = 10 −2), the mean score variance across five matched seeds was 0.56 for ERM and 0.11 for MLDG, a factor of 5.1. Across the tested nonzero radii, the ERM-to-MLDG variance ratio ranged from 5.1 to 11 .0, with ERM more sensitive throughout. The objective difference seen in the adapter geometry is therefore accompanied by a functional difference: the MLDG adapter yields a score function that is less sensitive to local LoRA perturbations on this out-of-domain corpus. 
+
+D. Why MLDG Generalizes Better 
+
+MLDG’s bilevel objective (adapt on meta-train domains ,score the gradient on a held-out meta-test domain ) explicitly rewards update directions that transfer to an unseen domain and penalizes domain-specific ones. That objective leaves two complementary fingerprints in Fisher space:  
+
+> •
+
+Attention routing (q proj/k proj) collapses into a com-pact, low-dimensional subspace. MLDG commits to a parsimonious ”where to look“ pattern carried by few Fisher directions, shared across domains. A low-rank routing that survives the meta-test split is, by construc-10 −4 10 −3 10 −2  
+
+> Perturbation radius ε
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Score variance under perturbation
+> ERM-LoRA
+> MLDG-LoRA
+
+Fig. 4. LoRA perturbation sensitivity on In-The-Wild. Random perturbations of relative radius ϵ are applied to the trained front-end LoRA factors, with the AASIST back-end fixed, and the score variance over five perturbation directions is measured. The ERM adapter is more sensitive than the MLDG adapter at every nonzero radius. Lines show seed means; shaded regions show the seed min–max range. 
+
+tion, domain-invariant. ERM has no such pressure and spreads q/k across more directions.  
+
+> •
+
+Content written into the residual stream (out proj) is spread across many Fisher directions. This is the classic robustness signature: MLDG does not rely on a hand-ful of high-curvature directions to transform representa-tions. In anti-spoofing, those few dominant directions are where dataset-specific artifacts/shortcuts (codec, channel, silence cues) get encoded. ERM concentrates out proj energy there - faster training-loss reduction, but brittle off-distribution.  
+
+> •
+
+Depth allocation: MLDG pushes distributed adaptation into the lower/mid acoustic layers (generic, transferable features) and tightens the top task-specific layers. ERM and MLDG use comparable total Fisher energy, but MLDG relocates it - concentrating attention routing (q/k) into an invariant low-rank subspace while diffusing content updates (out proj) away from the few shortcut-encoding directions. That trade of stable routing and distributed, non-shortcut content is the mechanistic reason MLDG transfers better. VI. D ISCUSSION AND CONCLUSIONS 
+
+We introduced a descriptive, objective-comparative diag-nostic of adapter geometry: holding architecture, rank, data, and seeds fixed and varying only the training objective, we used the empirical Fisher and effective rank to localize where an objective places the loss-relevant part of a LoRA update. Applied to ERM and MLDG in speech deepfake detection, the diagnostic showed that MLDG does not reshape the adapter uniformly. It concentrates the loss-relevant update in the query and key projections and distributes it in the output projection, consistently across six corpora, with query/key concentration strongest in the upper layers. The same contrast appeared after merging the LoRA factors into the effective update ∆W ,reducing the concern that the pattern is only an artifact of the factor coordinates. The two objectives also differed in the local sensitivity of the score function they induce. q_proj           
+
+> k_proj
+> v_proj
+> out_proj
+> q_proj
+> k_proj
+> v_proj
+> out_proj
+> q_proj
+> k_proj
+> v_proj
+> out_proj
+> q_proj
+> k_proj
+> v_proj
+> out_proj
+> q_proj
+> k_proj
+> v_proj
+> out_proj
+> 0510 15 20
+> q_proj
+> k_proj
+> v_proj
+> out_proj
+> 0510 15 20
+> 1000
+> 2000
+> 3000
+> 4000
+> 5000
+> 6000
+> RankME_F
+> Fisher RankME per Layer and Module (ERM vs MLDG)
+> Layer Layer
+> ERM MLDG
+> ASV19 LA Eval ASV21 DF ASV21 LA ASV5 InTheWild FakeAVCeleb
+
+Fig. 5. Effect of MLDG vs ERM training, measured using RankME F metric with estimated Fisher. 
+
+These observations suggest one interpretation of what the meta-learning objective does to the adapter. Concentrating the query and key updates into a lower-dimensional loss-relevant subspace is consistent with MLDG committing to a compact attention-routing pattern that survives the meta-test split. The distributed output update is consistent with spreading loss-relevant capacity across more directions. Whether this reorganization is what drives the out-of-distribution gain, how-ever, is not established by geometry alone: the diagnostic is descriptive, and the perturbation result is a single functional probe on one corpus. The reorganization is a robust property of the learned adapter, but its causal link to generalization remains a hypothesis for future work. The diagnostic itself is not tied to this objective pair or to speech. It compares the geometry that any two training objectives leave in a fixed parameterization, and could be applied to other adaptation objectives, other backbones, and other modalities. More broadly, it offers a way to characterize training objectives through the geometry of the solutions they reach, rather than through error rates alone. AI-G ENERATED CONTENT DISCLOSURE 
+
+The authors used Anthropic’s Claude and OpenAI’s Chat-GPT as writing and editing assistants in preparing this manuscript. The tools were used to draft and revise prose in the abstract, introduction, related work, results, and discussion sections, and to generate and refine the plotting code for the figures from numerical results produced by the authors. All research design, experiments, data, quantitative results, and scientific claims are the authors’ own; all AI-assisted text and figures were reviewed, verified, and edited by the authors, who take full responsibility for the content. REFERENCES [1] J. Laakkonen, I. Kukanov, and V. Hautam¨ aki, “Generalizable speech deepfake detection via meta-learned lora,” in ICASSP 2026-2026 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) . IEEE, 2026, pp. 19 092–19 096. [2] N. M¨ uller, P. Czempin, F. Diekmann et al. , “Does Audio Deepfake Detection Generalize?” in Interspeech 2022 , 2022, pp. 2783–2787. [3] K. Zhou, Z. Liu, Y. Qiao et al. , “Domain generalization: A survey,” 2021. [Online]. Available: https://arxiv.org/abs/2103.02503 [4] S. Thrun and L. Pratt, “Learning to learn: Introduction and overview,” in Learning to learn . Springer, 1998, pp. 3–17. [5] C. Finn, P. Abbeel, and S. Levine, “Model-agnostic meta-learning for fast adaptation of deep networks,” in International conference on machine learning . PMLR, 2017, pp. 1126–1135. [6] I. Kukanov, J. Laakkonen, T. Kinnunen et al. , “Meta-learning approaches for improving detection of unseen speech deepfakes,” in 2024 IEEE Spoken Language Technology Workshop (SLT) , 2024, pp. 1173–1178. [7] D. Li, Y. Yang, Y. Song et al. , “Learning to generalize: Meta-learning for domain generalization,” Proceedings of the AAAI Conference on Artificial Intelligence , vol. 32, no. 1, 2018. [Online]. Available: https://ojs.aaai.org/index.php/AAAI/article/view/11596 [8] E. J. Hu, Y. Shen, P. Wallis et al. , “LoRA: Low-rank adaptation of large language models,” in International Conference on Learning Representations , 2022, iCLR 2022 Poster. [Online]. Available: https://openreview.net/forum?id=nZeVKeeFYf9 [9] V. N. Vapnik, “Principles of risk minimization for learning theory,” in Neural Information Processing Systems , 1991. [Online]. Available: https://api.semanticscholar.org/CorpusID:15348764 [10] J. Martens, “New insights and perspectives on the natural gradient method,” Journal of Machine Learning Research , vol. 21, no. 146, pp. 1–76, 2020. [11] O. Roy and M. Vetterli, “The effective rank: A measure of effective dimensionality,” in EUSIPCO . IEEE, 2007, pp. 606–610. [12] Q. Garrido, R. Balestriero, L. Najman et al. , “Rankme: Assessing the downstream performance of pretrained self-supervised representations by their rank,” in ICML . PMLR, 2023, pp. 10 929–10 974. [13] A. Aghajanyan, S. Gupta, and L. Zettlemoyer, “Intrinsic dimensionality explains the effectiveness of language model fine-tuning,” in ACL-IJCNLP , 2021, pp. 7319–7328. [14] Q. Zhang, M. Chen, A. Bukharin et al. , “Adaptive budget allocation for parameter-efficient fine-tuning,” in ICLR , 2023. [15] F. Meng, Z. Wang, and M. Zhang, “Pissa: Principal singular values and singular vectors adaptation of large language models,” NeurIPS , vol. 37, pp. 121 038–121 072, 2024. [16] R. Shuttleworth, J. Andreas, A. Torralba et al. , “Lora vs full fine-tuning: An illusion of equivalence,” NeurIPS , vol. 38, pp. 174 627–174 662, 2026. [17] J. Zhu, K. Greenewald, K. Nadjahi et al. , “Asymmetry in low-rank adapters of foundation models,” in ICML , 2024. [18] D. Biderman, J. Portes, J. J. G. Ortiz et al. , “Lora learns less and forgets less,” arXiv preprint arXiv:2405.09673 , 2024. [19] F. Zhang and M. Pilanci, “Riemannian preconditioned lora for fine-tuning foundation models,” arXiv preprint arXiv:2402.02347 , 2024. [20] Z.-Q. Feng, Y.-J. Lin, and H.-Y. Kao, “Learning in the fisher sub-space: A guided initialization for lora fine-tuning,” arXiv preprint arXiv:2605.01046 , 2026. [21] F. Zheng and A. Prouti` ere, “Curvature-guided lora: Steering in the pretrained ntk subspace,” arXiv preprint arXiv:2603.29824 , 2026. [22] F. Kunstner, P. Hennig, and L. Balles, “Limitations of the empirical fisher approximation for natural gradient descent,” NeurIPS , vol. 32, 2019. [23] A. Baevski, Y. Zhou, A. Mohamed et al. , “wav2vec 2.0: A framework for self-supervised learning of speech representations,” Advances in neural information processing systems , vol. 33, pp. 12 449–12 460, 2020. [24] J.-w. Jung, H.-S. Heo, H. Tak et al. , “Aasist: Audio anti-spoofing using integrated spectro-temporal graph attention networks,” in ICASSP 2022-2022 IEEE international conference on acoustics, speech and signal processing (ICASSP) . IEEE, 2022, pp. 6367–6371. [25] J. Martens, “New insights and perspectives on the natural gradient method,” 2014. [Online]. Available: https://arxiv.org/abs/1412.1193 [26] J. Martens and R. Grosse, “Optimizing neural networks with kronecker-factored approximate curvature,” in Proceedings of the 32nd International Conference on Machine Learning , ser. Proceedings of Machine Learning Research, F. Bach and D. Blei, Eds., vol. 37. PMLR, 2015, pp. 2408–2417. [Online]. Available: https://proceedings.mlr.press/v37/martens15.html [27] X. Wu, W. Yu, C. Zhang et al. , “An improved empirical fisher approximation for natural gradient descent,” 2024. [Online]. Available: https://arxiv.org/abs/2406.06420 [28] B. Ghorbani, S. Krishnan, and Y. Xiao, “An investigation into neural net optimization via hessian eigenvalue density,” in Proceedings of the 36th International Conference on Machine Learning , ser. Proceedings of Machine Learning Research, K. Chaudhuri and R. Salakhutdinov, Eds., vol. 97. PMLR, 2019, pp. 2232–2241. [Online]. Available: https://proceedings.mlr.press/v97/ghorbani19b.html [29] A. Jacot, F. Gabriel, and C. Hongler, “Neural tangent kernel: Convergence and generalization in neural networks,” in Advances in Neural Information Processing Systems 31 . Curran Associates, Inc., 2018. [Online]. Available: https://arxiv.org/abs/1806.07572 [30] Q. Garrido, R. Balestriero, L. Najman et al. , “RankMe: Assessing the downstream performance of pretrained self-supervised representations by their rank,” 2022. [Online]. Available: https://arxiv.org/abs/2210.02885 [31] G. B. Arous, R. Gheissari, J. Huang et al. , “High-dimensional SGD aligns with emerging outlier eigenspaces,” 2023. [Online]. Available: https://arxiv.org/abs/2310.03010 [32] M. Todisco, X. Wang et al. , “ASVspoof 2019: Future Horizons in Spoofed and Fake Audio Detection,” in Interspeech , 2019. [33] J. Yamagishi, X. Wang, M. Todisco et al. , “ASVspoof 2021: accelerating progress in spoofed and deepfake speech detection,” 2021. [Online]. Available: https://arxiv.org/abs/2109.00537 [34] X. Wang, H. Delgado et al. , “ASVspoof 5: Crowdsourced Speech Data, Deepfakes, and Adversarial Attacks at Scale,” ArXiv , vol. abs/2408.08739, 2024. [35] H. Khalid, S. Tariq, M. Kim et al. , “FakeAVCeleb: A novel audio-video multimodal deepfake dataset,” 2021. [Online]. Available: https://arxiv.org/abs/2108.05080 [36] J. Yi, C. Wang, J. Tao et al. , “Audio deepfake detection: A survey,” 2023. [Online]. Available: https://arxiv.org/abs/2308.14970 [37] W. Hsu, A. Sriram, A. Baevski et al. , “Robust wav2vec 2.0: Analyzing domain shift in self-supervised pre-training,” 2021. [Online]. Available: https://arxiv.org/abs/2104.01027
