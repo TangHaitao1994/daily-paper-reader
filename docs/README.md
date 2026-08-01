@@ -6,43 +6,37 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-31
-- 运行时间：2026-07-31 20:25:55 UTC
+- 最新运行日期：2026-08-01
+- 运行时间：2026-08-01 21:14:10 UTC
 - 运行状态：成功
-- 本次总论文数：7
-- 精读区：5
-- 速读区：2
+- 本次总论文数：5
+- 精读区：2
+- 速读区：3
 
 ### 今日简报（AI）
-今日AI语音前沿速览：AgenticASR以智能体流程精调识别，VocalRender让AI直接唱出乐谱之美。  
-最亮眼结论：AgenticASR用多步交互式纠错攻克复杂场景杂音，VocalRender在真实作曲中实现乐谱原生高保真歌声合成。  
-想尝鲜的读者不妨留意Qwen-Audio-3.0-Gen的生成预览，它正把文本、音频、音乐生成拉入统一框架。
-- 详情：[/202607/31/README](/202607/31/README)
+今日精读2篇重磅音频与多模态前沿，速览3篇长上下文训练与语义音频新突破。  
+最值得关注：通义千问音频3.0预览版展示语音与音乐生成新范式，以及基于语义嵌入的自动混音均衡技术，直击个性化听觉体验。  
+想跟进多模态生成实战，可优先复现Qwen-Audio最新demo；关注音频信号处理的读者，不妨从语义均衡论文入手动手调参。
+- 详情：[/202608/01/README](/202608/01/README)
 
 ### 精读区论文标签
-1. [AgenticASR: Refining Speech Recognition in Real-World Scenarios via an Agentic Approach](/202607/31/2607.28175v1-agenticasr-refining-speech-recognition-in-real-world-scenarios-via-an-agentic-approach)  
-   标签：评分：10.0/10、query:speech-model
-   evidence：直接将逐字转录优化为干净文本，去除不流畅和自我修正，提升ASR准确性和可用性。
-2. [VocalRender: Score-Native Singing Voice Synthesis for Real-World Composition](/202607/31/2607.27768v1-vocalrender-score-native-singing-voice-synthesis-for-real-world-composition)  
+1. [Qwen-Audio-3.0-Gen-Preview Technical Report](/202608/01/2607.27011v1-qwen-audio-30-gen-preview-technical-report)  
    标签：评分：9.0/10、query:speech-model
-   evidence：提出VocalRender，一种谱原生歌声合成系统，直接根据歌词、音高和速度合成歌声，提升TTS质量和控制力。
-3. [Face and Voice Cross-modal Association with Learning Convex Feature Embedding](/202607/31/2607.28129v1-face-and-voice-cross-modal-association-with-learning-convex-feature-embedding)  
-   标签：评分：9.0/10、query:speech-model
-   evidence：用于人脸-声音关联的跨模态特征嵌入
-4. [Phonetic forced alignment for low-resource language varieties: Model training and evaluation on Chengdu Mandarin](/202607/31/2607.21332v1-phonetic-forced-alignment-for-low-resource-language-varieties-model-training-and-evaluation-on-chengdu-mandarin)  
+   evidence：使用扩散变压器统一生成语音、音乐、音效的音频框架，提升合成质量
+2. [A Study on Online Mask-based Beamforming Using Per-channel Masking for Spatially Distributed Microphones](/202608/01/2607.26623v1-a-study-on-online-mask-based-beamforming-using-per-channel-masking-for-spatially-distributed-microphones)  
    标签：评分：8.0/10、query:speech-model
-   evidence：为低资源语言变体训练强制对齐模型可提升语音识别准确率
-5. [WeSep: A Modular and Cue-Composable Framework for Target Speaker Extraction](/202607/31/2607.27436v1-wesep-a-modular-and-cue-composable-framework-for-target-speaker-extraction)  
-   标签：评分：8.0/10、query:speech-model
-   evidence：模块化目标说话人提取框架通过分离目标语音增强语音识别
+   evidence：在线每通道掩蔽波束形成提升分布式麦克风语音质量，可提高ASR准确率
 
 ### 速读区论文标签
-1. [Qwen-Audio-3.0-Gen-Preview Technical Report](/202607/31/2607.27011v2-qwen-audio-30-gen-preview-technical-report)  
+1. [Libra: Taming Attention Workload Skew in Long-Context LLM Training with Bounded Sequence Pool](/202608/01/2607.23250v1-libra-taming-attention-workload-skew-in-long-context-llm-training-with-bounded-sequence-pool)  
    标签：评分：7.0/10、query:speech-model
-   evidence：统一非自回归框架根据结构化条件生成混合波形
-2. [How Meta-Learning Shapes LoRA Adapter Geometry in Speech Deepfake Detection](/202607/31/2607.22010v1-how-meta-learning-shapes-lora-adapter-geometry-in-speech-deepfake-detection)  
-   标签：评分：6.0/10、query:speech-model
-   evidence：分析元学习目标如何塑造LoRA适配器几何结构，为语音模型训练方法提供见解。
+   evidence：针对长序列训练中注意力负载均衡的方法，可用于大型语音模型训练
+2. [Automatic Audio Equalization with Semantic Embeddings](/202608/01/2607.23846v1-automatic-audio-equalization-with-semantic-embeddings)  
+   标签：评分：7.0/10、query:speech-model
+   evidence：自动音频均衡作为语音数据预处理步骤可提升语音质量
+3. [From Semantics to Readout: Mechanistic Understanding of Audio Tokens after Fine-Tuning for Temporal Audio Grounding](/202608/01/2607.25355v1-from-semantics-to-readout-mechanistic-understanding-of-audio-tokens-after-fine-tuning-for-temporal-audio-grounding)  
+   标签：评分：7.0/10、query:speech-model
+   evidence：对大音频语言模型中音频令牌用于时序定位的机制分析，助力语音理解模型改进
 
 
 <div class="dpr-home-promo-card">
