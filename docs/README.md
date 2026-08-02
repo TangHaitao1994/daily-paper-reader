@@ -6,37 +6,34 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-01
-- 运行时间：2026-08-01 21:14:10 UTC
+- 最新运行日期：2026-08-02
+- 运行时间：2026-08-02 20:22:33 UTC
 - 运行状态：成功
-- 本次总论文数：5
+- 本次总论文数：4
 - 精读区：2
-- 速读区：3
+- 速读区：2
 
 ### 今日简报（AI）
-今日精读2篇重磅音频与多模态前沿，速览3篇长上下文训练与语义音频新突破。  
-最值得关注：通义千问音频3.0预览版展示语音与音乐生成新范式，以及基于语义嵌入的自动混音均衡技术，直击个性化听觉体验。  
-想跟进多模态生成实战，可优先复现Qwen-Audio最新demo；关注音频信号处理的读者，不妨从语义均衡论文入手动手调参。
-- 详情：[/202608/01/README](/202608/01/README)
+今日精读两篇高分音频论文，聚焦真实执法语音转录与嘈杂多人对话建模。  
+值得一看：用 LoRA 微调 Whisper 解决执法记录仪音频，以及 GRPO 强化学习让模型在鸡尾酒会中准确插话。  
+建议关注大模型落地垂直场景的微调方案，以及多人交互中的动态决策技术。
+- 详情：[/202608/02/README](/202608/02/README)
 
 ### 精读区论文标签
-1. [Qwen-Audio-3.0-Gen-Preview Technical Report](/202608/01/2607.27011v1-qwen-audio-30-gen-preview-technical-report)  
+1. [Enhancing Law-Enforcement Audio Transcription: A LoRA-Based Adaptation of Whisper for BWC Footage](/202608/02/2607.27245v1-enhancing-law-enforcement-audio-transcription-a-lora-based-adaptation-of-whisper-for-bwc-footage)  
    标签：评分：9.0/10、query:speech-model
-   evidence：使用扩散变压器统一生成语音、音乐、音效的音频框架，提升合成质量
-2. [A Study on Online Mask-based Beamforming Using Per-channel Masking for Spatially Distributed Microphones](/202608/01/2607.26623v1-a-study-on-online-mask-based-beamforming-using-per-channel-masking-for-spatially-distributed-microphones)  
-   标签：评分：8.0/10、query:speech-model
-   evidence：在线每通道掩蔽波束形成提升分布式麦克风语音质量，可提高ASR准确率
+   evidence：针对执法场景噪声环境，通过LoRA微调Whisper提升语音识别准确率
+2. [Cocktail-Talker: Multi-Speaker Dialog Modeling in Noisy Social Environments with Turn Action GRPO](/202608/02/2607.27756v1-cocktail-talker-multi-speaker-dialog-modeling-in-noisy-social-environments-with-turn-action-grpo)  
+   标签：评分：9.0/10、query:speech-model
+   evidence：嘈杂社交环境下的多说话人口语对话建模与轮流发言
 
 ### 速读区论文标签
-1. [Libra: Taming Attention Workload Skew in Long-Context LLM Training with Bounded Sequence Pool](/202608/01/2607.23250v1-libra-taming-attention-workload-skew-in-long-context-llm-training-with-bounded-sequence-pool)  
-   标签：评分：7.0/10、query:speech-model
-   evidence：针对长序列训练中注意力负载均衡的方法，可用于大型语音模型训练
-2. [Automatic Audio Equalization with Semantic Embeddings](/202608/01/2607.23846v1-automatic-audio-equalization-with-semantic-embeddings)  
-   标签：评分：7.0/10、query:speech-model
-   evidence：自动音频均衡作为语音数据预处理步骤可提升语音质量
-3. [From Semantics to Readout: Mechanistic Understanding of Audio Tokens after Fine-Tuning for Temporal Audio Grounding](/202608/01/2607.25355v1-from-semantics-to-readout-mechanistic-understanding-of-audio-tokens-after-fine-tuning-for-temporal-audio-grounding)  
-   标签：评分：7.0/10、query:speech-model
-   evidence：对大音频语言模型中音频令牌用于时序定位的机制分析，助力语音理解模型改进
+1. [Mind the Microphone Gap: Benchmarking Array Upsampling Strategies for Latent Acoustic Mapping](/202608/02/2607.24463v1-mind-the-microphone-gap-benchmarking-array-upsampling-strategies-for-latent-acoustic-mapping)  
+   标签：评分：6.0/10、query:speech-model
+   evidence：麦克风阵列上采样提升声学映射，可作为语音模型预处理步骤
+2. [Ripple: Real-Time Streaming Audio-Video Generation With Cross-Modal Recurrent Memory](/202608/02/2607.26818v1-ripple-real-time-streaming-audio-video-generation-with-cross-modal-recurrent-memory)  
+   标签：评分：6.0/10、query:speech-model
+   evidence：提出具有跨模态递归记忆的实时流式音视频生成系统
 
 
 <div class="dpr-home-promo-card">
