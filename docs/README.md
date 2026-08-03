@@ -6,34 +6,44 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-02
-- 运行时间：2026-08-02 20:22:33 UTC
+- 最新运行日期：2026-08-03
+- 运行时间：2026-08-03 21:55:12 UTC
 - 运行状态：成功
-- 本次总论文数：4
-- 精读区：2
-- 速读区：2
+- 本次总论文数：8
+- 精读区：5
+- 速读区：3
 
 ### 今日简报（AI）
-今日精读两篇高分音频论文，聚焦真实执法语音转录与嘈杂多人对话建模。  
-值得一看：用 LoRA 微调 Whisper 解决执法记录仪音频，以及 GRPO 强化学习让模型在鸡尾酒会中准确插话。  
-建议关注大模型落地垂直场景的微调方案，以及多人交互中的动态决策技术。
-- 详情：[/202608/02/README](/202608/02/README)
+今日精读5篇前沿语音与多模态论文，满分推荐DoubleHelix和M3-DuplexBench两大新成果。最值得看：用LLM做视听融合的DoubleHelix让看口型识别更准，M3-DuplexBench首次给出多语言、多轮全双工对话的全面评测。读者不妨从这两篇出发，理解大模型如何重塑视听理解与自然对话评测。
+- 详情：[/202608/03/README](/202608/03/README)
 
 ### 精读区论文标签
-1. [Enhancing Law-Enforcement Audio Transcription: A LoRA-Based Adaptation of Whisper for BWC Footage](/202608/02/2607.27245v1-enhancing-law-enforcement-audio-transcription-a-lora-based-adaptation-of-whisper-for-bwc-footage)  
+1. [DoubleHelix: Structured Cross-Modal Fusion for Audio-Visual Speech Recognition with LLMs](/202608/03/2607.29112v1-doublehelix-structured-cross-modal-fusion-for-audio-visual-speech-recognition-with-llms)  
+   标签：评分：10.0/10、query:speech-model
+   evidence：通过迭代融合直接提升视听语音识别准确率
+2. [M3-DuplexBench: A Multi-Turn, Multilingual, Multidomain Benchmark for Full-Duplex Spoken Dialogue Models](/202608/03/2607.29125v1-m3-duplexbench-a-multi-turn-multilingual-multidomain-benchmark-for-full-duplex-spoken-dialogue-models)  
+   标签：评分：10.0/10、query:speech-model
+   evidence：为全双工语音对话系统提供基准，支持自然轮流发言和打断
+3. [ParaASR: Multi-Token Prediction for Fast and Long-Context LLM-Based Speech Recognition](/202608/03/2607.29279v1-paraasr-multi-token-prediction-for-fast-and-long-context-llm-based-speech-recognition)  
    标签：评分：9.0/10、query:speech-model
-   evidence：针对执法场景噪声环境，通过LoRA微调Whisper提升语音识别准确率
-2. [Cocktail-Talker: Multi-Speaker Dialog Modeling in Noisy Social Environments with Turn Action GRPO](/202608/02/2607.27756v1-cocktail-talker-multi-speaker-dialog-modeling-in-noisy-social-environments-with-turn-action-grpo)  
+   evidence：多token预测加速基于大语言模型的自动语音识别，同时保持准确性。
+4. [Leveraging Beam Search Information for Confidence Estimation in E2E ASR](/202608/03/2607.29299v1-leveraging-beam-search-information-for-confidence-estimation-in-e2e-asr)  
    标签：评分：9.0/10、query:speech-model
-   evidence：嘈杂社交环境下的多说话人口语对话建模与轮流发言
+   evidence：利用束搜索得分与排序为ASR构建轻量置信度估计模块
+5. [Stable Autoregressive Speech Generation with Low-Frame-Rate High-Dimensional Continuous Tokens](/202608/03/2607.29363v1-stable-autoregressive-speech-generation-with-low-frame-rate-high-dimensional-continuous-tokens)  
+   标签：评分：8.0/10、query:speech-model
+   evidence：协同设计低帧率高维连续令牌，实现稳定自回归语音生成
 
 ### 速读区论文标签
-1. [Mind the Microphone Gap: Benchmarking Array Upsampling Strategies for Latent Acoustic Mapping](/202608/02/2607.24463v1-mind-the-microphone-gap-benchmarking-array-upsampling-strategies-for-latent-acoustic-mapping)  
+1. [Stable FP4 Training via Transposition-Invariant Block Quantization](/202608/03/2607.24953v1-stable-fp4-training-via-transposition-invariant-block-quantization)  
+   标签：评分：7.0/10、query:speech-model
+   evidence：稳定的FP4量化训练方法，解决转置不一致问题，可应用于大语音模型训练。
+2. [Prosody-driven Jailbreaks in Audio LLMs: A Controlled Study and Mechanistic Analysis](/202608/03/2607.26541v1-prosody-driven-jailbreaks-in-audio-llms-a-controlled-study-and-mechanistic-analysis)  
+   标签：评分：7.0/10、query:speech-model
+   evidence：研究语音传递中的韵律变化如何越狱音频LLM，与语音接口安全相关
+3. [From Semantics to Readout: Mechanistic Understanding of Audio Tokens after Fine-Tuning for Temporal Audio Grounding](/202608/03/2607.25355v1-from-semantics-to-readout-mechanistic-understanding-of-audio-tokens-after-fine-tuning-for-temporal-audio-grounding)  
    标签：评分：6.0/10、query:speech-model
-   evidence：麦克风阵列上采样提升声学映射，可作为语音模型预处理步骤
-2. [Ripple: Real-Time Streaming Audio-Video Generation With Cross-Modal Recurrent Memory](/202608/02/2607.26818v1-ripple-real-time-streaming-audio-video-generation-with-cross-modal-recurrent-memory)  
-   标签：评分：6.0/10、query:speech-model
-   evidence：提出具有跨模态递归记忆的实时流式音视频生成系统
+   evidence：对LALM中音频token的微调机理分析，可为训练策略提供信息
 
 
 <div class="dpr-home-promo-card">
