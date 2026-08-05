@@ -1,0 +1,1001 @@
+Title: OmniPack: Unified Token Compression for Efficient Omni-modal Large Language Models
+
+URL Source: https://arxiv.org/pdf/2608.03812v1
+
+Published Time: Wed, 05 Aug 2026 01:15:22 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+# OmniPack: Unified Token Compression for Efficient Omni-modal Large Language Models 
+
+## Wanshun Su 1,* Yang Shi 2,* Feihu Liu 3 Ziwen Yu 3 Yan Min 3 Zhuoran Zhang 2 Qixun Wang 2
+
+## Haotian Wang 4 Shixuan Liu 4 Yuanxing Zhang 2 Peng Wu 1, ‡ Chengfu Huo 3 Liang Ding 3, ‡
+
+> 1
+
+## Northwestern Polytechnical University 2Peking University 3Alibaba Group 4Tsinghua University 
+
+## https://github.com/RowanSu/OmniPack 
+
+## Abstract 
+
+Omni-modal large language models (Omni-LLMs) have achieved remarkable performance on audio-visual under-standing tasks, but processing long and highly redundant visual and audio token sequences incurs substantial com-putational overhead, demanding aggressive token compres-sion for efficient deployment. Existing methods often de-grade at low token budgets: pre-LLM compression may discard structurally important and globally distributed ev-idence, whereas inner-LLM compression often underex-ploits query-conditioned audio-visual collaboration. To ad-dress these limitations, we propose OmniPack , a training-free framework that coordinates structural compression be-fore the LLM with task-relevant semantic refinement within the LLM. Before the LLM, OmniPack removes structural redundancy through modality-specific importance, global coverage, and similarity-aware merging. After sufficient multimodal interaction, it further consolidates diverse, task-relevant representations through textual guidance and audio-visual collaboration. Extensive experiments on five benchmarks with three Omni-LLM backbones demonstrate that OmniPack consistently achieves the best performance– efficiency trade-off across diverse retention ratios, outper-forming all existing methods. Notably, on Qwen2.5-Omni-7B, OmniPack preserves 98.0% of the original performance while reducing FLOPs to 16.7%, and still retains 92.9% of the original performance with only 6.8% of the original FLOPs. 
+
+## 1. Introduction 
+
+The rapid development of omni-modal large language mod-els (Omni-LLMs) [45, 46, 49], which jointly model visual, audio, and textual inputs, has significantly advanced uni-fied audio-visual understanding [11, 13, 21, 30, 32, 40, 41]. 
+
+> *Equal contribution.
+> ‡Corresponding author. 51.2
+> 38.5
+> 54.7
+> 57.5
+> 32.6
+> 56.1
+> 43.0
+> 56.6
+> 61.6
+> 32.1
+> 53.9
+> 41.1
+> 54.8
+> 62.9
+> 32.3
+> 57.7
+> 43.3
+> 57.7
+> 63.6
+> 32.8
+> 57.7
+> 43.3
+> 57.6
+> 63.8
+> 32.5
+> 58.1
+> 44.6
+> 58.2
+> 64.7
+> 35.3
+> LVOmniBench  AVUT
+> WorldSense
+> DailyOmni
+> VideoMME
+> Leaderboard
+> FastV-om
+> VisionZip-om
+> OmniZip
+> OmniSIFT
+> SEATS †
+> SEATS *
+> OmniPack
+
+Figure 1. Performance comparison on Qwen2.5-Omni-7B across five benchmarks. SEATS variants and OmniPack further reduce tokens from 15% to 7.5%, with OmniPack achieving the best over-all performance. 
+
+However, densely tokenized visual and audio inputs pro-duce substantially longer sequences than text, incurring considerable computation and memory overhead during in-ference. Efficient deployment therefore requires aggressive token compression that removes redundancy without losing task-relevant multimodal evidence. Audio-visual token compression [7, 34] has recently emerged as a practical solution for reducing the prohibitive computational cost of long multimodal sequences. Existing Omni-LLM compression methods adopt different compres-sion schedules. Some reduce audio-visual tokens only be-1arXiv:2608.03812v1 [cs.CV] 4 Aug 2026 fore the LLM [6, 7, 14, 34], whereas others progressively compress tokens both before and within the LLM [26, 42]. Despite their effectiveness, existing approaches still face two limitations under aggressive token budgets. First, ex-isting methods [7, 34] do not sufficiently model the long-range spatiotemporal structure of audio-visual inputs. Task-relevant evidence may be sparsely distributed across dis-tant temporal segments, abrupt visual changes, and transient acoustic events. Compression based primarily on local im-portance or token similarity may therefore overlook glob-ally distributed evidence, particularly in long videos. More-over, directly discarding low-scoring tokens can cause irre-versible information loss, as individually less salient tokens may still provide complementary context. Second, existing methods do not sufficiently align audio-visual collaboration with the semantic maturity of multimodal representations. Some methods use one modality to guide the compression of another before the LLM [7, 34]. At this stage, indepen-dently encoded audio and visual representations have un-dergone limited semantic interaction, such that cross-modal guidance may rely on insufficiently aligned features. Al-though progressive methods further compress tokens within the LLM [26, 42], their inner-LLM stages primarily rely on textual guidance without explicitly modeling the col-laborative interactions between audio and visual tokens. These observations motivate a stage-specialized progressive strategy: pre-LLM compression should exploit modality-specific spatiotemporal structure, whereas inner-LLM com-pression should leverage query-conditioned audio-visual in-teractions established within the LLM. Based on this insight, we propose OmniPack , a training-free two-stage framework that progressively compresses to-kens before and within the LLM. Pre-LLM compression exploits modality-specific spatiotemporal structure to re-move large-scale redundancy while preserving important evidence and global coverage, providing early computa-tional savings. After sufficient multimodal interaction, inner-LLM compression further refines the retained rep-resentations using textual guidance and audio-visual col-laboration. Together, the two stages coordinate structural compression with semantic refinement, enabling aggressive token compression while maintaining multimodal under-standing performance. Extensive experiments demonstrate that OmniPack gen-eralizes effectively across three Omni-LLM backbones and five benchmarks. At a final token retention ratio of 7.5%, OmniPack reduces FLOPs by 10.0 × and achieves a 4.5 ×
+
+prefill speedup while preserving 95.6% of the original per-formance. Figure 1 further shows that OmniPack con-sistently offers the best performance–efficiency trade-off among existing token compression methods. Our contributions are summarized as follows: • We identify limitations of existing Omni-LLM compres-sion under aggressive token budgets: inadequate long-range audio-visual structure modeling and insufficient ex-ploitation of query-conditioned cross-modal evidence. • We propose OmniPack, a training-free progressive frame-work that combines modality-specific pre-LLM compres-sion with query-conditioned inner-LLM compression, while merging removed information into retained repre-sentatives. • Experiments across multiple Omni-LLMs and bench-marks show that OmniPack preserves strong multimodal understanding while substantially reducing computation and accelerating inference. 
+
+## 2. Related Work 
+
+2.1. Omni-modal Large Language Models 
+
+Multimodal large language models (MLLMs) [16, 25, 29] are rapidly evolving from VLMs [1, 37–39, 51] toward Omni-LLMs [4, 5, 18, 36]. Compared with earlier visual-centric models, Omni-LLMs can seamlessly process and understand text, images, videos, and audio within a unified framework, enabling richer multimodal interactions and broader applications, including audio-visual understand-ing [4, 36], real-time conversational assistants [5], and mul-timodal agents [22]. Representative models, such as Gem-ini 3.1 Pro [16], GPT-4o [18], Qwen2.5-Omni [44], and MiniCPM-o [5], have demonstrated strong capabilities in unified multimodal understanding and generation. Their ability to jointly model audio and visual cues is particularly valuable for understanding complex, dynamic, and tempo-rally evolving real-world scenarios that require cross-modal reasoning. However, dense audio-visual inputs introduce substantial token and computational overhead. Therefore, efficient inference is essential for the practical deployment of Omni-LLMs. 
+
+2.2. Token Compression in Omni-LLMs 
+
+Token compression has been extensively studied for im-age [2, 31, 43, 47], video [8, 10, 28, 33], and audio [20, 23] inputs to reduce multimodal redundancy and improve in-ference efficiency. With the rapid development of Omni-LLMs, recent studies have extended token compression to joint audio-visual inputs [7, 15, 34]. OmniZip [34] intro-duces audio-guided video token compression, whereas Om-niSIFT [7] combines spatio-temporal video compression with vision-guided audio selection. EchoingPixels [15], ContextGuard [19], and OmniRefine [6] investigate joint audio-visual contextualization, cross-modal recoverabil-ity, and aligned compression units, respectively. Om-niDrop [26] and SEATS [42] explore progressive, query-guided token pruning within the LLM. Despite these advances, existing methods either intro-duce cross-modal guidance before sufficient audio–visual 2(1) Encoders (2) Modality-Specific Pre-LLM Compression (3) Query-Conditioned 
+
+Inner-LLM Compression Video Input 
+
+•••                    
+
+> Vis ual Encoder & Projector
+> Vis ual Tokens in Frames 1-N
+> Prompt Input
+> <system prompt> What do the statistics
+> presented in the video indicate about the
+> Celtics' offensive and defensive ratings?
+> Tokenizer & Embedding
+> Audio Input
+> Audio Encoder & Projector
+> Audio Tokens Aligned with Frames 1-N
+> Response:
+> B. Offense holds a historically record-
+> breaking rating while defense ranks
+> below league average.
+> Large Language Model
+> Transformer Block 1
+> •••
+> Transformer Block ℓ
+> Transformer Block ℓ+1
+> •••
+> Transformer Block N
+> Video Spatio-Tmeporal Compression
+> Audio Tmeporal Compression
+> All Audio Tokens
+> Coverage
+> Selection High Salience Representative
+> Time
+> Pruned Audi o Tokens Retained Audio Tokens
+> Similarity
+> Merge
+> Time
+> Recycle
+> Pool •••
+> Frame 1 Frame i Pruned Vis ual Tokens
+> Similarity Merge
+> All Vis ual Tokens
+> Coverage
+> Selection
+> High Salience Representative
+> Retention
+> Pool •••
+> Frame 1 Frame i Retained Vis ual Tokens
+> Similarity
+> Merge
+> AV
+> Interaction
+> Query-Aware
+> Query Tokens
+> (where i = 1, …, N)
+> Vis ual Token
+> Audio Token
+> Query Token
+> Pruned Vis ual Token
+> Pruned Audio Token
+> Visual Token(Inner-LLM)
+> Visual Token(Pre-LLM)
+> Audio Token( Pre-LLM )
+> Audio Token( Inner-LLM)
+> Importance
+> Selection  Importance
+> Selection
+
+Figure 2. Overview of the OmniPack framework. Before the LLM, modality-specific compression performs importance selection, coverage selection, and similarity-aware token merging. Within the LLM, query-conditioned compression is applied after the ℓ-th Transformer block. The recycle pool and retention pool denote unselected and selected tokens. 
+
+interaction has been established or perform inner-LLM pruning without explicit audio-visual collaboration. As a result, they struggle to jointly preserve modality-specific structure and exploit task-relevant semantics, particularly under aggressive compression. This gap motivates a unified framework that coordinates structure-aware pre-LLM com-pression with query-conditioned audio–visual compression inside the LLM. 
+
+## 3. Method 
+
+3.1. Preliminary 
+
+Given a video X v and its aligned audio X a, the modality-specific encoder–projector pipelines map them into the LLM embedding space, producing Nv visual tokens Xv =
+
+{xvi }Nv
+
+i=1 and Na audio tokens Xa = {xai }Na
+
+i=1 . Together with the text tokens, they form the multimodal input se-quence to the shared LLM backbone. For the encoder to-kens Xm = {xmi }Nm
+
+i=1 of modality m ∈ { v, a }, we retain 
+
+Km tokens before the LLM: 
+
+Km = round ( rmNm) (1) where Nm is the number of input tokens, rm is the pre-LLM retention ratio, and Km is the corresponding token budget for modality m. Let N ′
+
+m = Km denote the number of modality tokens passed to the LLM. Given the inner-LLM retention ratio r′
+
+m, we further retain the following number of tokens for modality m:
+
+K′
+
+m = round ( r′
+
+mN ′
+
+m) (2) All text tokens remain unchanged throughout compression. 
+
+3.2. Overview of OmniPack 
+
+As shown in Figure 2, OmniPack combines modality-specific pre-LLM compression with query-conditioned inner-LLM compression. Pre-LLM compression removes structural redundancy while preserving salient and repre-sentative information, whereas inner-LLM compression re-fines retained tokens using textual relevance, audio-visual collaboration, and within-modality representativeness. To-gether, they shift compression from structural cues to task-conditioned semantics with minimal information loss. 
+
+3.3. Modality-Specific Pre-LLM Compression 
+
+Pre-LLM compression operates independently on each modality, since cross-modal semantics have not yet suffi-ciently emerged, as illustrated in Figure 2. 
+
+Importance Selection. We first identify dominant tokens using encoder attention and modality-specific structural 3variation. Attention statistics from the final modality en-coder provide a base estimate of token centrality: 
+
+Am = Softmax 
+
+
+
+Qm(Km)⊤/√d
+
+
+
+(3) Here, Qm and Km are the query and key matrices for modality m, d is the hidden dimension, and Am is the re-sulting attention matrix. We measure the mean attention re-ceived by each token from all other modality tokens, yield-ing the attention-centrality vector am ∈ RNm .Attention alone may overlook transient structural changes, so we refine it using modality-specific variation cues. For video, let xvt,p denote the token at frame t and spatial position p. We define adjacent-frame variation and spatial distinctiveness as: 
+
+ev, temp  
+
+> t,p
+
+= 1 − cos  xvt,p , xvt+1 ,p 
+
+
+
+ev, spat  
+
+> t,p
+
+= 1 − cos xvt,p , 1
+
+P
+
+> P
+
+X
+
+> q=1
+
+xvt,q 
+
+! (4) Here, P is the number of spatial tokens per frame. The two cues capture inter-frame changes and spatial distinctiveness, respectively. For audio, let xat denote the audio token at temporal in-dex t. Adjacent-token variation is defined as: 
+
+eat = 1 − cos  xat , xat+1 
+
+ (5) where a larger eat indicates a stronger acoustic boundary or transient event. After normalization, the modality-specific structural cues are added to the attention-centrality vector am to ob-tain the final modality-specific importance vector sm =
+
+{smi }Nm
+
+> i=1
+
+, where smi denotes the final importance score of token i. We further denote its normalized score as ¯smi =
+
+N (smi ).Since importance-only selection may overconcentrate tokens around a few salient regions, we allocate only part of the pre-LLM token budget to dominant tokens: 
+
+Kimp  
+
+> m
+
+= round ( ηmKm) (6) where ηm denotes the fraction of the token budget allocated to importance selection. The top-Kimp  
+
+> m
+
+tokens ranked by 
+
+smi form the dominant set Sm
+
+> imp
+
+, while the remaining Km −
+
+Kimp  
+
+> m
+
+tokens are determined by coverage selection. 
+
+Coverage Selection. Importance selection may concen-trate tokens around a few salient events and leave distant content underrepresented. We therefore select additional representatives using both feature and positional distances. For modality m, we define a joint distance between tokens 
+
+xmi and xmj as: 
+
+dmij = 1 − cos  xmi , xmj
+
+ + λd m, pos  
+
+> ij
+
+(7) where dm, pos  
+
+> ij
+
+denotes the normalized temporal distance for audio or spatiotemporal distance for video. The joint dis-tance captures both representation similarity and structural proximity, preventing distant tokens with similar features from being considered equivalent. The parameter λ con-trols the contribution of positional distance. Based on this joint distance, we apply DPC-KNN [9, 27] to identify tokens that are both representative of local neigh-borhoods and separated from other representative regions. The detailed DPC-KNN formulation is provided in the Ap-pendix. The top-ranked candidates outside Sm 
+
+> imp
+
+fill the re-maining token budget to form Sm
+
+> cov
+
+. The final pre-LLM re-tained set is: 
+
+Sm 
+
+> pre
+
+= Sm 
+
+> imp
+
+∪ S m
+
+> cov
+
+, Sm 
+
+> pre
+
+= Km (8) Thus, importance selection preserves salient evidence, while coverage selection maintains broad spatiotemporal coverage. 
+
+Similarity-Aware Token Merging. Instead of directly discarding unselected tokens, we transfer their information to retained representatives. Let Um 
+
+> pre
+
+= {1, . . . , N m} \ S m
+
+> pre
+
+denote the set of unselected token indices. For each unse-lected token i ∈ U m 
+
+> pre
+
+and retained token j ∈ S m
+
+> pre
+
+, we com-pute their affinity and determine the corresponding merge target: 
+
+Φmij = cos  xmi , xmj
+
+ − τmdm, pos  
+
+> ij
+
++ ζ ¯smj
+
+πm(i) = arg max 
+
+> j∈S m
+> pre
+
+Φmij (9) Here, Φmij jointly considers feature similarity, positional proximity, and the normalized importance of retained token 
+
+j. The parameter τm controls the modality-specific posi-tional constraint, while ζ controls the contribution of repre-sentative importance. The assignment πm(i) identifies the retained representative that receives unselected token i.Each retained token is then updated by aggregating the unselected tokens assigned to it: 
+
+exmj = xmj + P 
+
+> i:πm(i)= j
+
+wmi xmi
+
+1 + P 
+
+> i:πm(i)= j
+
+wmi
+
+, j ∈ S m 
+
+> pre
+
+(10) Here, wmi = (1 + ¯ smi )/2 assigns larger weights to more important tokens, enabling each representative to aggregate nearby redundant information while mitigating information loss. The updated representations form Xm
+
+> pre
+
+, which is fed into the LLM with the text tokens. 
+
+3.4. Query-Conditioned Inner-LLM Compression 
+
+After the first ℓ Transformer blocks, the pre-LLM com-pressed sequence Xm 
+
+> pre
+
+is transformed into hidden states 4Hmℓ = {hmi }N ′
+
+> m
+> i=1
+
+, where m ∈ { v, a } and N ′ 
+
+> m
+
+= Km. We then perform query-conditioned audio-visual collaborative compression on these representations. Let Hqℓ = {hqj }Nq 
+
+> j=1
+
+denote the text hidden states. We mean-pool Hqℓ into a global query representation q and the other-modality states H ¯mℓ into a prototype p ¯m. The rele-vance score of token hmi is: 
+
+Rmi = N
+
+
+
+max 
+
+
+
+cos ( hmi , q) , max  
+
+> j
+
+cos  hmi , hqj
+
+ 
+
++ N  cos  hmi , p ¯m + N (umi ) ,umi = exp 
+
+− 1
+
+N ′ 
+
+> mN′
+> m
+
+X
+
+> j=1
+
+1 − cos  hmi , hmj
+
+ 
+
+(11) Here, N (·) denotes modality-wise min–max normalization, and the three terms measure textual relevance, audio-visual collaboration, and within-modality representativeness, re-spectively. We initialize the retained set with the highest-scoring to-ken as: Sm 
+
+> inner
+
+= {arg max i Rmi }. For each unselected to-ken, we measure its semantic diversity from the retained set by Dmi = min j∈S m 
+
+> inner
+
+[1 − cos( hmi , hmj )] . We then select and add the token that best balances relevance and diversity: 
+
+i⋆ = arg max 
+
+> i / ∈S m
+> inner
+
+(1 + N (Rmi )) Dmi
+
+Sm 
+
+> inner
+
+← S m 
+
+> inner
+
+∪ { i⋆}
+
+(12) This process continues until |S m
+
+> inner
+
+| = K′
+
+> m
+
+.Each unselected hidden state hmi is assigned to its most cosine-similar retained representative and incorpo-rated through relevance-modulated similarity-weighted av-eraging. The resulting retained states form eHmℓ with K′
+
+> m
+
+tokens. The compressed audio-visual tokens and all uncom-pressed text tokens are then passed through the remaining Transformer blocks. 
+
+## 4. Experiment 
+
+4.1. Experimental Settings 
+
+Benchmarks. We evaluate OmniPack on five widely used audio-visual understanding benchmarks: AVUT [48], WorldSense [17], DailyOmni [52], VideoMME [12], and LVOmniBench [35]. Together, they cover audio-centric and video-centric understanding, short- and long-form videos, and tasks ranging from perception to reasoning. 
+
+Comparison Methods. We compare OmniPack with rep-resentative training-free baselines, including image-based FastV [3] and VisionZip [47], video-based FastVID [28] and VidCom 2 [24], omni-modal OmniZip [34], Om-niSIFT [7], SEATS [42], and Random. Following prior work [42], FastV-om and VisionZip-om extend FastV and VisionZip to both video and audio tokens. OmniSIFT ◦
+
+retains only its inference-time compression strategy with-out alignment training. SEATS † uses the original config-uration, while SEATS ⋆ disables late-layer token removal; both match the final modality-specific retention ratios and are evaluated only on the 28-layer Qwen2.5-Omni-7B and MiniCPM-o-2.6 backbones. 
+
+Implementation Details. We implement OmniPack on Qwen2.5-Omni-3B/7B [44] and MiniCPM-o-2.6 [49] us-ing NVIDIA H20 GPUs. The maximum number of frames is set to 128 for AVUT, WorldSense, and DailyOmni, and 768 for VideoMME and LVOmniBench. Following prior work [34, 42], we evaluate four pre-LLM retention ratios—25%, 20%, 15%, and 10%—using model-specific visual and audio allocations. For inner-LLM compres-sion, we retain 50% of the pre-LLM tokens at layer 18 for Qwen2.5-Omni-7B and MiniCPM-o-2.6, and layer 26 for Qwen2.5-Omni-3B. We set (ηv , η a)=(0.25,0.35) and 
+
+λ=0.20 for coverage selection. For token merging, we use 
+
+(τv , τ a)=(0.10,0.05) and ζ=0.10. All evaluations are con-ducted with LMMs-Eval [50]. Additional details are pro-vided in the Appendix. 
+
+4.2. Main Results 
+
+State-of-the-Art Performance. As shown in Table 1, our approach achieves state-of-the-art performance across all retention settings. At a 25% retention ratio, OmniPack (w/o M) preserves 98.2% of the original performance. When the retention ratio is reduced to 15%, VisionZip-om and OmniSIFT ◦ preserve 91.4% and 89.7% of the original per-formance, respectively, whereas OmniPack (w/o M) retains 95.2%. Under extreme compression at a 10% retention ra-tio, OmniPack (w/o M) still preserves 93.0% of the original performance using only 8.2% of the original FLOPs, out-performing both SEATS variants and VisionZip-om. The query-conditioned inner-LLM compression further reduces computation while maintaining comparable performance. At the 15%/7.5% and 10%/5% retention settings, Omni-Pack preserves 95.6% and 92.9% of the original perfor-mance while using only 10.0% and 6.8% of the original FLOPs, respectively. These results demonstrate a strong performance–efficiency trade-off under extremely low to-ken budgets. 
+
+Different Backbones. Table 2 further evaluates our method on Qwen2.5-Omni-3B and MiniCPM-o-2.6, cover-ing different model scales and architectures. On Qwen2.5-Omni-3B, OmniPack preserves 92.7% of the original per-formance at a 15%/7.5% retention ratio while using only 9.0% of the original FLOPs. On MiniCPM-o-2.6, Omni-Pack achieves 100.8% of the original performance under the 5Method Efficiency Benchmark Performance Average FLOPs (T) Relative FLOPs Retention Ratio AVUT World Sense Daily Omni Video MME LVOmni Video Avg. Score Relative Perf. (%) 
+
+Qwen2.5-Omni-7B 73.2 100.0% 100% / 100% 64.0 46.6 63.9 64.4 34.2 54.6 100.0 Random 14.9 20.4% 25% / – 58.7 43.1 57.1 65.1 32.1 51.2 93.8 FastV 19.1 26.1% 100% / 25% 54.9 42.0 56.6 60.7 33.1 49.5 90.7 FastV-om 19.1 26.1% 100% / 25% 59.3 43.3 58.6 64.0 32.6 51.6 94.5 VisionZip 14.9 20.4% 25% / – 56.8 44.0 59.3 63.4 31.7 51.0 93.4 VisionZip-om 14.9 20.4% 25% / – 58.7 44.7 58.2 65.1 32.9 51.9 95.1 FastVID 13.6 18.5% 25% / – 58.0 42.8 58.2 60.1 33.2 50.5 92.5 VidCom 2 14.9 20.4% 25% / – 58.8 43.3 57.7 63.7 33.1 51.3 94.0 OmniZip 14.9 20.4% 25% / – 56.9 42.6 55.9 65.9 35.0 51.3 93.8 OmniSIFT ◦ 14.9 20.4% 25% / – 58.4 42.1 58.0 65.9 32.5 51.4 94.1 SEATS † 11.6 15.8% 25% / 12.5% 60.0 45.0 59.7 66.3 33.5 52.9 96.7 SEATS ⋆ 12.5 17.1% 25% / 12.5% 60.1 45.0 59.8 66.4 33.9 53.0 97.1 
+
+OmniPack (w/o M) 14.9 20.4% 25% / – 60.7 45.3 60.3 66.0 35.6 53.6 98.2 OmniPack 12.2 16.7% 25% / 12.5% 61.0 45.3 60.6 65.7 35.0 53.5 98.0 Random 11.8 16.2% 20% / – 58.6 42.7 56.7 64.0 34.3 51.3 94.0 FastV-om 16.2 22.2% 100% / 20% 56.2 41.6 56.1 62.3 31.9 49.6 90.8 VisionZip 11.8 16.2% 20% / – 56.8 43.4 57.7 61.6 31.7 50.2 91.9 VisionZip-om 11.8 16.2% 20% / – 57.1 44.0 58.0 64.3 32.6 51.2 93.8 FastVID 11.2 15.3% 20% / – 55.9 42.2 56.4 59.1 32.5 49.2 90.1 VidCom 2 11.8 16.2% 20% / – 55.6 41.7 55.1 59.9 32.4 48.9 89.6 OmniSIFT ◦ 11.8 16.2% 20% / – 56.5 42.2 54.3 64.7 33.3 50.2 91.9 SEATS † 9.2 12.6% 20% / 10% 59.1 44.2 58.6 65.3 33.9 52.2 95.6 SEATS ⋆ 10.0 13.6% 20% / 10% 59.1 44.5 58.9 65.4 33.8 52.3 95.7 
+
+OmniPack (w/o M) 11.8 16.2% 20% / – 60.0 45.0 58.7 65.0 35.7 52.9 96.9 OmniPack 9.8 13.3% 20% / 10% 60.0 44.8 58.6 65.3 35.7 52.9 96.9 
+
+Random 8.9 12.1% 15% / – 56.4 41.1 54.8 63.0 33.3 49.7 91.0 FastV-om 13.5 18.4% 100% / 15% 51.2 38.5 54.7 57.5 32.6 46.9 85.9 VisionZip-om 8.9 12.1% 15% / – 56.1 43.0 56.6 61.6 32.1 49.9 91.4 OmniSIFT ◦ 8.9 12.1% 15% / – 53.9 41.1 54.8 62.9 32.3 49.0 89.7 SEATS † 6.9 9.5% 15% / 7.5% 57.7 43.3 57.7 63.6 32.8 51.0 93.4 SEATS ⋆ 7.5 10.3% 15% / 7.5% 57.7 43.4 57.6 63.8 32.5 51.0 93.4 
+
+OmniPack (w/o M) 8.9 12.1% 15% / – 57.8 44.6 58.2 64.7 34.9 52.0 95.2 
+
+OmniPack 7.3 10.0% 15% / 7.5% 58.1 44.6 58.2 64.7 35.3 52.2 95.6 
+
+Random 6.0 8.2% 10% / – 53.4 39.3 52.0 61.1 33.7 47.9 87.7 VisionZip-om 6.0 8.2% 10% / – 53.6 41.4 55.0 60.0 33.4 48.7 89.2 OmniSIFT ◦ 6.0 8.2% 10% / – 51.8 38.8 51.4 61.3 32.8 47.2 86.4 SEATS † 4.7 6.5% 10% / 5% 56.7 42.0 55.3 62.0 32.9 49.8 91.2 SEATS ⋆ 5.1 7.0% 10% / 5% 56.7 42.3 55.5 61.7 32.8 49.8 91.2 
+
+OmniPack (w/o M) 6.0 8.2% 10% / – 56.8 42.9 56.1 63.5 34.8 50.8 93.0 OmniPack 5.0 6.8% 10% / 5% 56.4 42.7 56.1 63.6 34.8 50.7 92.9 Table 1. Comparison with state-of-the-art methods on Qwen2.5-Omni-7B. The A%/B% denotes the retention ratios before and after inner-LLM compression, respectively. “–” indicates that inner-LLM compression is not applied. Best results are in bold, and second-best results are underlined. “OmniPack (w/o M)” denotes our method without inner-LLM compression. 
+
+same retention setting, outperforming existing compression methods while using only 10.0% of the original FLOPs. 
+
+4.3. Efficiency Analysis 
+
+As shown in Table 3, at the 25% retention ratio, OmniPack (w/o M) preserves 98.2% of the original performance while reducing FLOPs by 4.9 ×. Crucially, at the 15%/7.5% reten-tion ratio, OmniPack preserves 95.6% of the original per-formance, outperforming all pre-LLM compression meth-ods at 25% retention ratio despite retaining substantially fewer tokens. This setting reduces FLOPs by 10.0 × and achieves a 4.5 × prefill speedup, demonstrating a favorable performance–efficiency trade-off. 6Method Efficiency Benchmark Performance Average FLOPs (T) Relative FLOPs Retention Ratio AVUT World Sense Daily Omni Video MME LVOmni Bench Avg. Score Relative Perf. (%) 
+
+Qwen2.5-Omni-3B 37.4 100.0% 100% / 100% 62.5 46.5 61.0 62.5 35.2 53.5 100.0 Random 3.9 10.5% 15% / – 54.4 40.4 50.5 59.4 32.6 47.5 88.8 FastV-om 5.8 15.5% 100% / 15% 51.0 41.1 50.5 53.4 32.6 45.7 85.4 VisionZip-om 3.9 10.5% 15% / – 54.2 42.9 54.1 59.6 32.3 48.6 90.8 OmniSIFT ◦ 3.9 10.5% 15% / – 52.9 39.4 49.4 59.5 33.9 47.0 87.9 
+
+OmniPack (w/o M) 3.9 10.5% 15% / – 57.1 43.8 53.2 59.8 34.0 49.6 92.7 OmniPack 3.4 9.0% 15% / 7.5% 57.4 43.9 52.7 60.2 33.8 49.6 92.7 
+
+MiniCPM-o-2.6 73.2 100.0% 100% / 100% 53.2 40.8 52.2 62.0 29.5 47.5 100.0 Random 8.9 12.1% 15% / – 47.7 38.5 51.0 61.4 36.0 46.9 98.7 FastV-om 13.5 18.4% 100% / 15% 43.5 36.1 43.8 51.6 32.7 41.5 87.4 VisionZip-om 8.9 12.1% 15% / – 49.4 38.7 52.0 60.2 35.5 47.2 99.4 OmniSIFT ◦ 8.9 12.1% 15% / – 48.4 37.9 50.6 59.6 34.5 46.2 97.3 SEATS † 6.9 9.5% 15% / 7.5% 49.8 38.8 50.5 60.0 34.4 46.7 98.3 SEATS ⋆ 7.5 10.3% 15% / 7.5% 49.8 39.1 49.1 60.4 34.6 46.6 98.1 
+
+OmniPack (w/o M) 8.9 12.1% 15% / – 51.3 40.0 52.0 61.1 34.3 47.7 100.4 
+
+OmniPack 7.3 10.0% 15% / 7.5% 51.2 39.8 52.0 61.7 34.6 47.9 100.8 
+
+Table 2. Cross-backbone comparison on Qwen2.5-Omni-3B and MiniCPM-o-2.6.                                                 
+
+> Method Token Retention Pre-LLM / Final FLOPs (T) ↓Prefill (sec.) ↓
+> Avg. Score ↑
+> Vanilla 100% 73.2 (1 .0×)1.512 (1 .0×)54.6 FastV-om 100%/25% 19.1 (3.8 ×)0.415 (3.6 ×)51.6 OmniZip 25%/– 14.9 (4.9 ×)0.360 (4.2 ×)51.3 VisionZip-om 25%/– 14.9 (4.9 ×)0.382 (4.0 ×)51.9 OmniSIFT ◦25%/– 14.9 (4.9 ×)0.434 (3.5 ×)51.4 SEATS †25%/12.5% 11.6 (6.3 ×)0.348 (4.3 ×)52.9 SEATS ⋆25%/12.5% 12.5 (5.9 ×)0.375 (4.0 ×)53.0
+> OmniPack (w/o M) 25%/– 14.9 (4.9 ×)0.396 (3.8 ×)53.6 OmniPack 25%/12.5% 12.2 (6.0 ×)0.504 (3.0 ×)53.5
+> OmniPack 20%/10% 9.8 (7.5 ×)0.424 (3.6 ×)52.9
+> OmniPack 15%/7.5% 7.3 ( 10.0 ×)0.339 ( 4.5 ×)52.2
+
+Table 3. Efficiency analysis on Qwen2.5-Omni-7B using an NVIDIA H20 GPU. 
+
+4.4. Ablation Studies 
+
+We conduct ablation studies on our pre-LLM compression strategy, our inner-LLM compression strategy, and their compatibility. All ablation experiments are conducted on Qwen2.5-Omni-7B. Pre-LLM compression strategy abla-tions are evaluated at a 15% retention ratio without inner-LLM compression. Unless otherwise specified, the remain-ing ablations use a 15%/7.5% retention setting. 
+
+Pre-LLM Compression Strategy. As shown in Table 4, coverage selection performs best among the individual components on WorldSense and LVOmniBench. Relative to importance selection, it improves the two benchmarks by approximately 3.4% and 6.1%, respectively. Relative to token merging, the gains are 3.4% and 3.0%. Combining 
+
+Importance Coverage Merge World Sense Video MME LVOmni Bench 
+
+✓ 41.7 62.0 32.7 
+
+✓ 43.1 63.3 34.7 
+
+✓ 41.7 63.9 33.7 
+
+✓ ✓ 44.4 64.5 33.3 
+
+✓ ✓ 41.9 62.4 32.1 
+
+✓ ✓ 44.2 62.7 34.1 
+
+✓ ✓ ✓ 44.6 64.7 34.9 
+
+Table 4. Ablation of the pre-LLM compression components. 
+
+Method AVUT World Sense Daily Omni 
+
+w/o A-V Collaboration 57.8 44.5 57.8 w/ A-V Collaboration 58.1 44.6 58.2 
+
+Table 5. Ablation of audio-visual collaboration. 
+
+Guidance Strategy AVUT World Sense Daily Omni 
+
+General Query 57.7 44.6 58.1 Last-Token Attention 57.9 44.5 58.2 
+
+OmniPack (Text-Aware Guidance) 58.1 44.6 58.2 
+
+Table 6. Ablation of different text-guidance mechanisms. 
+
+importance and coverage further improves WorldSense and VideoMME over coverage alone by approximately 3.0% and 1.9%. Incorporating all three components achieves the 7ID Pre-LLM Inner-LLM AVUT World Sense Daily Omni Video MME LVOmni Bench Avg. Score 
+
+Vanilla – – 64.0 46.6 63.9 64.4 34.2 54.6 1 VisionZip-om Ours 56.2 42.9 56.6 61.7 31.1 49.7 2 OmniSIFT ◦ Ours 53.5 41.0 53.7 64.0 32.3 48.9 3 SEATS † Ours 57.4 43.1 57.4 63.7 33.1 50.9 4 Ours SEATS ⋆ 58.0 44.7 57.8 64.7 33.9 51.8 OmniPack Ours Ours 58.1 44.6 58.2 64.7 35.3 52.2 
+
+Table 7. Compatibility of pre-LLM and inner-LLM compression strategies. Layer Index       
+
+> 2714 18 21
+> 41
+> 42
+> 43
+> 44
+> 45
+> 46
+> WorldSense
+> 41.9
+> 41.6
+> 43.7
+> 44.6 44.6
+> 53
+> 55
+> 57
+> 59
+> DailyOmni
+> 54.7
+> 54.1
+> 57.1
+> 58.2 57.8
+> WorldSense
+> Dailyomni
+
+Figure 3. Effect of the inner-LLM compression layer. 
+
+best performance across the three benchmarks, including a further 4.8% gain on LVOmniBench over the importance-and-coverage configuration. These results demonstrate the complementary roles of the three components in pre-LLM compression. 
+
+Inner-LLM Compression Strategy. Figure 3 and Ta-bles 5 and 6 analyze the key mechanisms of our inner-LLM compression strategy. Applying the strategy too early lim-its task-conditioned multimodal interaction, whereas apply-ing it too late reduces the computational benefit. Layer 18 achieves the best overall performance and is therefore adopted by default. Audio-visual collaboration consistently outperforms independent compression by better preserv-ing complementary cross-modal information. Moreover, compared with question-agnostic general query and last-token guidance, the proposed text-aware guidance aggre-gates richer semantic cues from the full textual query and achieves the best overall performance. 
+
+Compression Strategies Compatibility. Table 7 evalu-ates the compatibility of different pre-LLM and inner-LLM compression strategies. Pairing our inner-LLM compres-sion with VisionZip-om, OmniSIFT ◦, or SEATS † consis-tently underperforms the full OmniPack, while replacing our inner-LLM compression with SEATS ⋆ also lowers the average score and degrades three of the five benchmarks. These results demonstrate that the two stage-specific strate-gies are complementary and work effectively together. 
+
+## 5. Conclusion 
+
+We present OmniPack, a training-free token compression framework for efficient Omni-LLMs. Rather than restrict-ing compression to a single location, OmniPack progres-sively exploits modality-specific structural information be-fore the LLM and task-conditioned semantic information after sufficient multimodal interaction within the LLM. This progressive design enables substantially more aggressive compression while effectively preserving downstream per-formance. Extensive experiments on five audio-visual un-derstanding benchmarks and three Omni-LLM backbones demonstrate that OmniPack consistently achieves the best performance–efficiency trade-off among existing methods across diverse token budgets. 
+
+## References 
+
+[1] Shuai Bai, Yuxuan Cai, Ruizhe Chen, Keqin Chen, Xionghui Chen, Zesen Cheng, Lianghao Deng, Wei Ding, Chang Gao, Chunjiang Ge, et al. Qwen3-vl technical report. arXiv preprint arXiv:2511.21631 , 2025. 2 [2] Daniel Bolya, Cheng-Yang Fu, Xiaoliang Dai, Peizhao Zhang, Christoph Feichtenhofer, and Judy Hoffman. To-ken merging: Your vit but faster. arXiv preprint arXiv:2210.09461 , 2022. 2 [3] Liang Chen, Haozhe Zhao, Tianyu Liu, Shuai Bai, Junyang Lin, Chang Zhou, and Baobao Chang. An image is worth 1/2 tokens after layer 2: Plug-and-play inference acceleration for large vision-language models. In European Conference on Computer Vision , 2024. 5, 2 [4] Xinlong Chen, Yue Ding, Weihong Lin, Jingyun Hua, Linli Yao, Yang Shi, Bozhou Li, Yuanxing Zhang, Qiang Liu, Pengfei Wan, et al. Avocado: An audiovisual video cap-tioner driven by temporal orchestration. arXiv preprint arXiv:2510.10395 , 2025. 2 [5] Junbo Cui, Bokai Xu, Chongyi Wang, Tianyu Yu, Weiyue Sun, Yingjing Xu, Tianran Wang, Zhihui He, Wenshuo Ma, Tianchi Cai, et al. Minicpm-o 4.5: Towards real-time full-duplex omni-modal interaction. arXiv preprint arXiv:2604.27393 , 2026. 2 [6] Yuchen Deng, Zidang Cai, Hai-Tao Zheng, Jie Wang, Fei-diao Yang, and Yuxing Han. Omnirefine: Alignment-aware 
+
+8cooperative compression for efficient omnimodal large lan-guage models. arXiv preprint arXiv:2605.12056 , 2026. 2 [7] Yue Ding, Yiyan Ji, Jungang Li, Xuyang Liu, Xinlong Chen, Junfei Wu, Bozhou Li, Bohan Zeng, Yang Shi, Yushuo Guan, et al. Omnisift: Modality-asymmetric token compression for efficient omni-modal large language models. arXiv preprint arXiv:2602.04804 , 2026. 1, 2, 5, 3 [8] Junhao Du, Jialong Xue, Anqi Li, Jincheng Dai, and Guo Lu. Unified spatiotemporal token compression for video-llms at ultra-low retention. In Proceedings of the IEEE/CVF Con-ference on Computer Vision and Pattern Recognition , 2026. 2[9] Mingjing Du, Shifei Ding, and Hongjie Jia. Study on density peaks clustering based on k-nearest neighbors and principal component analysis. Knowledge-Based Systems , 2016. 4, 2 [10] Ziyang Fan, Keyu Chen, Ruilong Xing, Yulin Li, Li Jiang, and Zhuotao Tian. Flashvid: Efficient video large lan-guage models via training-free tree-based spatiotemporal to-ken merging. arXiv preprint arXiv:2602.08024 , 2026. 2 [11] Chaoyou Fu, Haojia Lin, Zuwei Long, Yunhang Shen, Yuhang Dai, Meng Zhao, Yi-Fan Zhang, Shaoqi Dong, Yangze Li, Xiong Wang, et al. Vita: Towards open-source interactive omni multimodal llm. arXiv preprint arXiv:2408.05211 , 2024. 1 [12] Chaoyou Fu, Yuhan Dai, Yongdong Luo, Lei Li, Shuhuai Ren, Renrui Zhang, Zihan Wang, Chenyu Zhou, Yunhang Shen, Mengdan Zhang, et al. Video-mme: The first-ever comprehensive evaluation benchmark of multi-modal llms in video analysis. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 24108– 24118, 2025. 5, 1 [13] Yuying Ge, Yixiao Ge, Chen Li, Teng Wang, Junfu Pu, Yizhuo Li, Lu Qiu, Jin Ma, Lisheng Duan, Xinyu Zuo, et al. Arc-hunyuan-video-7b: Structured video comprehension of real-world shorts. arXiv preprint arXiv:2507.20939 , 2025. 1 [14] Chao Gong, Depeng Wang, Zhipeng Wei, Ya Guo, Huijia Zhu, and Jingjing Chen. Echoingpixels: Cross-modal adap-tive token reduction for efficient audio-visual llms. arXiv preprint arXiv:2512.10324 , 2025. 2 [15] Chao Gong, Depeng Wang, Zhipeng Wei, Ya Guo, Huijia Zhu, and Jingjing Chen. Echoingpixels: Aliasing-resistant joint token reduction for audio-visual llms. In Forty-third International Conference on Machine Learning , 2026. 2 [16] Google DeepMind. Gemini 3.1 pro model card. https: / / deepmind . google / models / model - cards / gemini-3-1-pro/ , 2026. Accessed: 2026-06. 2 [17] Jack Hong, Shilin Yan, Jiayin Cai, Xiaolong Jiang, Yao Hu, and Weidi Xie. Worldsense: Evaluating real-world omni-modal understanding for multimodal llms. arXiv preprint arXiv:2502.04326 , 2025. 5, 1 [18] Aaron Hurst, Adam Lerer, Adam P Goucher, Adam Perel-man, Aditya Ramesh, Aidan Clark, AJ Ostrow, Akila Weli-hinda, Alan Hayes, Alec Radford, et al. Gpt-4o system card. 
+
+arXiv preprint arXiv:2410.21276 , 2024. 2 [19] Hongbo Jin, Chi Wang, Haoran Tang, Zhongjing Du, Xu Jiang, Jingqi Tian, Qiaoman Zhang, and Jiayu Ding. Con-textguard: Structured self-auditing for context learning in language models. arXiv preprint arXiv:2605.26827 , 2026. 2[20] Taehan Lee and Hyukjun Lee. Token pruning in audio trans-formers: Optimizing performance and decoding patch im-portance. arXiv preprint arXiv:2504.01690 , 2025. 2 [21] Caorui Li, Yu Chen, Yiyan Ji, Jin Xu, Zhenyu Cui, Shihao Li, Yuanxing Zhang, Wentao Wang, Zhenghao Song, Din-gling Zhang, et al. Omnivideobench: Towards audio-visual understanding evaluation for omni mllms. arXiv preprint arXiv:2510.10689 , 2025. 1 [22] Xiaoxi Li, Wenxiang Jiao, Jiarui Jin, Haoxuan Li, Hao Wang, Shijian Wang, Guanting Dong, Jiajie Jin, Yinuo Wang, Yuan Lu, et al. Omnigaia: Towards native omni-modal ai agents. 
+
+arXiv preprint arXiv:2602.22897 , 2026. 2 [23] Yueqian Lin, Yuzhe Fu, Jingyang Zhang, Yudong Liu, Jianyi Zhang, Jingwei Sun, Hai Helen Li, and Yiran Chen. Speech-prune: Context-aware token pruning for speech information retrieval. In 2025 IEEE International Conference on Multi-media and Expo (ICME) , 2025. 2 [24] Xuyang Liu, Yiyu Wang, Junpeng Ma, and Linfeng Zhang. Video compression commander: Plug-and-play inference ac-celeration for video large language models. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , 2025. 5, 2 [25] OpenAI. Gpt-5.5 system card. https://openai.com/ index/gpt- 5- 5- system- card/ , 2026. Accessed: 2026-06. 2 [26] Yeo Jeong Park, Hyemi Jang, Minseo Choi, Jongsun Lee, Jooyoung Choi, and Yongkweon Jeon. Omnidrop: Layer-wise token pruning for omni-modal llms via query-guidance. 
+
+arXiv preprint arXiv:2605.14458 , 2026. 2 [27] A Rodriguez Alex, Alessandro Laio, et al. Clustering by fast search-and-find of density peaks. science , 2014. 4, 2 [28] Leqi Shen, Guoqiang Gong, Tao He, Yifeng Zhang, Pengzhang Liu, Sicheng Zhao, et al. Fastvid: Dynamic den-sity pruning for fast video large language models. Advances in Neural Information Processing Systems , 2026. 2, 5 [29] Yang Shi, Jiaheng Liu, Yushuo Guan, Zhenhua Wu, Yuanx-ing Zhang, Zihao Wang, Weihong Lin, Jingyun Hua, Zekun Wang, Xinlong Chen, et al. Mavors: Multi-granularity video representation for multimodal large language model. In Pro-ceedings of the 33rd ACM International Conference on Mul-timedia , 2025. 2 [30] Fangxun Shu, Lei Zhang, Hao Jiang, and Cihang Xie. Audio-visual llm for video understanding. In Proceedings of the IEEE/CVF International Conference on Computer Vision ,2025. 1 [31] Xudong Tan, Peng Ye, Chongjun Tu, Jianjian Cao, Yaoxin Yang, Lin Zhang, Dongzhan Zhou, and Tao Chen. To-kencarve: Information-preserving visual token compres-sion in multimodal large language models. arXiv preprint arXiv:2503.10501 , 2025. 2 [32] Changli Tang, Yixuan Li, Yudong Yang, Jimin Zhuang, Guangzhi Sun, Wei Li, Zejun Ma, and Chao Zhang. video-salmonn 2: Caption-enhanced audio-visual large language models. arXiv preprint arXiv:2506.15220 , 2025. 1 [33] Keda Tao, Can Qin, Haoxuan You, Yang Sui, and Huan Wang. Dycoke: Dynamic compression of tokens for fast 
+
+9video large language models. In Proceedings of the Com-puter Vision and Pattern Recognition Conference , 2025. 2 [34] Keda Tao, Kele Shao, Bohan Yu, Weiqiang Wang, Jian Liu, and Huan Wang. Omnizip: Audio-guided dynamic token compression for fast omnimodal large language models. In 
+
+Proceedings of the IEEE/CVF Conference on Computer Vi-sion and Pattern Recognition , pages 17682–17692, 2026. 1, 2, 5, 3 [35] Keda Tao, Yuhua Zheng, Jia Xu, Wenjie Du, Kele Shao, Hesong Wang, Xueyi Chen, Xin Jin, Junhan Zhu, Bohan Yu, et al. Lvomnibench: Pioneering long audio-video un-derstanding evaluation for omnimodal llms. arXiv preprint arXiv:2603.19217 , 2026. 5, 1 [36] Qwen Team. Qwen3. 5-omni technical report. arXiv preprint arXiv:2604.15804 , 2026. 2 [37] Qixun Wang, Yang Shi, Yifei Wang, Yuanxing Zhang, Pengfei Wan, Kun Gai, Xianghua Ying, and Yisen Wang. Monet: Reasoning in latent visual space beyond images and language. arXiv preprint arXiv:2511.21395 , 2025. 2 [38] Qixun Wang, Yang Shi, Letian Cheng, Zhuoran Zhang, Yan He, Yuqi Tang, Qi Zhang, Xinlei Yu, Ruizhe Chen, Tianrun Xu, Yuanxing Zhang, Pengfei Wan, Haotian Wang, and Xi-anghua Ying. Beacon: Knowing when and how to perform agentic visual reasoning, 2026. [39] Weiyun Wang, Zhangwei Gao, Lixin Gu, Hengjun Pu, Long Cui, Xingguang Wei, Zhaoyang Liu, Linglin Jing, Shenglong Ye, Jie Shao, et al. Internvl3. 5: Advancing open-source multimodal models in versatility, reasoning, and efficiency. 
+
+arXiv preprint arXiv:2508.18265 , 2025. 2 [40] Peng Wu, Wanshun Su, Xiangteng He, Peng Wang, and Yan-ning Zhang. Varcmp: Adapting cross-modal pre-training models for video anomaly retrieval. In Proceedings of the AAAI Conference on Artificial Intelligence , 2025. 1 [41] Peng Wu, Wanshun Su, Guansong Pang, Yujia Sun, Qingsen Yan, Peng Wang, and Yanning Zhang. Avadclip: Audio-visual collaboration for robust video anomaly detection. 
+
+IEEE Transactions on Multimedia , 2026. 1 [42] Zijie Xin, Jie Yang, Ruixiang Zhao, Tianyi Wang, Fengyun Rao, Jing Lyu, and Xirong Li. Stage-adaptive token selection for efficient omni-modal llms. arXiv preprint arXiv:2605.20035 , 2026. 2, 5, 3 [43] Long Xing, Qidong Huang, Xiaoyi Dong, Jiajie Lu, Pan Zhang, Yuhang Zang, Yuhang Cao, Conghui He, Jiaqi Wang, Feng Wu, et al. Pyramiddrop: Accelerating your large vision-language models via pyramid visual redundancy re-duction. arXiv preprint arXiv:2410.17247 , 2024. 2 [44] Jin Xu, Zhifang Guo, Jinzheng He, Hangrui Hu, Ting He, Shuai Bai, Keqin Chen, Jialin Wang, Yang Fan, Kai Dang, Bin Zhang, Xiong Wang, Yunfei Chu, and Jun-yang Lin. Qwen2.5-omni technical report. arXiv preprint arXiv:2503.20215 , 2025. 2, 5 [45] Jin Xu, Zhifang Guo, Hangrui Hu, Yunfei Chu, Xiong Wang, Jinzheng He, Yuxuan Wang, Xian Shi, Ting He, Xinfa Zhu, et al. Qwen3-omni technical report. arXiv preprint arXiv:2509.17765 , 2025. 1 [46] Qize Yang, Shimin Yao, Weixuan Chen, Shenghao Fu, De-tao Bai, Jiaxing Zhao, Boyuan Sun, Bowen Yin, Xihan Wei, and Jingren Zhou. Humanomniv2: From understand-ing to omni-modal reasoning with context. arXiv preprint arXiv:2506.21277 , 2025. 1 [47] Senqiao Yang, Yukang Chen, Zhuotao Tian, Chengyao Wang, Jingyao Li, Bei Yu, and Jiaya Jia. Visionzip: Longer is better but not necessary in vision language models. In Pro-ceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2025. 2, 5 [48] Yudong Yang, Jimin Zhuang, Guangzhi Sun, Changli Tang, Yixuan Li, Peihan Li, Yifan Jiang, Wei Li, Zejun Ma, and Chao Zhang. Audio-centric video understanding benchmark without text shortcut. In Proceedings of the 2025 Confer-ence on Empirical Methods in Natural Language Processing ,2025. 5, 1 [49] Yuan Yao, Tianyu Yu, Ao Zhang, Chongyi Wang, Junbo Cui, Hongji Zhu, Tianchi Cai, Haoyu Li, Weilin Zhao, Zhihui He, et al. Minicpm-v: A gpt-4v level mllm on your phone. arXiv preprint arXiv:2408.01800 , 2024. 1, 5 [50] Kaichen Zhang, Bo Li, Peiyuan Zhang, Fanyi Pu, Joshua Adrian Cahyono, Kairui Hu, Shuai Liu, Yuanhan Zhang, Jingkang Yang, Chunyuan Li, et al. Lmms-eval: Re-ality check on the evaluation of large multimodal models. In 
+
+Findings of the Association for Computational Linguistics: NAACL 2025 , 2025. 5 [51] YiFan Zhang, Yang Shi, Weichen Yu, Qingsong Wen, Xue Wang, Wenjing Yang, Zhang Zhang, Liang Wang, and Rong Jin. Debiasing multimodal large language models via penal-ization of language priors. In Proceedings of the 33rd ACM International Conference on Multimedia , 2025. 2 [52] Ziwei Zhou, Rui Wang, Zuxuan Wu, and Yu-Gang Jiang. Daily-omni: Towards audio-visual reasoning with temporal alignment across modalities. arXiv preprint arXiv:2505.17862 , 2025. 5, 1 
+
+10 OmniPack: Unified Token Compression for Efficient Omni-modal Large Language Models 
+
+# Supplementary Material 
+
+## A. Benchmark Details 
+
+Benchmark #Videos #QA Pairs Duration(sec) 
+
+AVUT [48] # 691 1,734 69.1 WorldSense [17] 1,662 3,172 140.7 DailyOmni [52] 684 1,197 43.2 VideoMME [12] 900 2,700 1017.9 LVOmniBench [35] 275 1,014 2069.7  
+
+> #The full AVUT benchmark contains 2,662 videos and 11,609 QA pairs. Following the evaluation setting of OmniZip [34], we use only the human-annotated subset, which contains 691 videos and 1,734 QA pairs.
+
+Table 8. Statistics of the five benchmarks used in our experiments. For each benchmark, we report the number of videos, QA pairs, and the average video duration. 
+
+Table 8 summarizes the five benchmarks used in our evaluation. Together, they contain 4,212 videos and 9,817 QA pairs, covering diverse real-world scenarios and a wide range of temporal scales. These benchmarks differ substan-tially in their dependence on audio and visual evidence, enabling a comprehensive assessment of token compres-sion across different durations, modalities, and reasoning requirements. In what follows, we briefly introduce each benchmark. 
+
+AVUT [48] is an audio-centric video understanding bench-mark designed to evaluate both audio-content understand-ing and audio-visual alignment while minimizing textual shortcuts. Its questions cover tasks such as audio informa-tion extraction, audio-event localization, and matching au-ditory events with their corresponding visual entities or ac-tions. Following OmniZip [34], we evaluate on its human-annotated subset, which contains 691 videos and 1,734 QA pairs, with an average duration of 69.1 seconds. 
+
+WorldSense [17] comprises 1,662 synchronized audio-visual videos spanning 8 major domains and 67 fine-grained categories, together with 3,172 expert-annotated multiple-choice questions across 26 tasks. Its questions are de-signed with strong audio-visual coupling, requiring mod-els to jointly integrate evidence from both modalities rather than relying on either modality alone. The videos have an average duration of 140.7 seconds. 
+
+DailyOmni [52] consists of 684 videos collected from di-verse daily-life scenarios and 1,197 multiple-choice QA pairs across 6 major tasks. The benchmark emphasizes tem-porally aligned audio-visual reasoning, ranging from basic event alignment and temporal ordering to cross-modal in-ference and contextual reasoning. Its videos contain rich auditory and visual events and have an average duration of 43.2 seconds. 
+
+VideoMME [12] contains 900 videos covering 6 major do-mains, with durations ranging from 11 seconds to 1 hour. The videos are divided into short, medium, and long subsets and are accompanied by 2,700 human-annotated multiple-choice QA pairs. VideoMME supports audio inputs, allow-ing us to evaluate token compression under different modal-ity configurations. Its average video duration is 1,017.9 sec-onds. 
+
+LVOmniBench [35] is a long-form audio-visual under-standing benchmark containing 275 videos and 1,014 multiple-choice questions. Its videos range from 10 to 90 minutes and have an average duration of 2,069.7 seconds. The benchmark places particular emphasis on long-range audio-visual correspondence, multi-event information re-tention, and temporal localization, making it well suited for evaluating compression methods under extremely long mul-timodal contexts. 
+
+## B. More Implementation Details                     
+
+> Pre-LLM Retention Ratio Qwen2.5-Omni-3B/7B MiniCPM-o-2.6
+> Audio-intact Both-selected Audio-intact Both-selected
+> 25% 12%-100% 20%-55% 11%-100% 20%-50% 20% 7%-100% 15%-50% 5%-100% 15%-45% 15% –10%-45% –10%-40% 10% –6%-35% –5%-35%
+
+Table 9. Model-specific visual-audio allocations for each pre-LLM retention ratio R. Each entry gives Rv -Ra, the retained per-centages of visual and audio tokens, whose token-count-weighted average approximately matches R. Audio-intact keeps all audio tokens, whereas Both-selected compresses both modalities. 
+
+Retention Ratios and Configuration. The modality-specific retention ratios differ between Qwen2.5-Omni-3B/7B and MiniCPM-o-2.6 because the two model families use different audio and video tokenization schemes. For each temporal window, Qwen2.5-Omni produces approx-imately 50 audio tokens and 288 visual tokens, whereas MiniCPM-o-2.6 produces approximately 750 audio tokens for every 4,096 visual tokens. We therefore allocate the audio and visual token budgets according to each model’s native tokenization ratio, rather than applying identical 1modality-specific retention ratios across models, as detailed in Table 9. This preserves a comparable balance between the two modalities under the same overall pre-LLM reten-tion budget. For all models, the maximum pixel budget per sampled frame is set to 128 ×28 ×28. 
+
+B.1. DPC-KNN Formulation 
+
+For modality m ∈ { v, a }, let Xm = {xmi }Nm 
+
+> i=1
+
+denote the input modality tokens and Km the pre-LLM token budget. After importance selection, the top Kimp  
+
+> m
+
+tokens form Sm
+
+> imp
+
+.Coverage selection applies DPC-KNN [9, 27] to the remain-ing candidates using the joint distance: 
+
+dmij = 1 − cos  xmi , xmj
+
+ + λd m, pos  
+
+> ij
+
+(13) where dm, pos  
+
+> ij
+
+denotes the temporal distance for audio or spatiotemporal distance for video. We independently nor-malize the positional distances to [0 , 1] within each modal-ity. For each candidate token i / ∈ S m
+
+> imp
+
+, let KNN mk (i) denote its k nearest candidates excluding itself under dmij . We set 
+
+k=7 in all experiments. Its local density is defined as: 
+
+ρmi = exp 
+
+− 1
+
+k
+
+X 
+
+> j∈KNN mk(i)
+
+ dmij 
+
+2
+
+ (14) In the following, all indices i, j, and q refer to candidates outside Sm
+
+> imp
+
+. The separation from higher-density candi-dates is defined as: 
+
+δmi =
+
+
+
+min  
+
+> j:ρmj>ρ mi
+
+dmij , ρmi < max  
+
+> q
+
+ρmq ,
+
+max   
+
+> j̸=i
+
+dmij , otherwise (15) The representative score is computed as: 
+
+γmi = ρmi δmi (16) A high score indicates that a token is both representative of its local neighborhood and separated from other high-density regions. The top Km − Kimp  
+
+> m
+
+candidates form Sm
+
+> cov
+
+.Combining them with the importance-selected tokens gives: 
+
+Sm 
+
+> pre
+
+= Sm 
+
+> imp
+
+∪ S m
+
+> cov
+
+, Sm 
+
+> pre
+
+= Km (17) 
+
+## C. Reproduction Details 
+
+For each target pre-LLM retention ratio R, we use the model-specific visual–audio allocations Rv –Ra in Table 9. Unless otherwise specified, the visual and audio retention ratios of all methods follow these allocations. FastV, Vi-sionZip, FastVID, and VidCom 2 are evaluated under the 
+
+Audio-intact mode, while FastV-om, VisionZip-om, and OmniZip use the Both-selected mode. For the visual-only methods, we keep Ra = 100% and reallocate the remaining token budget to visual tokens for each example. 
+
+FastV [3] (ECCV 2024). FastV prunes visual tokens af-ter the K-th LLM block according to the attention scores from the last text token. We follow the official setting with 
+
+K=2. FastV-om applies the same attention-based selection to both visual and audio tokens. At R =10%, FastV-om is not reported for Qwen2.5-Omni-7B or MiniCPM-o-2.6 because their target visual retention ratios, 6% and 5%, re-spectively, are below the minimum layer-averaged retention of 2/28 ≈7.1% imposed by the first two unpruned blocks. 
+
+VisionZip [47] (CVPR 2025). VisionZip selects domi-nant visual tokens using encoder attention and optionally merges redundant tokens into contextual representatives. Since compression at the encoder output conflicts with vi-sual pooling, we apply it after pooling following [28]. We use two temporal grids per visual window and set the contextual-token ratio to 0, allocating the entire budget to dominant tokens. VisionZip-om applies the same attention-based selection to audio tokens using two-second windows. 
+
+FastVID [28] (NeurIPS 2025). FastVID dynamically seg-ments video tokens according to adjacent-frame similarities and allocates the visual-token budget based on segment- and frame-level saliency. We apply it to pooled visual tokens and set the minimum number of segments to c=8, the seg-mentation threshold to τ =0.84, and the anchor-frame step to 
+
+p=4. Within each segment, the token budget of every non-anchor frame is further scaled by 0.7. Since this scaling is applied after budget allocation, the realized retention ratio can be slightly lower than the target R.
+
+VidCom 2 [24] (EMNLP 2025). VidCom 2 selects informa-tive visual tokens by identifying feature outliers from video-and frame-level representations using multi-scale Gaussian similarities. We apply it to pooled visual tokens with a low-variance channel ratio of 0.5, a temperature of 0.01, and Gaussian scales {2−3, 2−2, 2−1, 20, 21}. Its per-frame re-tention ratios are dynamically adjusted to match the target visual-token budget. 
+
+OmniZip [34] (CVPR 2026). OmniZip selects dominant audio tokens using audio-encoder attention and retains an additional 5% contextual representatives, each aggregat-ing at most g=3 discarded tokens. The resulting audio re-tention guides the group-wise video discard ratios, which are normalized to the target visual budget and clipped to [35%,75%]. Within each video group, OmniZip applies DPC-KNN selection to alternating frames and inter-frame similarity-based selection to the remaining frames. We use the official implementation with a contextual ratio of 0.05 and g=3. Since the maximum video discard ratio is 75%, 
+
+Rv cannot be reduced below 25%. Therefore, at R=25%, we use Rv = Ra=25%. The audio budget consists of 20% dominant tokens and 5% contextual representatives, both of which are counted toward Ra.2OmniSIFT [7] (ICML 2026). OmniSIFT adopts modality-asymmetric token compression, using spatiotemporal prun-ing to remove intra- and inter-frame visual redundancy and vision-guided selection to filter audio tokens. The origi-nal method jointly optimizes these compression modules through alignment training. For a fair comparison with training-free methods, OmniSIFT ◦ uses only its token com-pression strategy without additional training. 
+
+SEATS [42]. SEATS combines window-wise pre-LLM compression with progressive query-guided compression within the LLM. Before the LLM, it compresses visual and audio tokens within temporal windows. Within the LLM, it progressively removes tokens at predefined layers, followed by optional late-layer token removal. Since late-layer to-ken removal further reduces FLOPs but may also degrade performance, we evaluate two variants for a fair compar-ison: SEATS † follows the original configuration, whereas SEATS ⋆ disables late-layer removal while retaining both pre-LLM and progressive inner-LLM compression. Both variants are configured to match the final modality-specific retention ratios of our method. SEATS adopts a depth-specific layer-selection schedule whose official configura-tion is provided only for 28-layer architectures, without an adaptation for the 36-layer Qwen2.5-Omni-3B. To avoid modifying this core strategy, we evaluate both variants only on Qwen2.5-Omni-7B and MiniCPM-o-2.6, which both contain 28 LLM layers. For a fair comparison, we reproduce all methods under a unified evaluation setting and evaluate them using NVIDIA H20 GPUs. 
+
+## D. Computing Cost Evaluation 
+
+Following prior work [34], we evaluate the computational efficiency of token compression using the floating-point op-erations (FLOPs) introduced by vision and audio tokens during the prefilling and decoding stages. Let n = n(v) +
+
+n(a) denote the total number of vision and audio tokens, where d is the hidden dimension and m is the FFN interme-diate dimension. Each transformer layer is approximated as a multi-head attention (MHA) module and a feed-forward network (FFN). Under the convention that one multiply– accumulate operation is counted as one FLOP, the prefilling cost per layer is approximated as 4nd 2 + 2 n2d + 2 ndm .During autoregressive decoding, the computational cost of generating R tokens is approximated as R(4 d2 + 2 dm ) + 2 PR 
+
+> i=1
+
+d(n + i). We set R=100 in all experiments. There-fore, for an LLM with T transformer layers and a constant sequence length n, the total FLOPs are formulated as: FLOPs = T (4 nd 2 + 2 n2d + 2 ndm ) + 
+
+T R
+
+
+
+(4 d2 + 2 dm ) + 2 
+
+
+
+dn + d(R + 1) 2
+
+ 
+
+(18) Audio Token Compression          
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Time Group Index
+> Video Token Compression
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> Time Group Index
+> Value
+> 010 20 30
+> Pre -LLM compression
+> Inner -LLM compression
+> 010 20 30
+
+Figure 4. Visualization of the Pre-LLM and Inner-LLM token compression process. 
+
+For methods whose sequence length changes across transformer layers, we apply Eq. (18) to each layer using its effective multimodal sequence length ni and sum the result-ing costs over all layers. Pre-LLM compression methods use the compressed sequence throughout the transformer. FastV and FastV-om retain the full multimodal sequence in the first two layers and compress it in subsequent lay-ers. SEATS ⋆ progressively reduces tokens after layers 16, 18, and 20, whereas SEATS † additionally discards the re-maining multimodal tokens from layer 24 onward. Our method performs its second-stage compression at layer 18 for Qwen2.5-Omni-7B and MiniCPM-o-2.6, and at layer 26 for Qwen2.5-Omni-3B. FastVID additionally reduces non-key-frame tokens by a factor of 0.7. Vision and audio en-coders, modality projectors, textual tokens, token-selection operations, and the language-model head are excluded. 
+
+## E. More Experimental Details 
+
+Different Backbones. Beyond the 15% retention set-ting reported in the main paper, Table 10 provides ad-ditional results at 25%, 20%, and 10% pre-LLM reten-tion ratios on Qwen2.5-Omni-3B and MiniCPM-o-2.6. On Qwen2.5-Omni-3B, OmniPack retains 95.0%, 93.8%, and 89.5% of the original performance while using only 15.5%, 12.2%, and 6.1% of the original FLOPs, respectively. On MiniCPM-o-2.6, OmniPack achieves 103.8% and 103.4% of the original performance at 25% and 20% retention, and retains 96.4% at 10% retention with only 6.8% of the original FLOPs. These results demonstrate a consistent performance–efficiency trade-off across different model scales, architectures, and compression budgets. 
+
+Fine-Grained Results. Tables 11, 12, 13, and 14 provide fine-grained comparisons across AVUT, WorldSense, Dai-lyOmni, and VideoMME. At the 25%/12.5% retention set-ting, OmniPack performs particularly well in audio-event localization and character matching on AVUT, as well as audio-visual event alignment, inference, and context under-standing on DailyOmni. These tasks require associating acoustic evidence with relevant visual content, demonstrat-3Method Efficiency Benchmark Performance Average FLOPs (T) Relative FLOPs Retention Ratio AVUT World Sense Daily Omni Video MME LVOmni Bench Avg. Score Relative Perf. (%) 
+
+Qwen2.5-Omni-3B 37.4 100.0% 100%/100% 62.5 46.5 61.0 62.5 35.2 53.5 100.0 Random 6.7 18.1% 25%/– 56.3 42.7 54.5 61.1 33.6 49.6 92.7 FastV-om 8.5 22.6% 100%/25% 55.4 43.3 54.2 60.3 32.9 49.2 92.0 OmniZip 6.7 18.1% 25%/– 54.4 42.4 51.8 61.1 32.8 48.5 90.7 OmniSIFT ◦ 6.7 18.1% 25%/– 57.0 42.6 50.5 61.8 34.3 49.2 92.0 
+
+OmniPack (w/o M) 6.7 18.1% 25%/– 58.3 45.2 55.4 61.7 33.6 50.8 95.0 OmniPack 5.8 15.5% 25%/12.5% 57.9 45.1 55.3 61.7 33.8 50.8 95.0 
+
+Random 5.3 14.2% 20%/– 55.7 42.4 51.3 60.1 34.6 48.8 91.2 FastV-om 7.1 18.9% 100%/20% 54.1 42.7 51.6 57.6 31.1 47.4 88.6 OmniSIFT ◦ 5.3 14.2% 20%/– 54.2 39.9 51.0 61.1 33.3 47.9 89.5 
+
+OmniPack (w/o M) 5.3 14.2% 20%/– 58.2 44.4 54.2 61.1 33.7 50.3 94.0 OmniPack 4.6 12.2% 20%/10% 58.2 44.4 53.9 61.0 33.6 50.2 93.8 Random 2.6 7.0% 10%/– 51.7 38.9 49.0 56.8 32.1 45.7 85.4 FastV-om 4.5 12.2% 100%/10% 47.6 40.2 49.4 48.6 29.7 43.1 80.6 VisionZip-om 2.6 7.0% 10%/– 52.6 42.1 50.5 57.7 31.3 46.8 87.5 OmniSIFT ◦ 2.6 7.0% 10%/– 49.9 38.2 48.1 56.6 32.2 45.0 84.1 
+
+OmniPack (w/o M) 2.6 7.0% 10%/– 55.6 42.8 50.1 58.9 32.8 48.0 89.7 OmniPack 2.3 6.1% 10%/5% 55.7 42.5 50.0 58.6 32.7 47.9 89.5 MiniCPM-o-2.6 73.2 100.0% 100%/100% 53.2 40.8 52.2 62.0 29.5 47.5 100.0 Random 14.9 20.4% 25%/– 52.8 39.8 53.9 61.5 35.0 48.6 102.3 FastV-om 19.1 26.1% 100%/25% 49.6 37.1 50.4 52.7 30.1 44.0 92.6 VisionZip-om 14.9 20.4% 25%/– 50.9 40.4 53.3 60.9 35.5 48.2 101.5 OmniSIFT ◦ 14.9 20.4% 25%/– 50.6 40.4 52.3 60.0 33.2 47.3 99.6 SEATS † 11.6 15.8% 25%/12.5% 53.2 40.3 53.4 60.6 34.9 48.5 102.1 SEATS ⋆ 12.5 17.1% 25%/12.5% 52.9 40.5 53.1 62.1 33.9 48.5 102.1 
+
+OmniPack (w/o M) 14.9 20.4% 25%/– 52.9 40.8 54.0 63.5 34.8 49.2 103.6 
+
+OmniPack 12.2 16.7% 25%/12.5% 53.8 40.9 54.1 63.4 34.2 49.3 103.8 
+
+Random 11.8 16.2% 20%/– 51.2 39.2 53.1 61.3 35.0 48.0 101.1 FastV-om 16.2 22.2% 100%/20% 48.0 36.6 48.4 53.6 29.9 43.3 91.2 VisionZip-om 11.8 16.2% 20%/– 49.9 39.7 53.0 61.1 35.2 47.8 100.6 OmniSIFT ◦ 11.8 16.2% 20%/– 50.5 39.0 51.6 60.0 33.3 46.9 98.7 SEATS † 9.2 12.6% 20%/10% 50.6 40.1 53.0 60.8 36.3 48.2 101.5 SEATS ⋆ 10.0 13.6% 20%/10% 50.7 40.3 52.5 61.7 32.9 47.6 100.2 
+
+OmniPack (w/o M) 11.8 16.2% 20%/– 52.6 40.5 53.6 63.7 35.4 49.2 103.6 OmniPack 9.8 13.3% 20%/10% 52.8 40.3 53.5 63.0 35.8 49.1 103.4 Random 6.0 8.2% 10%/– 46.0 37.1 47.0 58.8 32.8 44.3 93.3 VisionZip-om 6.0 8.2% 10%/– 45.5 37.6 47.3 58.1 33.8 44.5 93.7 OmniSIFT ◦ 6.0 8.2% 10%/– 45.1 36.5 47.6 57.1 34.2 44.1 92.8 SEATS † 4.7 6.5% 10%/5% 46.9 37.6 47.8 57.8 33.6 44.7 94.1 SEATS ⋆ 5.1 7.0% 10%/5% 47.1 37.5 46.3 58.1 33.6 44.5 93.7 
+
+OmniPack (w/o M) 6.0 8.2% 10%/– 50.1 38.7 48.6 60.1 33.8 46.3 97.5 OmniPack 5.0 6.8% 10%/5% 47.0 38.7 48.7 61.2 33.6 45.8 96.4 Table 10. Cross-backbone comparison on Qwen2.5-Omni-3B and MiniCPM-o-2.6. 
+
+ing that our audio-visual collaboration preserves comple-mentary cross-modal cues under aggressive compression. The consistent performance across diverse WorldSense cat-egories further shows that this benefit generalizes across dif-ferent video domains. On VideoMME, OmniPack performs best on both short- and long-duration videos and remains competitive on medium-duration videos at the 15%/7.5% retention setting. In particular, it retains 107.4% of the orig-inal long-video performance, indicating that removing re-dundant audio-visual tokens is especially beneficial for long sequences. 
+
+Compression Strategies Collaboration. As illustrated in Figure 4, pre-LLM compression removes modality-specific 4Method Efficiency Fine-Grained Performance Avg. FLOPs (T) Relative FLOPs Retention Ratio Audio Event Location Audio Object Matching Audio OCR Matching Audio Information Extraction Audio Character Matching Audio Content Counting                                                                                                     
+
+> Qwen2.5-Omni-7B 73.2 100.0% 100% / 100% 35.9 67.2 58.2 85.9 68.1 40.7 64.0 Random 14.9 20.4% 25% / – 32.9 53.3 61.4 82.8 59.5 36.4 58.7 FastV-om 19.1 26.1% 100% / 25% 38.2 52.3 68.8 83.4 55.2 35.6 59.3 VisionZip-om 14.9 20.4% 25% / – 36.5 52.0 63.7 82.2 59.2 33.1 58.7 OmniZip 14.9 20.4% 25% / – 37.0 53.8 64.3 70.8 59.7 27.9 56.9 OmniSIFT ◦14.9 20.4% 25% / – 37.6 51.0 67.2 80.4 56.8 33.9 58.4 SEATS †11.6 15.8% 25% / 12.5% 36.5 54.6 66.6 84.0 58.0 35.6 60.0 SEATS ⋆12.5 17.1% 25% / 12.5% 35.9 54.9 66.6 84.0 58.3 35.6 60.1
+> OmniPack (w/o M) 14.9 20.4% 25% / – 39.4 53.3 66.2 83.4 61.4 36.4 60.7
+> OmniPack 12.2 16.7% 25% / 12.5% 39.4 53.6 67.5 83.4 61.6 35.6 61.0
+
+Table 11. Fine-grained performance comparison on six AVUT subtasks using Qwen2.5-Omni-7B. 
+
+Method Efficiency Fine-Grained Performance Avg. Prefill FLOPs (T) Relative FLOPs Retention Ratio Tech & Science Culture & Politics Daily Life Film & TV Performance Games Sports Music 
+
+Qwen2.5-Omni-7B 73.2 100.0% 100% / 100% 52.4 51.1 48.3 44.1 42.0 41.0 41.7 47.3 46.6 Random 14.9 20.4% 25% / – 48.8 44.7 44.5 41.7 38.2 36.9 39.1 45.1 43.1 FastV 19.1 26.1% 100%/25% 47.8 44.7 42.4 39.6 39.3 36.5 37.9 44.1 42.0 FastV-om 19.1 26.1% 100%/25% 49.6 46.3 43.8 40.9 39.0 37.3 39.8 44.8 43.3 VisionZip 14.9 20.4% 25% / – 49.6 48.2 44.2 40.4 42.7 40.8 38.8 45.6 44.0 VisionZip-om 14.9 20.4% 25% / – 48.4 50.5 46.2 39.8 40.1 41.6 40.5 47.5 44.7 FastVID 13.6 18.5% 25% / – 47.4 45.3 43.0 40.6 40.8 37.8 39.3 45.1 42.8 VidCom 2 14.9 20.4% 25% / – 48.2 47.3 45.0 39.8 39.3 37.8 40.0 44.1 43.3 OmniZip 14.9 20.4% 25% / – 47.8 44.0 43.6 38.5 37.5 41.2 38.4 46.3 42.6 OmniSIFT ◦ 14.9 20.4% 25% / – 45.9 46.6 44.5 37.5 37.8 36.9 38.6 43.6 42.1 SEATS † 11.6 15.8% 25%/12.5% 48.2 51.1 46.8 40.6 40.8 39.5 41.6 46.8 45.0 SEATS ⋆ 12.5 17.1% 25%/12.5% 48.4 51.1 46.8 41.4 40.8 39.1 41.2 46.8 45.0 
+
+OmniPack (w/o M) 14.9 20.4% 25% / – 49.8 49.8 46.5 43.0 43.0 38.2 39.8 48.3 45.3 OmniPack 12.2 16.7% 25%/12.5% 49.4 50.2 45.4 43.0 42.7 39.5 40.0 47.5 45.3 
+
+Table 12. Fine-grained performance comparison on eight WorldSense categories using Qwen2.5-Omni-7B. 
+
+Method Efficiency Fine-Grained Performance Avg. FLOPs (T) Relative FLOPs Retention Ratio Event Sequence AV Event Alignment Inference Reasoning Context Understanding Comparative 
+
+Qwen2.5-Omni-7B 73.2 100.0% 100% / 100% 58.2 52.5 76.6 78.9 59.1 70.2 63.9 Random 14.9 20.4% 25% / – 49.4 41.6 73.4 73.7 52.3 69.5 57.1 FastV-om 19.1 26.1% 100%/25% 50.3 44.5 78.6 77.1 52.3 64.9 58.7 VisionZip-om 14.9 20.4% 25% / – 50.3 45.8 77.3 74.3 49.7 67.2 58.2 OmniZip 14.9 20.4% 25% / – 50.7 41.6 71.4 72.0 47.7 66.4 55.9 OmniSIFT ◦ 14.9 20.4% 25% / – 49.7 43.3 77.3 72.6 52.3 70.2 58.0 SEATS † 11.6 15.8% 25%/12.5% 53.9 46.2 76.6 75.4 51.8 67.9 59.7 SEATS ⋆ 12.5 17.1% 25%/12.5% 52.9 47.1 77.9 76.6 51.3 67.9 59.8 
+
+OmniPack (w/o M) 14.9 20.4% 25% / – 53.9 47.5 79.8 74.3 52.3 68.7 60.3 
+
+OmniPack 12.2 16.7% 25%/12.5% 53.6 48.7 80.5 74.3 52.9 67.9 60.6 
+
+Table 13. Fine-grained performance comparison on six DailyOmni subtasks using Qwen2.5-Omni-7B. 
+
+redundancy, while inner-LLM compression refines tokens with task-conditioned representations. Their contributions vary across temporal groups, with audio varying more due to sparse acoustic events and video remaining stable be-cause of continuous visual content. This complementary behavior enables early compression followed by semantic refinement after audio-visual interaction. 
+
+Case Study. Figure 5 compares SEATS ⋆ and OmniPack under the same 25% pre-LLM retention ratio. SEATS may discard critical evidence while retaining redundant to-kens, resulting in an incorrect prediction. In contrast, Om-niPack combines structure-aware selection with delayed query-conditioned audio-visual compression to better pre-serve task-relevant evidence and remove redundancy. This 5Method Efficiency Fine-Grained Performance Avg. FLOPs (T) Retention Ratio Short Medium Long 
+
+Qwen2.5-Omni-7B 73.2 100% / 100% 77.1 63.4 52.8 64.4 Random 8.9 15% / – 69.8 63.8 55.4 63.0 FastV-om 13.5 100% / 15% 62.2 59.1 51.2 57.5 VisionZip-om 8.9 15% / – 68.3 62.9 53.6 61.6 OmniSIFT ◦ 8.9 15% / – 69.7 65.1 53.8 62.9 SEATS † 6.9 15% / 7.5% 71.6 65.1 54.2 63.6 SEATS ⋆ 7.5 15% / 7.5% 71.8 65.1 54.4 63.8 
+
+OmniPack (w/o M) 8.9 15% / – 72.4 65.2 56.4 64.7 OmniPack 7.3 15% / 7.5% 72.6 65.1 56.7 64.7 
+
+Table 14. Duration-wise performance comparison on VideoMME using Qwen2.5-Omni-7B . Question: What is the likely context surrounding the question "What is this?" in the video?                           
+
+> A. It's a question about the closing door sound.
+> B. It's a reaction to the song that started playing after the app was opened.
+> C. It's a question about the person waking up abruptly.
+> D. It's a question about the image of the two young people on the iPad.
+> Answer: D.
+> Reason: The video shows an iPad with an
+> image of two young people on it. The
+> question is likely a reaction to the image
+> of the two young people on the iPad.
+> Answer: B.
+> Reason: The video shows a song starting to
+> play right after the app is opened , and the
+> question "What is this?" is likely a
+> reaction to the song.
+> Miss Key Tokens
+> Retain Key Tokens
+> Frame 1 Frame 4 Frame 11 Frame 16
+> Frame 11 Frame 16 Frame 11 Frame 16
+> (a) Selected Tokens by SEATS *(b) Selected Tokens by OmniPack (Our)
+> More Redundancy Less Redundancy
+
+Figure 5. Qualitative comparison at the 25% pre-LLM retention ratio. (a) SEATS ⋆ misses key tokens and answers incorrectly. (b) OmniPack preserves them and answers correctly. Importance Ratio ηm           
+
+> 0.150.250.350.450.55
+> 44.0
+> 44.2
+> 44.4
+> 44.6
+> 44.8
+> Score
+> 44.4
+> 44.3
+> 44.2
+> 44.4
+> 44.3
+> 44.1
+> 44.3
+> 44
+> ηv=0.2
+> ηa=0.35
+> 5
+> .5
+> 44.6
+> 44.6
+> LayerIndex
+> 27141821
+> 41
+> 42
+> 43
+> 44
+> 45
+> 46
+> WorldSense
+> 41.9
+> 41.6
+> 43.7
+> 44.644.6
+> 53
+> 55
+> 57
+> 59
+> DailyOmni
+> 54.7
+> 54.1
+> 57.1
+> 58.257.8
+> WorldSense
+> Dailyomni
+
+Figure 6. Sensitivity analysis of the importance ratios ηm.
+
+produces a more compact and informative representation, enabling the correct prediction under aggressive compres-sion. 
+
+Parameter Value AVUT World Sense Daily Omni 
+
+λ
+
+0.10 58.0 45.1 58.2 
+
+0.20 58.1 44.6 58.2 0.30 58.0 44.8 58.2 0.40 58.1 44.5 57.7 0.50 58.5 44.1 57.6 
+
+(τv , τ a)
+
+(0.05,0.025) 58.2 44.6 57.7 
+
+(0.10,0.05) 58.1 44.6 58.2 (0.15,0.075) 57.8 44.5 58.1 (0.20,0.10) 58.0 44.7 58.0 (0.25,0.125) 57.8 44.8 58.1 
+
+ζ
+
+0.05 58.1 44.5 58.3 
+
+0.10 58.1 44.6 58.2 0.15 57.9 44.7 58.1 0.20 57.9 44.5 58.1 0.25 57.9 44.6 58.1 
+
+Table 15. Ablation of compression parameters. Each parameter is varied independently while the others remain fixed at their default values. Bold values indicate the default configuration. 
+
+Parameter Ablation. As shown in Figure 6 and Table 15, we analyze the sensitivity of the importance ratios (ηv , η a),positional-distance weight λ, merging thresholds (τv , τ a),and merging weight ζ. The importance-ratio analysis shows that (ηv , η a)=(0.25,0.35) provides a favorable balance be-tween the two modalities. Across the three benchmarks, varying λ results in at most a 1.0-point difference, while the variations caused by (τv , τ a) and ζ remain within 0.5 and 0.2 points, respectively. Moreover, all tested configurations consistently outperform existing methods, demonstrating that our gains do not rely on carefully tuned hyperparam-eters. We therefore adopt λ=0.20, (τv , τ a)=(0.10,0.05), and 
+
+ζ=0.10 as a balanced configuration across different bench-marks. 6
