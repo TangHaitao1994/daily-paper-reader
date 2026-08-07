@@ -7,36 +7,45 @@
 
 ## 每次日报
 - 最新运行日期：2026-08-07
-- 运行时间：2026-08-07 01:31:07 UTC
+- 运行时间：2026-08-07 21:23:55 UTC
 - 运行状态：成功
-- 本次总论文数：5
-- 精读区：4
-- 速读区：1
+- 本次总论文数：8
+- 精读区：6
+- 速读区：2
 
 ### 今日简报（AI）
-今日聚焦语音AI前沿：精读两篇高分研究，分别探索双曲几何赋能语音情感微调，以及用资源感知混合编码器打破多语种语音翻译困局。
-最值得关注：HyPASE用双曲空间实现参数高效的情感适配，显著提升大音频模型表现；另一篇通过动态混合多语音编码器，首次在百余语言对上达成稳定翻译质量。
-建议相关团队优先验证双曲微调在实时情感服务中的延迟，并评估混合编码方案对低资源语种的覆盖效果。
+今日精读6篇速读2篇，聚焦语音AI的前沿突破，重点挖掘新词识别方法对比与流式手势生成技术。  
+最值得关注：语音大模型在未登录词识别上已开始超越传统上下文偏置方法，同时关键姿态锚定让实时连贯手势生成成为可能。  
+对普通读者而言，这意味着更懂你说话、肢体更自然的AI助手即将到来，不妨多关注语音LLM在混合场景下的落地实验。
 - 详情：[/202608/07/README](/202608/07/README)
 
 ### 精读区论文标签
-1. [HyPASE: Hyperbolic Geometry for Parameter-Efficient Speech Emotion Fine-Tuning Framework for Large Audio-Language Models](/202608/07/2608.04351v1-hypase-hyperbolic-geometry-for-parameter-efficient-speech-emotion-fine-tuning-framework-for-large-audio-language-models)  
+1. [How to Recognize New Words: A Comparison Between Context Biasing Methods and Speech LLMs](/202608/07/2608.05759v1-how-to-recognize-new-words-a-comparison-between-context-biasing-methods-and-speech-llms)  
+   标签：评分：10.0/10、query:speech-model
+   evidence：比较上下文偏置和语音大模型在ASR中识别生僻词，直接提升识别准确率
+2. [StreamTalk: Streaming Co-Speech Gesture Generation with Key-Pose Anchoring](/202608/07/2608.01643v1-streamtalk-streaming-co-speech-gesture-generation-with-key-pose-anchoring)  
    标签：评分：9.0/10、query:speech-model
-   evidence：面向大型音频语言模型的参数高效双曲几何微调
-2. [Breaking the Curse ofMultilinguality inMany-to-Many Speech-to-Text Translation via a Resource-AwareMixture of Speech Encoders](/202608/07/2608.04586v1-breaking-the-curse-ofmultilinguality-inmany-to-many-speech-to-text-translation-via-a-resource-awaremixture-of-speech-encoders)  
+   evidence：流式共语音手势生成将语音与视觉3D运动对齐，属于视觉-语音多模态学习任务
+3. [HyPASE: Hyperbolic Geometry for Parameter-Efficient Speech Emotion Fine-Tuning Framework for Large Audio-Language Models](/202608/07/2608.04351v1-hypase-hyperbolic-geometry-for-parameter-efficient-speech-emotion-fine-tuning-framework-for-large-audio-language-models)  
    标签：评分：9.0/10、query:speech-model
-   evidence：资源感知的语音编码器混合框架提升多语言语音到文本翻译准确率
-3. [Spoken Function Calling: A New Perspective on Spoken Language Understanding for Large Audio Language Models](/202608/07/2608.05126v1-spoken-function-calling-a-new-perspective-on-spoken-language-understanding-for-large-audio-language-models)  
+   evidence：提出针对大型音频语言模型语音情感识别的双曲参数高效微调框架，属于大型语音模型的高级训练方法
+4. [Breaking the Curse ofMultilinguality inMany-to-Many Speech-to-Text Translation via a Resource-AwareMixture of Speech Encoders](/202608/07/2608.04586v1-breaking-the-curse-ofmultilinguality-inmany-to-many-speech-to-text-translation-via-a-resource-awaremixture-of-speech-encoders)  
    标签：评分：9.0/10、query:speech-model
-   evidence：提出面向对话系统的语音函数调用，改进语音交互设计
-4. [Discriminative Axis, Not Data Volume: What a Contrastive Corpus Teaches an Audio Embedding](/202608/07/2608.01560v1-discriminative-axis-not-data-volume-what-a-contrastive-corpus-teaches-an-audio-embedding)  
-   标签：评分：8.0/10、query:speech-model
-   evidence：对比学习音频嵌入洞察，提升关键词识别和语音情感识别
+   evidence：通过资源感知的混合语音编码器提升多语言语音转文本翻译准确率
+5. [Spoken Function Calling: A New Perspective on Spoken Language Understanding for Large Audio Language Models](/202608/07/2608.05126v1-spoken-function-calling-a-new-perspective-on-spoken-language-understanding-for-large-audio-language-models)  
+   标签：评分：9.0/10、query:speech-model
+   evidence：新型语音函数调用范式用于任务型对话，提升语音交互
+6. [PD-GS: Phoneme-Driven 3DGS for Audio-Driven Talking Heads](/202608/07/2608.05218v1-pd-gs-phoneme-driven-3dgs-for-audio-driven-talking-heads)  
+   标签：评分：9.0/10、query:speech-model
+   evidence：利用音素驱动的3D高斯泼溅改进音频驱动说话人头生成，增强唇部发音，融合语音与视觉模态。
 
 ### 速读区论文标签
-1. [SDO: Structure-Aware Data Organization for Efficient LLM Post-Training](/202608/07/2607.27273v1-sdo-structure-aware-data-organization-for-efficient-llm-post-training)  
-   标签：评分：6.0/10、query:speech-model
-   evidence：采用曝光驱动反馈的即插即用数据组织，用于高效LLM后训练
+1. [Vorch-Streamer: Extending Human Audio-Visual Generation to Real-Time Long-Form Streaming](/202608/07/2608.05663v1-vorch-streamer-extending-human-audio-visual-generation-to-real-time-long-form-streaming)  
+   标签：评分：8.0/10、query:speech-model
+   evidence：实时长文本到音视频生成，保持音画同步，涉及语音与视觉的多模态生成任务。
+2. [Decolonizing Linguistic Policies in Automated Speech Recognition: A Framework for Cross-Culturally Competent Speech AI](/202608/07/2608.06141v1-decolonizing-linguistic-policies-in-automated-speech-recognition-a-framework-for-cross-culturally-competent-speech-ai)  
+   标签：评分：7.0/10、query:speech-model
+   evidence：改进低资源语言变体语音识别准确率的框架，解决语音接口中的隐性偏见。
 
 
 <div class="dpr-home-promo-card">
