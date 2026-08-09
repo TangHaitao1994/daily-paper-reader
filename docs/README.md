@@ -6,28 +6,35 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-08
-- 运行时间：2026-08-08 20:19:55 UTC
+- 最新运行日期：2026-08-09
+- 运行时间：2026-08-09 20:09:45 UTC
 - 运行状态：成功
-- 本次总论文数：2
-- 精读区：1
-- 速读区：1
+- 本次总论文数：4
+- 精读区：0
+- 速读区：4
 
 ### 今日简报（AI）
-今日聚焦多模态与音频前沿：精读一项鲁棒意图识别工作，速览一种高效音频增强方法。  
-最值得关注的是，通过自适应诊断并修复模态可靠性，可显著提升嘈杂环境下的多模态理解鲁棒性。  
-建议读者尝试将“可靠性感知”思路迁移到其他交互任务，体验可微分心理声学损失在端到端音频处理中的效率优势。
-- 详情：[/202608/08/README](/202608/08/README)
+今天速读3篇音频与说话人分析前沿论文，聚焦表征学习与目标提取。
+最值得关注的方向：判别性训练策略比数据量更重要，以及用脑电引导的软门控实现说话人切换时仍能精准分离。
+想快速跟上，可先略读对比学习语料库那篇，再细看脑电辅助的目标提取新方法。
+- 详情：[/202608/09/README](/202608/09/README)
 
 ### 精读区论文标签
-1. [Adaptive Modality Reliability Diagnosis and Restoration for Robust Multimodal Intent Recognition](/202608/08/2608.03475v1-adaptive-modality-reliability-diagnosis-and-restoration-for-robust-multimodal-intent-recognition)  
-   标签：评分：8.0/10、query:speech-model
-   evidence：通过自适应模态可靠性诊断实现鲁棒多模态意图识别，融合语音、文本、视觉特征改善语音交互
+- 本次无精读推荐。
 
 ### 速读区论文标签
-1. [Efficient Audio Enhancement with a Differentiable Psychoacoustic Loss](/202608/08/2608.02918v1-efficient-audio-enhancement-with-a-differentiable-psychoacoustic-loss)  
+1. [Discriminative Axis, Not Data Volume: What a Contrastive Corpus Teaches an Audio Embedding](/202608/09/2608.01560v1-discriminative-axis-not-data-volume-what-a-contrastive-corpus-teaches-an-audio-embedding)  
    标签：评分：7.0/10、query:speech-model
-   evidence：基于Mamba和可微分感知损失的高效音频超分辨率，实现14倍推理加速
+   evidence：添加词汇-语音训练轮次提升零样本关键词识别；负样本结构设计比数据量更重要。
+2. [SAGE: Switch-Aware EEG-Guided Soft Gating for Target Speaker Extraction with In-Trial Switching](/202608/09/2608.01623v1-sage-switch-aware-eeg-guided-soft-gating-for-target-speaker-extraction-with-in-trial-switching)  
+   标签：评分：7.0/10、query:speech-model
+   evidence：脑电引导的目标说话人提取提升语音质量，有助于提高下游语音识别准确率
+3. [Speaker Verification Under Real Classroom Conditions for English Speech](/202608/09/2608.03623v2-speaker-verification-under-real-classroom-conditions-for-english-speech)  
+   标签：评分：7.0/10、query:speech-model
+   evidence：采用自监督学习的WavLM-TDNN进行教室环境说话人验证，属于大规模自监督语音模型训练应用
+4. [Beyond Residual Connections: Manifold-Constrained Hyper-Connections for Robust Speaker Representation Learning](/202608/09/2608.05549v1-beyond-residual-connections-manifold-constrained-hyper-connections-for-robust-speaker-representation-learning)  
+   标签：评分：6.0/10、query:speech-model
+   evidence：提出流形约束超连接改进说话人表征，可增强语音模型鲁棒性
 
 
 <div class="dpr-home-promo-card">
