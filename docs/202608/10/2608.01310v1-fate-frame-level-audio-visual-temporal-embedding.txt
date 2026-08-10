@@ -1,0 +1,504 @@
+Title: FATE: Frame-Level Audio-Visual Temporal Embedding
+
+URL Source: https://arxiv.org/pdf/2608.01310v1
+
+Published Time: Tue, 04 Aug 2026 01:45:54 GMT
+
+Number of Pages: 11
+
+Markdown Content:
+# FATE: Frame-Level Audio-Visual Temporal Embedding 
+
+## Kaisi Guan, Bingzi Zhang, Xihua Wang, Ying Ba Xin Cheng, Yijing Chen, Ruihua Song ∗
+
+Gaoling School of Artificial Intelligence, Renmin University of China {guankaisi}@ruc.edu.cn 
+
+Abstract 
+
+When a dog opens its mouth and barks, humans naturally recognize what the sound is and when it occurs. Building audio-visual models with this same ability requires represen-tations that capture both semantic and temporal alignment. Current approaches fall short on one side or the other: embed-ding models match semantic but lose temporal information; synchronization models capture temporal offsets but lack se-mantic understanding. To bridge this gap, we propose FATE ,
+
+Frame-level Audio-visual Temporal Embedding. Unlike prior embedding models that pool each modality into a single embedding and discard temporal information, FATE retains frame-level sequences, aligns them on the physical timeline, and computes similarity over strictly aligned frame pairs. Un-like synchronization models that output only an offset predic-tion, FATE encodes synchronization in a reusable embedding space, trained with a joint objective combining cross-video semantic and within-video temporal contrastive learning to capture both what sounds and when it occurs. Across three tasks, FATE surpasses the strongest baseline on temporal and semantic retrieval by a large margin, matches fully super-vised methods on event localization in a zero-shot setting, and achieves the best correlation with human judgments as a generation evaluation metric. The source code can be found at https://github.com/guankaisi/FATE .
+
+## Introduction 
+
+When a dog opens its mouth to bark, the barking sound occurs at precisely the same moment. Any semantic contradiction or temporal misalignment immediately feels unnatural to hu-man observers. This tight coupling between what and when 
+
+is the foundation of human audio-visual perception. Similarly, models designed to emulate human perception, like multimodal understanding or generation, must also cap-ture both semantic and temporal information. Existing ap-proaches, however, typically emphasize one dimension at the expense of the other. Audio-visual embedding models (Rad-ford et al. 2021; Wu* et al. 2023; Assran et al. 2025; Tun-cay et al. 2025; Guzhov et al. 2021; Girdhar et al. 2023; Araujo et al. 2025; Vyas et al. 2025) train dual encoders with contrastive objectives to project audio and video into a shared embedding space. Although effective at semantic matching, they often discard fine-grained temporal informa-tion: as shown in Fig. 1 (bottom), such models score an unsynchronized segment even higher than the synchronized 
+
+> ∗
+
+Corresponding author. Violin Video 2                                 
+
+> Semantic Discrimination
+> Sync Model Fails
+> Dog Video 1
+> Audio Query Clip
+> Dog Barking Clip
+> Close Mouth Video 2
+> Temporal Discrimination
+> Open Mouth Video 1
+> Video1: 0.25 Video2: 0.34 <Synchformer
+> Video1: 0.14 Video2: 0.04 >FATE
+> FATE succeeds
+> Video1: 0.31 Video2: 0.33 <PE-AV(Emb)
+> Video1: 0.75 Video2: 0.90 <Gemini-3.6
+> Video1: 0.42 Video2: 0.14 >FATE
+> Emb Model and Omni LLM Fail FATE succeeds
+> Video1: 0.85 Video2: 0.85 =Qwen3-Omni
+
+Figure 1: Semantic (what) vs. temporal (when) discrimina-tion for a dog-barking audio query. Top: the synchronization model scores the unrelated violin video higher than the bark-ing dog. Bottom: the embedding model (PE-AV) and Omni LLMs score the unsynchronized segment (mouth closed) higher than or equal to the synchronized one, whereas FATE succeeds in both dimensions. Embedding and synchroniza-tion scores are normalized to [0 , 1] (higher is better; Synch-former’s offset output is inverted); Omni LLMs rate each clip independently via prompting (detail in appendix). one. Conversely, synchronization models (Chen et al. 2021; Iashin et al. 2024) capture temporal offsets, but their task-specific objectives yield weak semantic representations: in arXiv:2608.01310v1 [cs.MM] 2 Aug 2026 Fig. 1 (top), the synchronization model fails to distinguish the barking dog from unrelated violin. Nor do recent Omni LLMs (qwen team 2025; GeminiTeam 2023) close this gap: their low sampling rates (e.g., 2 fps for qwen3-omni) preclude fine-grained synchronization, and they produce no reusable embeddings for downstream task (Fig. 1, bottom). Conse-quently, a unified embedding representation that jointly cap-tures what sounds and when it occurs remains lacking. In this paper, we propose FATE , Frame-level Audio-visual 
+
+Temporal Embedding. The key idea is simple: instead of compressing each modality into a single global vector, FATE preserves frame-level features and aligns the two modalities on the physical time axis, so that cross-modal similarity natu-rally reflects both semantic and temporal alignment. We train FATE with a joint objective combining semantic contrastive learning across videos and temporal soft-contrastive learn-ing within each video, encouraging the embedding space to capture both what sounds and when they occur. We evaluate FATE on three downstream tasks. For tem-poral cross-modal retrieval, FATE outperforms the strongest synchronization baseline by over 13 points in R@3, while simultaneously achieving over 20 points higher semantic re-trieval accuracy. For audio-visual event localization, FATE in a zero-shot setting, surpasses supervised methods with 48.3% average accuracy. As an automatic metric for audio-viusal generation, FATE agrees most closely with human synchronization judgments among all compared metrics. Our main contributions are as follows: 
+
+• We introduce FATE , a frame-level audio-visual embed-ding model that aligns audio and video on the physi-cal timeline and computes similarity over aligned frame pairs, capturing synchronization directly in the embed-ding space without task-specific prediction heads. 
+
+• We design a joint objective that combines cross-video se-mantic contrastive learning with within-video temporal soft-contrastive learning, and show the two are comple-mentary through extensive ablations. 
+
+• We validate FATE across temporal retrieval, event local-ization, and generation evaluation, where it consistently outperforms all compared baselines and transfers without any task-specific adaptation. 
+
+## Related Works 
+
+Audio-Visual Representation Learning 
+
+Multi-modal representation learning has advanced signifi-cantly, driven by the success of contrastive learning (Oord, Li, and Vinyals 2018). CLIP (Radford et al. 2021) pioneers this direction by aligning image and text modalities. This paradigm naturally extends to the audio-visual domain: Au-dioCLIP (Guzhov et al. 2021), ImageBind (Girdhar et al. 2023) LanguageBind (Zhu et al. 2023) and PE-AV (Vyas et al. 2025) scale this idea further to audio, image, text and video. However, all of these approaches capture what co-occurs across modalities but not when . Recent omni-modal LLMs (qwen team 2025; GeminiTeam 2023) also process au-dio and video jointly, but their sparse visual sampling (e.g., 2 fps in Qwen3-Omni) is far coarser than the granularity that synchronization requires, and they yield no reusable embed-dings for downstream task; Fig. 1 illustrates this failure. This gap motivates our frame-level design. 
+
+Audio-Visual Synchronization Models 
+
+Audio-visual synchronization aims to determine whether au-dio and video clips are temporally coherent. SyncNet (Chung and Zisserman 2017) pioneer this direction with two-tower CNNs for lip-speech synchronization, and AVST (Chen et al. 2021) generalized it to open-domain videos. SparseSelec-tor (Iashin et al. 2022) and Synchformer (Iashin et al. 2024) further moved from binary detection to quantitative off-set estimation. On another front, CAVP (Luo et al. 2023) grounds synchronization in temporal contrastive learning, while PEAVS (Goncalves et al. 2024) directly regresses hu-man opinion scores. These models output a single prediction (an offset or a score) but do not yield reusable representations, making them difficult to transfer to other tasks. In contrast, FATE learns a general-purpose embedding space where syn-chronization is reflected in frame-level embedding, making it applicable across diverse downstream scenarios. 
+
+Evaluating Audio-Visual Generative Models 
+
+Audio-visual generative models (Wang et al. 2025b; Guan et al. 2025b; Liu et al. 2025; Low, Wang, and Katyal 2025; HaCohen et al. 2026; Seedance et al. 2025; Wang et al. 2024; Cheng et al. 2025, 2026; Wang et al. 2025a) are advancing rapidly, yet reliable evaluation of synchronization remains limited (Huang et al. 2024; Zheng et al. 2025; Huang et al. 2025; Guan et al. 2025a). Existing metrics fall into three paradigms. Rule-based metrics such as AV-Align (Yariv et al. 2023) match optical flow against audio onsets, but these low-level cues break down on complex generative artifacts. Offset predictors such as DeSync (Iashin et al. 2024) regress a global temporal shift, yet synchronization errors in generated videos are rarely uniform offsets. Embedding-based scores such as CAVP (Luo et al. 2023) measure similarity in the embedding space, but pool away the temporal dimension that synchronization depends on. FATE addresses all three by scoring synchronization over frame-level embeddings. 
+
+## Method 
+
+Problem Formulation 
+
+We aim to learn audio-visual representations that jointly encode semantic and temporal alignment. Let V ∈
+
+RT ×H×W ×3 denote a video clip of T frames, and let 
+
+A ∈ RL×C denote its audio representation with L temporal frames and C channels. A dual-encoder architecture maps the two modalities into a shared embedding space: 
+
+FV = Ev (V ), FA = Ea(A), (1) and the cross-modal similarity is computed as SAV =Sim( FA, F V ). We require SAV to satisfy two properties: (i) semantic discrimination : SAV (V, A ) > S AV (V, A ′) for audio A′ drawn from a semantically different clip; and (ii) temporal discrimination : SAV (V, A ) > S AV (V, A ∆t)
+
+for any temporally shifted version A∆t of the same au-dio ( ∆t̸ = 0 ). Both properties are required symmetrically (a) Architecture                   
+
+> Conventional Approach FATE (Ours)
+> Video Audio Video Encoder Audio Encoder
+> F!∈ # "F#∈ # "
+> !"# $ $, $ %
+> [CLS] Token [CLS] Token
+> Video
+> Audio Video Encoder Audio Encoder
+> Temporal Alignment
+> (Nearest-Neighbor)
+> F!∈ T !× # "
+> F#∈ T #× # "
+> (F!∈ T $× # "F#∈ T #× # "
+> ()%(') = ) %() ' )
+> F%
+> 'F+
+> (%$ =,-*
+> ∑./, -*'$$.-
+> $%(.)
+
+(b) Training Objective        
+
+> ℒ!"# : Semantic Contrastive Loss
+> V1 V2
+> A1 A2
+> GPU1 GPU2
+> A3 A4 A6
+> GPU3
+> A5 A8
+> GPU4
+> A7
+> Local Batch All Gather Across GPU
+> (Global Negatives)
+> ℒ$"# : Temporal Contrastive Loss
+> GT (y=2) Soft (y=1) Hard (y=0) Hard (y=0) Hard (y=0) Soft (y=1)
+> Cross-video: what sounds? Within-video: when does it sound?
+
+ℒ23245 = # ,ℒ678 + # 9ℒ:78     
+
+> "T →1 : temporal info lost" "T →T : temporal structure retained"
+
+Figure 2: Overview of FATE. (a) Architecture: Conventional audio-visual models compress encoder outputs into single global vectors via [CLS] pooling ( T →1), discarding temporal structure. FATE retains all frame-level tokens ( T →T ), aligns the visual and audio sequences via nearest-neighbor interpolation, and computes similarity as the mean diagonal of the pairwise frame-level inner product matrix. (b) Training Objective: The semantic contrastive loss Lsem discriminates across different videos using cross-GPU all-gathered negatives, while the temporal soft-contrastive loss Ltemp discriminates within the same video by assigning graduated supervision based on temporal offset (shown in Eq. 6). in the video direction i.e., SAV (V, A ) > S AV (V ′, A ) and 
+
+SAV (V, A ) > S AV (V∆t, A ). Conventional embedding mod-els satisfy (i) but not (ii). Synchronization models, which train without cross-video contrast, satisfy (ii) but fail to sep-arate semantically different clips, violating (i). FATE satisfies both: by retaining frame-level embedding and defining Sim 
+
+over temporally aligned frame pairs, semantic and temporal discrimination are encoded in one single similarity. 
+
+Architecture of FATE 
+
+Fig. 2 illustrates the architecture of FATE. We build on the Perception Encoder Audio-Visual (PE-AV) (Vyas et al. 2025), retaining its dual-encoder backbone but discarding the global pooling head. The resulting pipeline operates in three stages: frame-level feature extraction, temporal alignment, and frame-level similarity computation. 
+
+Frame-level feature extraction. FATE bypasses the pooling step and retains the full token sequences. Given video V
+
+and audio A, the dual encoders produce FV ∈ RTv ×D and 
+
+FA ∈ RTa×D , where D is the shared embedding dimension and all frame features are ℓ2-normalized. The token counts 
+
+Tv and Ta are determined by the video frame rate and the audio spectral hop length; in practice video encoders produce more tokens per second, yielding Tv > T a for the same clip duration. Element-wise similarity requires sequences of identical length, which motivates the alignment step below. 
+
+Temporal alignment. The two encoders sample the time-line independently and share only one common coordinate system: physical time. Comparing the i-th video token with the i-th audio token without alignment is therefore mean-ingless, as they cover different time intervals. We align the sequences with two design choices, both grounded in the asymmetry between the modalities. First, we use audio as the temporal anchor and downsample video to length Ta:video is temporally redundant — adjacent frames are near-identical, so subsampling loses little — whereas audio carries transient synchronization cues (e.g., percussive onsets) that resampling would destroy. Second, we use nearest-neighbor 
+
+rather than linear interpolation, so that every aligned token remains an original frame feature; linear blending would fabricate intermediate states with no physical counterpart. Both choices are validated against their alternatives (linear interpolation, repeat padding, and the reverse audio →video direction) in Table 4 (ii). Formally, for each audio time step 
+
+i ∈ { 1, . . . , T a}, the aligned visual feature is 
+
+˜F (i) 
+
+> V
+
+= F (ϕ(i))  
+
+> V
+
+, ϕ(i) = min 
+
+
+
+round 
+
+
+
+i · Tv
+
+> Ta
+
+
+
+, T v
+
+
+
+, (2) yielding an aligned visual sequence ˜FV ∈ RTa×D .
+
+Frame-level similarity. With both modalities on the same timeline, the cross-modal similarity is the mean inner product over aligned frame pairs: 
+
+SAV = 1
+
+TaTaX
+
+> i=1
+
+ ˜F (i)
+
+> V
+
+⊤
+
+F (i) 
+
+> A
+
+. (3) Geometrically, this traces the main diagonal of the Ta × Ta
+
+pairwise similarity matrix, enforcing temporal order by con-struction. Under a temporal shift of ∆t, the true correspon-dences move to the ∆t-th off-diagonal, so SAV decays as the fraction of correctly aligned content shrinks — an effect empirically visible as the sharp unimodal peak at ∆t = 0 
+
+in Fig. 3. This built-in penalty is what FATE exploits for synchronization-aware retrieval and evaluation, without any task-specific prediction head. 
+
+Training Strategy 
+
+FATE is trained with two complementary objectives: seman-tic contrastive loss Lsem that separates embeddings across 
+
+videos, and temporal soft-contrastive loss Ltemp that su-pervises fine-grained alignment within each video. The total objective is their weighted sum, which together captures both 
+
+what sounds and when it occurs. 
+
+Ltotal = λ1Lsem + λ2Ltemp , (4) We detail each term below: 
+
+Semantic contrastive loss. We apply symmetric InfoNCE over a mini-batch of B video-audio pairs. For each video anchor vi, its paired audio ai is the positive and all other in-batch audios are negatives: 
+
+Lv2a = − 1
+
+B
+
+> B
+
+X
+
+> i=1
+
+log exp( SAV (vi, a i)/τ )
+
+PBj=1 exp( SAV (vi, a j )/τ ) , (5) with La2v computed symmetrically and Lsem = 12 (Lv2a +
+
+La2v ). Since frame-level embeddings limit the per-GPU batch size, we all-gather embeddings across G GPUs be-fore computing the denominator, expanding the negative pool from B to B×G at no extra per-GPU memory cost (Fig. 2(b)). 
+
+Temporal soft-contrastive loss. The semantic loss struc-tures the embedding space across videos but provides no supervision within a video: it cannot distinguish a synchro-nized clip from a slightly shifted one. The temporal loss fills this gap by casting alignment as probability matching over candidate offsets. Given a 2-second video anchor v, we slide a 2-second window over its 10-second source video with a 0.5-second stride, yielding K = 17 candidate audio clips whose offsets ∆tk range from fully aligned to strongly misaligned. The supervision target can be any non-increasing function of the absolute offset; we instantiate it as a raised-cosine kernel, 
+
+y(∆ tk) = 
+
+
+
+cos 2
+
+ π∆tk
+
+2T0
+
+
+
+|∆tk| ≤ T0,
+
+0 otherwise ,
+
+(6) which decays smoothly from its peak at ∆tk = 0 to zero at the support boundary T0. We set T0 = 1 s so that the half-maximum point, 0.5 s, matches the psychophysical threshold below which humans can barely perceive audio-visual asyn-chrony (Vatakis and Spence 2006). The smooth roll-off also matches the structure of the candidates: adjacent clips share 75% temporal overlap, so assigning them zero weight would force the model to separate similar content. For example, on our 0.5s grid, Eq. (6) yields relative weights 2 : 1 : 0 
+
+for the aligned, adjacent, and distant candidates; the kernel width is further validated by ablation (Table 4(i)). Normaliz-ing pk = y(∆ tk)/ P 
+
+> m
+
+y(∆ tm), we minimize cross-entropy against the predicted similarity distribution: 
+
+Ltemp _v2a = −
+
+> K
+
+X
+
+> k=1
+
+pk log exp( SAV (v, a k)/τ )
+
+PKm=1 exp( SAV (v, a m)/τ ) .
+
+(7) 
+
+Ltemp _a2v uses audio clips as anchors, and Ltemp = 
+
+> 12
+
+(Ltemp _v2a + Ltemp _a2v ). This graduated supervision shapes a smooth alignment landscape in which similarity peaks at zero offset and decreases with displacement, mir-rored by the empirical sensitivity curve in Fig. 3. 
+
+## Experimental Settings 
+
+Training Specification 
+
+We initialize FATE from PE-AV-small (Vyas et al. 2025), discarding its text encoder and global pooling head, and fine-tune with LoRA (Hu et al. 2022), which updates only 2.3% of the parameters while keeping the encoder weights frozen. Training uses the VGGSound (Chen et al. 2020) training split ( ∼183k 10-second clips across 309 sound categories), where each video is segmented into 2-second clips with a 0.5-second stride, yielding ∼17 clips per video. The model is trained for 5 epochs on 8 NVIDIA A800 GPUs; prepro-cessing and optimization details are listed in Appendix. 
+
+Evaluation Protocol 
+
+We evaluate FATE on three downstream tasks that test its temporal discrimination, generalization, and practical utility. 
+
+Temporal Cross-Modal Retrieval. Given an audio query aq
+
+and a video segmented into N clips V = {v1, . . . , v N }, the goal is to retrieve the temporally aligned clip: 
+
+ˆv = arg max  
+
+> vi∈V
+
+SAV (vi, a q ). (8) We evaluate on the test splits of AVSync15 (Zhang et al. 2024) (150 videos) and VGG-Sync (Chen et al. 2021) (595 videos), each consisting of ∼10 s videos. Both benchmarks are curated from VGGSound, so we verify by video ID that no test video appears in training split. Each video is segmented into 2s clips with a 0.5s stride, yielding N ≈17 candidates per video; one segment is selected as the ground-truth query, with graded relevance of 2 for the aligned segment, 1 for segments within ±0.5 s, and 0 otherwise. We report Recall@ k (R@ k)and NDCG@ k (N@ k) in both Video-to-Audio (V2A) and Audio-to-Video (A2V) directions. We design two retrieval settings to disentangle model ca-pabilities. In the Intra-Video setting, the candidate pool con-tains only the ∼17 segments of the same video; since all candidates share identical semantic content, this purely tests fine-grained temporal discrimination. In the Inter-Video set-ting, we append all segments from M =50 randomly sampled distractor videos ( ∼850 candidates per query), requiring the model to jointly identify the correct video and locate the aligned segment within it. Together, the two settings reveal whether a model possesses one capability or both. We compare against two categories of baselines. The first consists of audio-visual foundation models, including Image-Bind (Girdhar et al. 2023), LanguageBind (Zhu et al. 2023), CAV-MAE Sync (Araujo et al. 2025), PE-AV (Vyas et al. 2025), CAVP (Luo et al. 2023), and PEAVS (Goncalves et al. 2024), scored by cosine similarity between query and can-didate. The second is the specialized synchronization model Synchformer (Iashin et al. 2024), which predicts temporal offsets rather than embeddings; we use its predicted proba-bility at zero offset as the retrieval score. All baselines use officially released checkpoints. 
+
+Audio-Visual Event Localization. Given an audio query Ae
+
+and an video V , we divide V into 1s segments and slide a window of the query’s duration over them, predicting the window with the highest average similarity: 
+
+ˆt = arg max 
+
+> t
+
+1
+
+|w|
+
+X
+
+> s∈w(t)
+
+SAV (Vs, A e). (9) We evaluate on the Audio-Visual Event (AVE) dataset (Tian et al. 2018), which contains unconstrained videos with second-level temporal annotations across 28 event categories, and report segment-level accuracy for A2V, V2A, and their average. We compare against DCCA (Andrew et al. 2013), AVDLN (Tian et al. 2018), and DAM (Wu et al. 2019). Notably, all three baselines are supervised , trained on the AVE training set with ground-truth temporal annota-tions, whereas FATE is evaluated zero-shot , trained only on VGGSound without any AVE supervision. 
+
+Joint Audio-Video Generation Evaluation. This task vali-dates FATE as an automatic metric for the audio-visual syn-chronization quality of generated content. Given a generated pair (Vgen , A gen ), FATE outputs a synchronization score 
+
+SAV , and we measure its agreement with human perception via Spearman’s rank correlation: 
+
+ρ = Spearman  SAV (Vgen , A gen ), MOS . (10) We use text prompts from the AVSync-15 test set to gen-erate videos with five recent joint audio-video generation models: BridgeDiT (Guan et al. 2025b), JavisDiT (Liu et al. 2025), Ovi (Low, Wang, and Katyal 2025), LTX-2 (HaCo-hen et al. 2026), and JointDiT (Wang et al. 2025b), yielding 150 videos per model (750 in total). Ten independent anno-tators rate the temporal synchronization of each video on a 1-5 scale, and we average their ratings into a Mean Opinion Score (MOS), and the full annotation protocol is described in Appendix. We compare FATE against DeSync (Iashin et al. 2024), PEAVS (Goncalves et al. 2024), AV-Align (Yariv et al. 2023), and CAVP (Luo et al. 2023), reporting two comple-mentary measures: sample-level ρ, the per-video correlation within each generation model, and model-ranking ρ, which measures whether the metric ranks the five generation mod-els consistently with their average human MOS. 
+
+## Experimental Results 
+
+Temporal Cross-Modal Retrieval 
+
+Table 1 reports results under both settings and reveals three insights. First, global pooling leaves embedding models with no temporal discrimination. In the Intra-Video set-ting, where all candidates share identical semantics and only timing differs, random guessing among the ∼17 candidates yields 5.9% R@1; every pooling-based model scores within two points of this chance level (e.g., ImageBind 4.89, PE-AV 5.33), meaning their similarity scores are uninformative about when events occur. Second, the gains come from the frame-level design rather than from the backbone or data. FATE and PE-AV share the same encoder, yet FATE lifts V2A R@1 on AVSync-15 from the chance-level 5.33 to 22.37, a 4 × improvement obtained purely by preserving tem-poral structure and adding temporal supervision. FATE also outperforms Synchformer by wide margins (60.83 vs. 22.35 V2A N@1 on VGG-Sync), indicating that an embedding trained for synchronization can surpass a specialized predic-tion head at its own task. Third, semantic and temporal ca-pabilities need not trade off; rather, temporal discrimination presupposes semantic grounding. The Inter-Video setting (∼850 candidates) exposes complementary failures: embed-ding models keep reasonable semantic accuracy but cannot localize in time, while Synchformer collapses once semantic distractors appear (13.56 V2A R@3 on AVSync-15). Locat-ing when an event occurs is only meaningful after identify-ing which video contains it, so temporal precision without semantic structure does not survive realistic retrieval. 
+
+Cross-Modal Event Localization 
+
+Table 2 evaluates zero-shot event localization on AVE and yields two findings. First, among zero-shot methods, tem-poral structure in the representation is the decisive factor. All four share VGGSound training data and see no AVE annotations, so their ordering isolates representation design: ImageBind’s global embeddings barely ground events in time (21.6%), Synchformer’s offset prediction helps (26.8%), and FATE, which differs from PE-AV (31.8%) only in preserving frame-level structure, reaches 48.3%, a 16.5-point gain with an identical encoder. Second, the learned temporal corre-spondence transfers beyond its training domain. Without any AVE supervision, FATE matches methods trained directly on AVE with ground-truth boundaries: it exceeds the strongest supervised baseline DAM on A2V (51.8% vs. 48.5%) and on average (48.3% vs. 47.8%), while DAM keeps an edge on V2A (47.1% vs. 44.7%). 
+
+Joint Audio-Video Generation Evaluation 
+
+Table 3 evaluates FATE as an automatic synchronization metric by measuring its agreement with human judgments (all correlations are reported as ρ × 100 ). FATE leads on both measures. It achieves the highest av-erage sample-level correlation (17.24), ahead of the second-best metric CAVP (14.15), and a model-ranking ρ of 44.41, well above the runner-up AV-Align (24.99). Existing met-rics show the opposite failure modes: DeSync, PEAVS, and AV-Align remain below 10 in sample-level ρ. FATE is the only metric that performs best on both dimensions simulta-neously, which we attribute to its frame-level similarity: it is sensitive enough to distinguish subtle per-video synchro-nization differences, yet consistent across videos produced by different generation models. We note two limitations. First, all metrics, including FATE, show modest absolute sample-level correlations, indicating that fine-grained synchronization evaluation of generated content remains an open problem; FATE narrows this gap but does not close it. Second, the model-ranking ρ is com-puted over only five generation models and should be read as indicative rather than conclusive. Within these limits, FATE Avsync15 VGG-Sync                                                                                                                                                                                                               
+
+> V2A A2V V2A A2V
+> Setting Method R@1 R@3 N@1 N@3 R@1 R@3 N@1 N@3 R@1 R@3 N@1 N@3 R@1 R@3 N@1 N@3
+> Intra-Video ( ∼17 cands)  ImageBind (Girdhar et al. 2023) 4.89 16.22 8.89 15.49 6.67 16.89 12.00 15.47 6.19 19.19 10.31 16.50 7.25 20.67 10.70 17.35 LanguageBind (Zhu et al. 2023) 5.11 18.89 7.78 14.81 0.00 4.22 0.00 2.81 5.43 17.09 8.91 14.48 0.06 3.59 0.06 2.15 CAV-MAE Sync (Araujo et al. 2025) 5.56 18.22 9.56 14.87 4.00 14.00 6.22 11.62 5.15 15.29 9.30 13.42 4.15 14.68 7.96 12.35 PE-AV (Vyas et al. 2025) 5.33 18.00 9.33 15.56 6.22 17.33 11.11 15.95 7.17 20.28 11.88 17.56 5.77 17.93 9.02 15.23 CAVP (Luo et al. 2023) 6.44 16.22 9.56 14.28 3.33 14.22 6.89 11.80 4.99 15.97 7.45 12.82 4.76 15.97 7.79 12.95 PEAVS (Goncalves et al. 2024) 12.45 28.57 15.14 19.47 11.76 27.57 13.63 18.23 11.05 25.85 16.34 20.35 10.75 24.85 13.71 16.19 Synchformer (Iashin et al. 2024) 15.56 38.89 28.44 38.46 13.78 32.89 29.78 34.98 12.04 34.12 22.35 31.57 10.92 32.21 21.46 30.97
+> FATE (Ours) 22.37 55.74 53.56 59.24 21.56 56.22 51.78 59.66 26.39 48.37 60.83 69.04 16.50 44.83 33.61 44.49
+> w/o Frame-level 9.78 29.11 18.67 27.73 9.11 29.33 18.00 25.75 12.72 34.68 22.80 32.82 10.76 28.68 19.27 26.55
+> Inter-Video ( ∼850 cands)  ImageBind (Girdhar et al. 2023) 2.89 9.78 5.11 9.96 2.89 7.78 5.11 7.24 2.80 7.73 4.37 6.71 3.03 7.90 5.71 7.56 LanguageBind (Zhu et al. 2023) 2.35 4.80 6.15 8.90 1.95 4.10 5.60 7.45 3.10 5.65 7.80 10.20 2.75 4.90 6.45 8.80 CAV-MAE Sync (Araujo et al. 2025) 0.22 0.44 0.67 0.56 0.22 0.44 0.22 0.40 0.06 0.11 0.06 0.07 0.06 0.39 0.17 0.31 PE-AV (Vyas et al. 2025) 3.33 10.54 5.56 9.05 4.67 10.12 8.22 10.21 4.15 10.70 6.61 9.20 2.41 7.11 3.98 6.14 CAVP (Luo et al. 2023) 3.15 9.42 5.05 6.85 2.68 8.35 4.77 5.92 2.95 8.15 4.23 6.10 2.45 7.20 4.15 5.25 PEAVS (Goncalves et al. 2024) 3.68 12.64 6.44 10.29 2.99 10.34 5.75 9.23 5.05 15.85 7.98 13.35 4.75 14.85 8.74 13.19 SyncFormer (Iashin et al. 2024) 4.44 13.56 8.00 11.98 2.44 3.56 6.00 5.17 4.82 12.49 7.96 10.78 0.90 2.07 1.90 2.58
+> FATE (Ours) 14.22 34.13 33.53 37.66 11.11 30.44 23.11 30.11 15.35 37.76 35.85 42.24 11.93 31.54 24.93 31.99
+> w/o Frame-level 6.67 19.33 12.44 18.83 6.44 20.44 12.22 17.54 7.90 22.02 14.06 20.87 7.23 19.44 13.28 18.34
+
+Table 1: Temporal audio-visual cross-modal retrieval results. Intra-Video: candidates are segments from the same video ( ∼17 per query), testing pure temporal discrimination. Inter-Video: candidates additionally include segments from M =50 distractor videos ( ∼850 per query), requiring joint semantic and temporal discrimination. We report Recall@ k (R@ k) and NDCG@ k
+
+(N@ k) for Video-to-Audio (V2A) and Audio-to-Video (A2V) tasks. Best in bold, second best underlined. 
+
+Method A2V V2A Avg. 
+
+Supervised on AVE 
+
+DCCA (Andrew et al. 2013) 34.8 34.1 34.5 AVDLN (Tian et al. 2018) 44.8 35.6 40.2 DAM (Wu et al. 2019) 48.5 47.1 47.8 
+
+Zero-shot, trained on VGGSound 
+
+ImageBind (Girdhar et al. 2023) 23.4 19.8 21.6 Synchformer (Iashin et al. 2024) 28.5 25.1 26.8 PE-AV (Vyas et al. 2025) 34.2 29.4 31.8 
+
+FATE (Ours) 51.8 44.7 48.3 
+
+w/o Frame-level 37.9 33.2 35.6 
+
+Table 2: Audio-visual event localization on the AVE dataset. We report segment-level accuracy (%) for A2V, V2A, and average. Upper: methods supervised on the AVE training set. Lower: zero-shot methods trained only on VGGSound. w/o Frame-level is a controlled ablation and excluded from the ranking. Best overall in bold, best zero-shot underlined. offers the closest agreement with human perception among the compared metrics, without any metric-specific training. 
+
+Ablation Study 
+
+Temporal Sensitivity Analysis. We plot SAV as a func-tion of temporal offset ∆t, averaged over all 150 AVSync-15 test videos (Fig. 3). PE-AV (global pooling) produces a nearly flat curve: even a 4-second shift yields almost the same score as perfect alignment, consistent with the permutation-invariance argument. FATE instead shows a clear peak at 
+
+Metric Avg. Sample ρ ↑ Model Rank ρ ↑
+
+DeSync (Iashin et al. 2024) 8.22 24.13 PEAVS (Goncalves et al. 2024) 8.04 15.71 AV-Align (Yariv et al. 2023) 8.04 24.99 CAVP (Luo et al. 2023) 14.15 14.21 
+
+FATE (Ours) 17.24 44.41 
+
+Table 3: Correlation with human perception on the AVSync-15 test set. Five generation models (BridgeDiT, JavisDiT, Ovi, LTX2, JointDiT) each produce 150 videos, scored by 10 annotators on a 1–5 synchronization scale (MOS). We report Spearman ρ between each metric and human MOS. Avg. Sample ρ: mean per-video correlation across the five models. 
+
+Model Rank ρ: correlation between the metric’s ranking of the five models by average score and the human ranking by average MOS. Best in bold, second best underlined. 
+
+∆t=0 that decays steadily as the offset grows in either di-rection. This matches the frame-level design (Eq. 3): under a shift, aligned frame pairs no longer refer to the same phys-ical moment, so the average inner product decreases. The smooth shape of the curve also echoes the soft-label design (Eq. 6): rather than a sharp binary boundary between aligned and misaligned, the model captures a gradual transition that mirrors how temporal overlap shrinks with larger offsets. 
+
+Impact of Frame-Level Embeddings. This ablation an-swers two questions at once: whether FATE’s gains stem from the frame-level design or merely from in-domain fine-tuning, 4 2 0 2 4   
+
+> Temporal Offset t(seconds)
+> 0.0 0.2 0.4 0.6 0.8
+> Normalized Similarity
+> PE-AV (Global Pooling) FATE (Frame-Level)
+> t= 0 (aligned)
+
+Figure 3: Similarity score vs. temporal offset. PE-AV’s global embedding produces a flat response insensitive to temporal shift. FATE’s frame-level similarity peaks sharply at ∆t=0 
+
+and decays with increasing offset, demonstrating precise tem-poral discrimination. Shaded regions indicate ±1 std. 
+
+Variant V2A R@3 A2V R@3 FATE (full) 34.13 30.44 
+
+(i) Temporal Label Design 
+
+→ Hard binary (0/1) 28.50 (−16.5%) 24.35 (−20.0%) 
+
+→ Soft label, 0.25s 29.78 (−12.7%) 28.12 (−7.6%) 
+
+→ Soft label, 0.75s 31.56 (−7.5%) 28.67 (−5.8%) 
+
+(ii) Alignment Strategy 
+
+→ Linear interpolation 30.12 (−11.7%) 26.55 (−12.8%) 
+
+→ Repeat padding 29.40 (−13.9%) 25.80 (−15.2%) 
+
+→ Audio →video 29.74 (−12.9%) 26.13 (−14.2%) 
+
+(iii) Loss Components 
+
+→ L sem only 19.78 (−42.0%) 11.46 (−62.4%) 
+
+→ L temp only 15.56 (−54.4%) 12.34 (−59.5%) 
+
+Table 4: Ablation on FATE’s core design choices. We re-port inter-video retrieval R@3 on AVSync-15; parenthesized numbers show the relative drop from full FATE. All variants share the identical configuration with full FATE. and how much each factor contributes. The w/o Frame-level 
+
+variant in Table 1 is trained with the identical data, backbone, LoRA configuration, and budget as full FATE, differing only in replacing frame-level tokens with global pooling; any gap between the two therefore isolates the frame-level design it-self. The isolated effect is roughly a factor of two. Pooling cuts performance nearly in half across both datasets and set-tings: on AVSync-15, intra-video V2A R@3 falls from 55.74 to 29.11 and inter-video from 34.13 to 19.33, with VGG-Sync showing the same pattern (48.37 to 34.68 and 37.76 to 22.02). Since everything else is held fixed, this drop comes entirely from replacing frame-level tokens with a single pooled vec-tor. The comparison also decomposes the two factors cleanly. On intra-video VGG-Sync, the pooled variant already edges out Synchformer (12.72 vs. 12.04 V2A R@1): training with our objectives alone matches a dedicated synchronization head. Full FATE then doubles this again (26.39 V2A R@1). In other words, the training recipe alone is enough to match specialized synchronization models, while the frame-level structure is what puts FATE clearly ahead. 
+
+Effectiveness of Loss Components. Table 4 (iii) evalu-ates each loss term. Training with Lsem alone yields 19.78 V2A R@3: the model learns cross-video semantics but lacks within-video temporal precision. Training with Ltemp alone performs worse still (15.56 V2A R@3), as it provides no semantic signal to separate different videos. Combining both reaches 34.13 V2A R@3, exceeding the sum of their individ-ual gains over PE-AV. This super-additive effect indicates the two objectives are complementary: Lsem structures the em-bedding space across videos, while Ltemp refines temporal ordering within each video. 
+
+Soft vs. Hard Temporal Labels. Table 4 (i) compares our three-level soft labeling (GT=2, ±0.5s=1, else=0) against hard binary labels (aligned=1, else=0). Hard labels degrade V2A R@3 from 34.13 to 28.50 and A2V R@3 from 30.44 to 24.35. The reason is straightforward: with a 0.5-second stride, adjacent segments share 75% temporal overlap with the anchor, and treating them as hard negatives forces the model to push apart near-identical content, introducing con-flicting gradients. Soft labels instead assign intermediate su-pervision to these ambiguous neighbors, letting the model learn a smooth similarity decay rather than an abrupt bound-ary. Varying the soft-label window confirms the choice: a narrower 0.25 s window (29.78 V2A R@3) mislabels valid positives as negatives, a wider 0.75 s window (31.56) blurs the positive/negative boundary. 
+
+Influence of Alignment Strategy. Table 4 (ii) evaluates al-ternatives to nearest-neighbor interpolation for aligning the higher-rate visual sequence ( Tv tokens) to the lower-rate au-dio sequence ( Ta tokens). Linear interpolation (30.12 V2A R@3) averages adjacent frames, producing blended features that correspond to no real frame and weaken temporal bound-aries. Repeat padding (29.40) duplicates visual tokens to match Ta, skewing the similarity computation toward re-peated content. Nearest-neighbor (34.13) selects the closest original frame for each audio time step, so every aligned token remains an unmodified representation. Reversing the resampling direction (audio →video, 29.74) also underper-forms, as upsampling audio degrades transient synchroniza-tion cues, supporting audio as the proper temporal anchor. 
+
+## Conclusion 
+
+We propose FATE, an audio-visual embedding model that unifies semantic correspondence and temporal synchroniza-tion within a single representation space. By preserving dense frame-level features, aligning them on the physical time axis, and training with a joint semantic-temporal ob-jective, FATE avoids the information bottleneck imposed by global pooling. Experiments across three complementary tasks validate this design: FATE sets the state of the art on re-trieval that demands both semantic and temporal discrimina-tion, matches fully supervised methods on event localization in a purely zero-shot setting, and agrees most closely with human synchronization judgments as a generation evalua-tion metric. These results suggest that fine-grained temporal awareness can emerge from a general-purpose embedding space without task-specific prediction heads. References 
+
+Andrew, G.; Arora, R.; Bilmes, J.; and Livescu, K. 2013. Deep Canonical Correlation Analysis. In Dasgupta, S.; and McAllester, D., eds., Proceedings of the 30th International Conference on Machine Learning , volume 28 of Proceed-ings of Machine Learning Research , 1247–1255. Atlanta, Georgia, USA: PMLR. Araujo, E.; Rouditchenko, A.; Gong, Y.; Bhati, S.; Thomas, S.; Kingsbury, B.; Karlinsky, L.; Feris, R.; Glass, J. R.; and Kuehne, H. 2025. Cav-mae sync: Improving contrastive audio-visual mask autoencoders via fine-grained alignment. In Proceedings of the Computer Vision and Pattern Recog-nition Conference , 18794–18803. Assran, M.; Bardes, A.; Fan, D.; Garrido, Q.; Howes, R.; Komeili, M.; Muckley, M.; Rizvi, A.; Roberts, C.; Sinha, K.; Zholus, A.; Arnaud, S.; Gejji, A.; Martin, A.; Robert Hogan, F.; Dugas, D.; Bojanowski, P.; Khalidov, V.; Labatut, P.; Massa, F.; Szafraniec, M.; Krishnakumar, K.; Li, Y.; Ma, X.; Chandar, S.; Meier, F.; LeCun, Y.; Rabbat, M.; and Bal-las, N. 2025. V-JEPA 2: Self-Supervised Video Models En-able Understanding, Prediction and Planning. arXiv preprint arXiv:2506.09985 .Chen, H.; Xie, W.; Afouras, T.; Nagrani, A.; Vedaldi, A.; and Zisserman, A. 2021. Audio-visual synchronisation in the wild. arXiv preprint arXiv:2112.04432 .Chen, H.; Xie, W.; Vedaldi, A.; and Zisserman, A. 2020. VGGSound: A Large-scale Audio-Visual Dataset. In Inter-national Conference on Acoustics, Speech, and Signal Pro-cessing (ICASSP) .Cheng, X.; Wang, X.; Wu, Y.; Wang, Y.; and Song, R. 2025. LoVA: Long-form Video-to-Audio Generation. In ICASSP 2025 - 2025 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , 1–5. Cheng, X.; Wang, Y.; Wang, X.; Wu, Y.; Guan, K.; Chen, Y.; Zhang, P.; Liu, X.; Cao, M.; and Song, R. 2026. VSSFlow: Unifying Video-conditioned Sound and Speech Generation via Joint Learning. arXiv:2509.24773. Chung, J. S.; and Zisserman, A. 2017. Out of Time: Auto-mated Lip Sync in the Wild. In Computer Vision – ACCV 2016 Workshops , 251–263. Springer. GeminiTeam. 2023. Gemini: A Family of Highly Capable Multimodal Models. arXiv:2312.11805. Girdhar, R.; El-Nouby, A.; Liu, Z.; Singh, M.; Alwala, K. V.; Joulin, A.; and Misra, I. 2023. ImageBind: One Embedding Space To Bind Them All. In CVPR .Goncalves, L.; Mathur, P.; Lavania, C.; Cekic, M.; Federico, M.; and Han, K. J. 2024. Perceptual evaluation of audio-visual synchrony grounded in viewers’ opinion scores. In Eu-ropean Conference on Computer Vision , 288–305. Springer. Guan, K.; Lai, Z.; Sun, Y.; Zhang, P.; Liu, W.; Liu, K.; Cao, M.; and Song, R. 2025a. Etva: Evaluation of text-to-video alignment via fine-grained question generation and answering. In Proceedings of the IEEE/CVF International Conference on Computer Vision , 21299–21309. Guan, K.; Wang, X.; Lai, Z.; Cheng, X.; Zhang, P.; Liu, X.; Song, R.; and Cao, M. 2025b. Taming Text-to-Sounding Video Generation via Advanced Modality Condition and In-teraction. arXiv:2510.03117. Guzhov, A.; Raue, F.; Hees, J.; and Dengel, A. 2021. AudioCLIP: Extending CLIP to Image, Text and Audio. arXiv:2106.13043. HaCohen, Y.; Brazowski, B.; Chiprut, N.; Bitterman, Y.; Kvochko, A.; Berkowitz, A.; Shalem, D.; Lifschitz, D.; Moshe, D.; Porat, E.; et al. 2026. LTX-2: Efficient Joint Audio-Visual Foundation Model. arXiv preprint arXiv:2601.03233 .Hu, E. J.; Shen, Y.; Wallis, P.; Allen-Zhu, Z.; Li, Y.; Wang, S.; Wang, L.; and Chen, W. 2022. LoRA: Low-Rank Adaptation of Large Language Models. In International Conference on Learning Representations (ICLR) .Huang, Z.; He, Y.; Yu, J.; Zhang, F.; Si, C.; Jiang, Y.; Zhang, Y.; Wu, T.; Jin, Q.; Chanpaisit, N.; Wang, Y.; Chen, X.; Wang, L.; Lin, D.; Qiao, Y.; and Liu, Z. 2024. VBench: Compre-hensive Benchmark Suite for Video Generative Models. In 
+
+Proceedings of the IEEE/CVF Conference on Computer Vi-sion and Pattern Recognition .Huang, Z.; Zhang, F.; Xu, X.; He, Y.; Yu, J.; Dong, Z.; Ma, Q.; Chanpaisit, N.; Si, C.; Jiang, Y.; Wang, Y.; Chen, X.; Chen, Y.-C.; Wang, L.; Lin, D.; Qiao, Y.; and Liu, Z. 2025. VBench++: Comprehensive and Versatile Benchmark Suite for Video Generative Models. IEEE Transactions on Pattern Analysis and Machine Intelligence .Iashin, V.; Xie, W.; Rahtu, E.; and Zisserman, A. 2022. Sparse in space and time: Audio-visual synchronisation with trainable selectors. arXiv preprint arXiv:2210.07055 .Iashin, V.; Xie, W.; Rahtu, E.; and Zisserman, A. 2024. Synchformer: Efficient synchronization from sparse cues. In ICASSP 2024-2024 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , 5325– 5329. IEEE. Liu, K.; Li, W.; Chen, L.; Wu, S.; Zheng, Y.; Ji, J.; Zhou, F.; Jiang, R.; Luo, J.; Fei, H.; et al. 2025. Javisdit: Joint audio-video diffusion transformer with hierarchical spatio-temporal prior synchronization. arXiv preprint arXiv:2503.23377 .Low, C.; Wang, W.; and Katyal, C. 2025. Ovi: Twin back-bone cross-modal fusion for audio-video generation. arXiv preprint arXiv:2510.01284 .Luo, S.; Yan, C.; Hu, C.; and Zhao, H. 2023. Diff-foley: Synchronized video-to-audio synthesis with latent diffusion models. Advances in Neural Information Processing Sys-tems , 36: 48855–48876. Oord, A. v. d.; Li, Y.; and Vinyals, O. 2018. Representation learning with contrastive predictive coding. arXiv preprint arXiv:1807.03748 .qwen team. 2025. Qwen3-Omni Technical Report. arXiv preprint arXiv:2509.17765 .Radford, A.; Kim, J. W.; Hallacy, C.; Ramesh, A.; Goh, G.; Agarwal, S.; Sastry, G.; Askell, A.; Mishkin, P.; Clark, J.; et al. 2021. Learning transferable visual models from natural language supervision. In International conference on machine learning , 8748–8763. PMLR. Seedance, T.; Chen, H.; Chen, S.; Chen, X.; Chen, Y.; Chen, Y.; Chen, Z.; Cheng, F.; Cheng, T.; Cheng, X.; et al. 2025. Seedance 1.5 pro: A Native Audio-Visual Joint Generation Foundation Model. arXiv preprint arXiv:2512.13507 .Tian, Y.; Shi, J.; Li, B.; Duan, Z.; and Xu, C. 2018. Audio-visual event localization in unconstrained videos. In Pro-ceedings of the European conference on computer vision (ECCV) , 247–263. Tuncay, L.; Labbé, E.; Benetos, E.; and Pellegrini, T. 2025. Audio-JEPA: Joint-Embedding Predictive Architec-ture for Audio Representation Learning. arXiv preprint arXiv:2507.02915 .Vatakis, A.; and Spence, C. 2006. Audiovisual synchrony perception for music, speech, and object actions. Brain Re-search , 1111(1): 134–142. Vyas, A.; Chang, H.-J.; Yang, C.-F.; Huang, P.-Y.; Gao, L.; Richter, J.; Chen, S.; Le, M.; Dollár, P.; Feichtenhofer, C.; et al. 2025. Pushing the Frontier of Audiovisual Percep-tion with Large-Scale Multimodal Correspondence Learn-ing. arXiv preprint arXiv:2512.19687 .Wang, X.; Cheng, X.; Wang, Y.; Song, R.; and Wang, Y. 2025a. VAFlow: Video-to-Audio Generation with Cross-Modality Flow Matching. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) ,11777–11786. Wang, X.; Song, R.; Li, C.; Cheng, X.; Li, B.; Wu, Y.; Wang, Y.; Xu, H.; and Wang, Y. 2025b. Animate and sound an image. In Proceedings of the Computer Vision and Pattern Recognition Conference , 23369–23378. Wang, X.; Wang, Y.; Wu, Y.; Song, R.; Tan, X.; Chen, Z.; Xu, H.; and Sui, G. 2024. TiVA: Time-Aligned Video-to-Audio Generation. In Proceedings of the 32nd ACM International Conference on Multimedia , MM ’24, 573–582. New York, NY, USA: Association for Computing Machinery. ISBN 9798400706868. Wu*, Y.; Chen*, K.; Zhang*, T.; Hui*, Y.; Berg-Kirkpatrick, T.; and Dubnov, S. 2023. Large-scale Contrastive Language-Audio Pretraining with Feature Fusion and Keyword-to-Caption Augmentation. In IEEE International Conference on Acoustics, Speech and Signal Processing, ICASSP .Wu, Y.; Zhu, L.; Yan, Y.; and Yang, Y. 2019. Dual attention matching for audio-visual event localization. In Proceed-ings of the IEEE/CVF international conference on computer vision , 6292–6300. Yariv, G.; Gat, I.; Benaim, S.; Wolf, L.; Schwartz, I.; and Adi, Y. 2023. Diverse and Aligned Audio-to-Video Generation via Text-to-Video Model Adaptation. arXiv:2309.16429. Zhang, L.; Mo, S.; Zhang, Y.; and Morgado, P. 2024. Audio-synchronized visual animation. In European Conference on Computer Vision , 1–18. Springer. Zheng, D.; Huang, Z.; Liu, H.; Zou, K.; He, Y.; Zhang, F.; Zhang, Y.; He, J.; Zheng, W.-S.; Qiao, Y.; and Liu, Z. 2025. VBench-2.0: Advancing Video Generation Benchmark Suite for Intrinsic Faithfulness. arXiv preprint arXiv:2503.21755 .Zhu, B.; Lin, B.; Ning, M.; Yan, Y.; Cui, J.; HongFa, W.; Pang, Y.; Jiang, W.; Zhang, J.; Li, Z.; Zhang, C. W.; Li, Z.; Liu, W.; and Yuan, L. 2023. LanguageBind: Extending Video-Language Pretraining to N-modality by Language-based Semantic Alignment. arXiv:2310.01852. Supplementary Material for FATE 
+
+Efficiency Analysis 
+
+Table 5 compares the per-video inference time and embed-ding storage on AVSync-15. FATE (10.8 s) is nearly identical to its backbone PE-AV (9.6 s), as both share the dual-encoder architecture. In contrast, Synchformer requires 168.0 s per video—roughly 15 × slower—because its single-encoder ar-chitecture cannot pre-extract modality-independent embed-dings, requiring a full forward pass for every query. This highlights a key advantage of FATE: it achieves superior temporal discrimination over Synchformer while maintain-ing better inference efficiency. Retaining frame-level embed-dings increases per-video storage from 136 KB to 3.3 MB, since temporal information must be kept rather than pooled away. This remains an order of magnitude smaller than the raw video itself and is a justified trade-off for the fine-grained temporal capability that pooling-based models cannot pro-vide, while query-time inference speed is preserved.         
+
+> Method Storage (KB) ↓Time (s) ↓
+> Global Pooling (PE-AV) 136.0 9.6
+> SyncFormer (Iashin et al. 2024) –168.0
+> FATE (Ours) 3400.0 10.8
+
+Table 5: Efficiency comparison on AVSync-15: average per-video inference time (in seconds) for feature extraction and cross-modal similarity computation, and per-video embed-ding storage ( ∼10 s videos, single NVIDIA A800 GPU). SyncFormer does not produce reusable embeddings, hence no storage entry. 
+
+Training Details 
+
+Table 6 lists the complete preprocessing and optimization configuration. Video frames are resized to 336 × 336 and audio is resampled to 48 kHz before feature extraction. 
+
+Human Annotation Protocol 
+
+Task setup. We collect human judgments on the 750 gen-erated videos, organized into 150 groups. Each group corre-sponds to one text prompt from the AVSync-15 test set and contains five videos ( 1.mp4 –5.mp4 ) produced by the five generation models. The within-group ordering is randomly shuffled and model identities are hidden, so annotators can-not infer any systematic correspondence between file index and generator. 
+
+Evaluation criterion. Annotators judge audio-visual syn-chronization only, defined as the temporal and semantic con-sistency between the sound track and the visual motion. Two aspects are emphasized: (i) whether sound onsets are pre-cisely aligned with the corresponding visual events, without perceptible lag or lead; and (ii) whether the sound category is physically plausible given the visual event. Content quality, visual aesthetics, and audio fidelity are explicitly excluded, except when a video is too blurred for the underlying action to be identified at all. Table 6: Training hyperparameters of FATE.                                   
+
+> Component Setting
+> Backbone PE-AV-small (visual + audio encoders) Video resolution 336 ×336
+> Audio sampling rate 48 kHz Clip segmentation 2 s window, 0.5 s stride LoRA rank r/α16 / 32 LoRA dropout 0.1 LoRA target modules Q, K, V, O projections (all attention layers) Trainable parameters 2.3% Optimizer AdamW ( β1=0 .9,β2=0 .999 )Weight decay 0.0 Peak learning rate 1×10 −4
+> LR schedule linear decay Epochs 5Precision bfloat16
+> Per-GPU batch size 4Gradient accumulation 2GPUs 8×NVIDIA A800 Loss weights λ1/λ20.5 (semantic) / 1.0 (temporal) Temperature τ0.07
+
+Annotation procedure. For each group, annotators watch all five videos sequentially, then compare them side by side and assign a full ranking from 1 (best alignment) to 5 (worst alignment); ties are not permitted. Annotators are encouraged to scrub the timeline repeatedly around sound-triggering keyframes for hard-to-distinguish samples. Each group is annotated independently by ten annotators, and the ten rank-ings are averaged into a mean rank per video, which serves as the human score in our correlation analysis. Because lower ranks indicate better synchronization, we negate the mean rank before computing Spearman’s ρ against metric scores, so that positive ρ consistently denotes agreement with human perception. 
+
+Case Study 
+
+Fig. 4 provides qualitative evidence that FATE scores align with human perception of synchronization quality. We present four pairs of generated videos, each produced by two different generation models from the same text prompt. In the first example, BridgeDiT generates a lion video where the lion’s mouth closes prematurely before the sound ends, receiving a low score of 12.48, while LTX-2 produces a ver-sion with well-aligned mouth movements and audio onsets, scoring 24.75. For the toilet flushing prompt (bottom-left), BridgeDiT generates audio that is clearly unsynchronized with the visual action (7.84), whereas LTX-2 produces a temporally coherent flush sequence (23.46). Beyond tempo-ral misalignment, FATE also penalizes static visuals lacking dynamics (JavisDiT, 16.01) and missing sound-source cor-respondence (JointDiT, 9.43). Across all cases, the score rankings closely match human perceptual judgments, cor-roborating the quantitative results in Table 3. Close Mouth   
+
+> unsynchronized Unsynchronized
+> Lack of Dynamic
+> 12.48 24.75 16.01 17.78 23.46 7.84 9.43 22.57
+> BridgeDiT LTX-2 LTX-2 BridgeDiT JavisDiT JointDiT LTX-2
+> FATE Score FATE Score
+> JointDiT
+
+Figure 4: Qualitative visualization of FATE as a generation evaluation metric. For each case, we compare outputs from two generation models, showing key frames, mel-spectrograms, and FATE scores. FATE assigns higher scores to videos with well-aligned sound events (green boxes) and penalizes unsynchronized contents, closely matching human perceptual judgments. 
+
+Prompts for MLLM-based Evaluation 
+
+We benchmark FATE against two general-purpose omni-modal LLMs: Qwen3-Omni-30B-A3B (open-weight, served locally with vLLM) and Gemini-3.6-Flash (ac-cessed through its official API). Both models receive the identical zero-shot prompt shown below; no model-specific tuning, few-shot exemplars, or chain-of-thought elicitation is used. The prompt isolates temporal synchronization from semantic relevance, forbids free-form explanation so that out-puts can be parsed automatically, and fixes the output to a two-decimal scalar in [0 , 1] that is directly comparable to normalized FATE scores. Each video is submitted as a single request with its na-tive audio track and no additional text context. Decoding is greedy (temperature 0, top-p 1.0, maximum 8 output tokens) to eliminate sampling variance, and each video is queried once. Responses that fail to match the expected numeric for-mat are re-queried once; the small number of persistent fail-ures are excluded from the correlation analysis. Both models ingest the same preprocessed clips used for FATE, so no model receives an input advantage. We note that Qwen3-Omni samples video at 2 fps, which upper-bounds the tem-poral granularity it can in principle resolve; this sampling rate is a property of the released model and cannot be increased through prompting. 
+
+Evaluation prompt for Omni LLM 
+
+You are an expert evaluator of audio-visual temporal synchronization. You will be given a short video clip with its audio track. Your task is to rate ONLY the temporal synchronization between the audio and the visual content: whether sound events occur at exactly the same moments as their visible sources (e.g., a bark occurs while the dog’s mouth opens, a drum hit occurs at the moment of impact). 
+
+Scoring rules: 
+
+• Output a single score between 0.00 and 1.00, with exactly two decimal places. 
+
+• 1.00 = perfectly synchronized: every audible event coincides with its visible cause. 
+
+• 0.50 = partially synchronized: some events align, others are noticeably shifted. 
+
+• 0.00 = completely unsynchronized: sound events and visible actions do not co-occur at all. 
+
+• Judge synchronization continuously; use the full range (e.g., 0.15, 0.38, 0.85), not only the anchor values above. 
+
+Strict constraints: 
+
+• Ignore semantic relevance. Even if the sound type matches the scene (a dog video with barking audio), the score must be LOW if the timing is off (e.g., barking while the mouth is closed). 
+
+• Ignore video quality, aesthetics, audio fidelity, and content plausibility. 
+
+• If the sounding source is never visible on screen, output 0.00. 
+
+• Do not explain. Output ONLY the score in the format: X.XX

@@ -6,35 +6,43 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-09
-- 运行时间：2026-08-09 20:09:45 UTC
+- 最新运行日期：2026-08-10
+- 运行时间：2026-08-10 21:18:08 UTC
 - 运行状态：成功
-- 本次总论文数：4
-- 精读区：0
-- 速读区：4
+- 本次总论文数：7
+- 精读区：6
+- 速读区：1
 
 ### 今日简报（AI）
-今天速读3篇音频与说话人分析前沿论文，聚焦表征学习与目标提取。
-最值得关注的方向：判别性训练策略比数据量更重要，以及用脑电引导的软门控实现说话人切换时仍能精准分离。
-想快速跟上，可先略读对比学习语料库那篇，再细看脑电辅助的目标提取新方法。
-- 详情：[/202608/09/README](/202608/09/README)
+今日聚焦音视频时序融合与语音生成，精读六篇高分解矿，其中《FATE》和《SemBridge》双双拿下9.0。  
+最值得深挖的两大脉络：帧级音视频对齐嵌入让视觉信号真正参与了细粒度时序建模；语义令牌锚定则让连续潜变量自回归语音有了可控的自然节奏。  
+建议普通读者从“跨模态对齐”与“语义锚点注入”两个切口入手，把它们引入自己的多模态生成或语音交互实验，往往能带来立竿见影的质感提升。
+- 详情：[/202608/10/README](/202608/10/README)
 
 ### 精读区论文标签
-- 本次无精读推荐。
+1. [FATE: Frame-Level Audio-Visual Temporal Embedding](/202608/10/2608.01310v1-fate-frame-level-audio-visual-temporal-embedding)  
+   标签：评分：9.0/10、query:speech-model
+   evidence：帧级音视频时间嵌入，实现视觉与语音的语义和时间对齐。
+2. [SemBridge: Semantic Token Anchoring for Continuous-Latent Autoregressive Speech Generation](/202608/10/2608.07462v1-sembridge-semantic-token-anchoring-for-continuous-latent-autoregressive-speech-generation)  
+   标签：评分：9.0/10、query:speech-model
+   evidence：语义令牌锚定提升连续潜变量自回归语音生成的内容保真度
+3. [AudioScape-TTA: A Structured Soundscape Benchmark for Fine-Grained Text-to-Audio Evaluation](/202608/10/2608.04479v1-audioscape-tta-a-structured-soundscape-benchmark-for-fine-grained-text-to-audio-evaluation)  
+   标签：评分：8.0/10、query:speech-model
+   evidence：提出结构化基准用于细粒度文本到音频生成评估
+4. [Separating Decision-Rule Misalignment from Readout-Coverage Limitations in Speech Language Models](/202608/10/2608.06409v1-separating-decision-rule-misalignment-from-readout-coverage-limitations-in-speech-language-models)  
+   标签：评分：8.0/10、query:speech-model
+   evidence：诊断方法解耦语音LM的误差源，改善口语对话AI评估
+5. [Multi Codec Discrete Diffusion Model for Text Guided Speech Inpainting and Editing](/202608/10/2608.06424v1-multi-codec-discrete-diffusion-model-for-text-guided-speech-inpainting-and-editing)  
+   标签：评分：8.0/10、query:speech-model
+   evidence：文本引导的语音修复与编辑，提升语音质量和灵活性。
+6. [Cloud-Boosted Low-Compute Multi-Channel Speech Enhancement](/202608/10/2608.07423v1-cloud-boosted-low-compute-multi-channel-speech-enhancement)  
+   标签：评分：8.0/10、query:speech-model
+   evidence：云增强的低计算量多通道语音增强提升边缘设备语音质量。
 
 ### 速读区论文标签
-1. [Discriminative Axis, Not Data Volume: What a Contrastive Corpus Teaches an Audio Embedding](/202608/09/2608.01560v1-discriminative-axis-not-data-volume-what-a-contrastive-corpus-teaches-an-audio-embedding)  
-   标签：评分：7.0/10、query:speech-model
-   evidence：添加词汇-语音训练轮次提升零样本关键词识别；负样本结构设计比数据量更重要。
-2. [SAGE: Switch-Aware EEG-Guided Soft Gating for Target Speaker Extraction with In-Trial Switching](/202608/09/2608.01623v1-sage-switch-aware-eeg-guided-soft-gating-for-target-speaker-extraction-with-in-trial-switching)  
-   标签：评分：7.0/10、query:speech-model
-   evidence：脑电引导的目标说话人提取提升语音质量，有助于提高下游语音识别准确率
-3. [Speaker Verification Under Real Classroom Conditions for English Speech](/202608/09/2608.03623v2-speaker-verification-under-real-classroom-conditions-for-english-speech)  
-   标签：评分：7.0/10、query:speech-model
-   evidence：采用自监督学习的WavLM-TDNN进行教室环境说话人验证，属于大规模自监督语音模型训练应用
-4. [Beyond Residual Connections: Manifold-Constrained Hyper-Connections for Robust Speaker Representation Learning](/202608/09/2608.05549v1-beyond-residual-connections-manifold-constrained-hyper-connections-for-robust-speaker-representation-learning)  
+1. [MMAG: A Multi-Control Mixed Audio Generation Benchmark](/202608/10/2608.06900v1-mmag-a-multi-control-mixed-audio-generation-benchmark)  
    标签：评分：6.0/10、query:speech-model
-   evidence：提出流形约束超连接改进说话人表征，可增强语音模型鲁棒性
+   evidence：包含声音克隆和时间戳条件生成的多控制混合音频生成基准。
 
 
 <div class="dpr-home-promo-card">
