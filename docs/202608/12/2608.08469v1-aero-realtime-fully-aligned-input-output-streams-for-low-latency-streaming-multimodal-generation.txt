@@ -1,0 +1,433 @@
+Title: Aero Realtime: Fully Aligned Input-Output Streams for Low-Latency Streaming Multimodal Generation
+
+URL Source: https://arxiv.org/pdf/2608.08469v1
+
+Published Time: Tue, 11 Aug 2026 01:04:55 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# Aero Realtime: Fully Aligned Input-Output Streams for Low-Latency Streaming Multimodal Generation 
+
+## Kaichen Zhang 1,2 , Wei Huang 1, Keming Wu 2,3 , Bo Li 2, Xiaojuan Qi 1∗
+
+> 1
+
+The University of Hong Kong, 2LMMs-Lab, 3Tsinghua University kaichenzhang@connect.hku.hk, xjqi@eee.hku.hk Project page: https://kcz358.github.io/aero-realtime/ 
+
+Abstract 
+
+Existing streaming multimodal models process observations incrementally but still follow a turn-based prefill-then-decode pattern, making them non-duplex: new observations cannot naturally enter an active generation stream. Proactive alterna-tives use micro-turn polling or external response gates, which fragment continuous interaction, decouple response timing from language generation, and complicate KV-cache-friendly serving. We introduce Aero Realtime, a 4B streaming multi-modal model with a duplex architecture for realtime genera-tion. Aero Realtime aligns video, audio, and textual output on a shared temporal grid, where each approximately 80-ms au-dio slot predicts either a lexical token or a silence token. This allows input and output to advance together, enabling one au-toregressive objective to learn both when to respond and what to generate. During inference, Aero Realtime appends only the newest multimodal slot, carries forward the previous out-put state, and reuses the KV cache for efficient incremental execution. We further provide a complete training and serv-ing recipe, including realtime QA construction, slot-aligned supervision, hardware-aware distributed training, and resum-able inference. On four NVIDIA A6000 workstation GPUs, Aero Realtime maintains 84-ms median and 173-ms P95 pro-cessing lag over 20 minutes of a continuously streamed video, remaining within 200 ms of the source timeline. These results demonstrate the feasibility of fully aligned input-output mod-eling for duplex, proactive, and hardware-aligned multimodal interaction. 
+
+## 1 Introduction 
+
+Interactive multimodal intelligence requires a model to con-tinuously perceive the world while responding at the right moment. In realistic scenarios, visual and auditory observa-tions arrive as uninterrupted streams, and the model must decide not only what to say but also when to say it. Re-cent streaming video-language models have made impor-tant progress by processing incoming frames incremen-tally (Chen et al. 2024a, 2025) and maintaining bounded memory over long-running videos (Xu et al. 2026). How-ever, streaming perception alone is insufficient for realtime interaction. A truly realtime multimodal model should be able to receive new observations while generating a response, remain silent when no response is needed, and execute effi-
+
+> ∗
+
+Corresponding author. 
+
+ciently under the prefill–decode and KV-cache mechanisms used by modern inference engines. Existing multimodal language models are still largely in-herited from turn-based interaction, as illustrated in Fig-ure 1(a). They typically serialize visual, audio, and textual inputs into a multimodal prompt, perform a prefill step to en-code this prompt, and then generate response tokens through autoregressive decoding. This input-prefix/output-suffix for-mulation works well for offline visual question answering and conventional instruction following, but it creates a funda-mental mismatch with continuous streaming. Once decoding begins, newly arriving observations cannot naturally enter the active generation sequence. As a result, input and output advance in separate phases rather than on the same temporal clock, creating a non-duplex architecture in which the model cannot truly listen while speaking. Recent proactive and streaming systems attempt to reduce this mismatch through the two strategies illustrated in Fig-ure 1(b). One common strategy (Chen et al. 2025; Xu et al. 2026) divides the input stream into short micro-turns and repeatedly queries the model or a controller to determine whether it should respond. This approach improves tempo-ral granularity, but it does not remove the turn boundary; the model still alternates between observation, decision, and generation. Another strategy introduces explicit response-control modules, such as decision heads (Chen et al. 2024a), activation gates (Qian et al. 2025), or separated perception-decision-reaction components (Wang et al. 2025). These modules can help determine whether a response is useful, but response timing is no longer naturally learned as part of the language-generation objective. Moreover, external gating complicates deployment because it does not directly align with the prefill-decode execution path and KV-cache reuse optimized in current inference systems. The central challenge is therefore to unify continuous perception, response timing, and lexical generation without breaking efficient incremental inference. A realtime architec-ture must admit new observations during generation, model silence and speech under one objective, and preserve KV-cache reuse, as summarized in Table 1. We introduce Aero Realtime , a 4B streaming multimodal model for realtime generation, illustrated in Figure 1(c). Aero Realtime places video, audio, and textual output on a shared temporal grid. Each approximately 80-ms audio slot is paired arXiv:2608.08469v1 [cs.AI] 9 Aug 2026 Architecture Comparison for Realtime Streaming Multimodal Generation 
+
+a) Traditional Turn-Based Multimodal LMM Can not accept new input 
+
+Prefill Decoding 
+
+> Time
+> Waiting latency
+
+b) Existing Streaming / Proactive  
+
+> Micro-Turn Polling External Gating
+
+c) Aero Realtime — Fully Aligned Input-Output Streams  
+
+> ~80 ms ~80 ms
+> Duplex Architecture Native Proactive Hardware Aligned KV-cache Reuse Aligned in Real Time Input Stream Output Stream
+
+Input Next Round     
+
+> <silence> <The> <ball> <is> <silence>
+
+Encoder 
+
+> Poor Engine Fit
+
+LLM Output   
+
+> Repeated Polling
+> <silence> Ask Ask <speak> Gate
+
+Large Language Model         
+
+> [V] ··· [A] ···
+> Hi ,Iam
+> [A] ···
+> [P] a
+
+Figure 1: Realtime multimodal architectures: (a) non-duplex turn-based generation, (b) micro-turn polling and external gating, and (c) Aero Realtime’s aligned input-output stream.                     
+
+> Paradigm Continuous Input Listen While Speaking Native Proactive Engine Aligned Turn-Based ✗✗✗✓
+> Micro-Turn Polling ✓✗Partial Partial External Gating ✓Partial ✗✗
+> Aero Realtime ✓✓✓✓
+
+Table 1: Comparison of interaction paradigms. with one output slot containing either a lexical token or a silence token, allowing input and output to advance together. The same language-model head therefore learns both when 
+
+to respond and what to generate under one autoregressive objective. Making this formulation practical requires new supervi-sion, training, and serving mechanisms. First, we develop a unified slot-aligned representation that maps temporally an-notated responses onto their causal audio timeline and con-verts conventional video QA by appending silent audio slots, allowing heterogeneous data to train the same duplex in-terface. Second, we design modality-aware three-level paral-lelism: visual frames are distributed according to patch work-load, while padding-free audio and packed multimodal lan-guage sequences use sequence parallelism along their respec-tive sequence dimensions. Third, we introduce cache-valid delta inference, which appends only the newest multimodal slot, carries the sampled token into the next audio-text state, and preserves the computed prefix across continuous up-dates without repeated prefill. Together, these designs make Aero Realtime trainable and deployable as a long-running realtime system. The training stack exceeds 1,600 tokens per GPU per second on A100-40G GPUs. On four NVIDIA A6000 workstation GPUs, incremental inference maintains 84-ms median and 173-ms P95 processing lag over the first 20 minutes of a continuous video stream, remaining within 200 ms of the source timeline. On OVOBench, the compact 4B model achieves video-understanding performance com-parable to several prior 7B methods (Shen et al. 2025; Wang et al. 2024; Yao et al. 2025; Qian et al. 2025), although it still trails the strongest baselines (Table 2). To summarize, our contributions are threefold 
+
+• We propose Aero Realtime, a 4B duplex multimodal ar-chitecture that aligns continuous perception, silence, and lexical generation on one temporal grid and jointly opti-mizes when and what to generate. 
+
+• We develop unified aligned-stream supervision for real-time and conventional video data, together with silence-aware optimization and modality-aware three-level paral-lel training. 
+
+• We introduce cache-valid delta inference for continu-ous input updates and validate sustained realtime exe-cution over a 20-minute stream while retaining video-understanding capability comparable to several prior 7B methods. 
+
+## 2 Related Work 
+
+Streaming video understanding. Streaming video-language models incrementally process long-running inputs. LiveCC interleaves frames with timestamped speech tran-scripts (Chen et al. 2025), while StreamingVLM maintains a bounded KV cache for effectively unbounded streams (Xu et al. 2026). Simple Stream applies a recent-frame win-dow to an off-the-shelf VLM (Shen et al. 2026); MOSS-Video-Preview uses cross-attention pathways for concurrent perception and generation (Wang et al. 2026); and Mage-VL uses codec-derived representations for efficient stream-ing (Yang et al. 2026b). VideoChat3 spans general, long-form, and streaming video understanding (Li et al. 2026). Aero Realtime Model Architecture 
+
+Hi 
+
+Vision Encoder Audio Encoder 
+
+> TIME (LEFT TO RIGHT)
+
+I am [P] 
+
+Causal Large Language Model 
+
+V1 A1 [P] A2 Hi A3 I A4 am V2 V3 V4       
+
+> VVision token AAudio token
+> TText token [P] Silence token
+
+Figure 2: Aero Realtime architecture. Each audio state is fused with the preceding output embedding; [P] denotes silence. AURA learns continuous observation and proactive response within one VideoLLM (Lu et al. 2026), while JoyAI-VL-Interaction combines a vision-first interaction model with deployable agent delegation (Yao et al. 2026). Most methods retain per-step response generation or distinct trigger mech-anisms, whereas Aero Realtime focuses on one slot-aligned input-output stream. 
+
+Duplex multimodal models. Duplex modeling has been explored most directly for spoken dialogue. Moshi jointly models separate user and assistant audio streams with time-aligned assistant text (Défossez et al. 2024); MoshiVis adds gated cross-attention to a static image (Royer et al. 2025). Voxtral Realtime applies a stream-synchronous audio-plus-previous-token recurrence to ASR (Mistral AI et al. 2026). Our recurrence follows this formulation but incorporates timestamped visual states and trains the output stream for proactive responses rather than transcription. Thinking Ma-chines Lab’s Interaction Models process continuous audio, video, and text with concurrent output and asynchronous background reasoning (Thinking Machines Lab 2026). Aero Realtime uses an 80-ms grid where each audio slot predicts exactly one lexical or silence token, with visual states inserted by timestamp. 
+
+## 3 Method 
+
+3.1 Preliminaries: Multimodal Causal Transformers 
+
+Let V, A, and T denote visual observations, audio, and text, respectively. A conventional multimodal language model maps each supported modality into the hidden dimension of a causal Transformer, 
+
+V = Pv (fv (V)) , A = Pa(fa(A)) , T = E(T ),
+
+(1) where fv and fa are modality encoders, Pv and Pa are pro-jectors, and E is the token embedding table. Existing mul-timodal LLMs serialize these states with text into a causal sequence (Qwen Team 2025; An et al. 2026). In the turn-formatted setting, an input prefix M = Serialize( V, A, T)
+
+precedes response tokens t1: L, and training minimizes 
+
+Lturn = −
+
+> L
+
+X
+
+> i=1
+
+log pθ (ti | M, t <i ) . (2) Unlike this input-prefix/output-suffix formulation, Aero Re-altime advances perception and generation on a shared time-line. 
+
+3.2 Model Architecture 
+
+Figure 2 presents the overall architecture of Aero Realtime. We preserve modality-specific vision and audio towers but re-place turn-level conditioning with a dense text stream aligned to the audio timeline. At each audio slot, the current audio representation is combined with the preceding text-stream token embedding before entering the causal language model, which predicts the next aligned lexical token or the silence token [P].Aero Realtime divides continuous time into N audio slots. The audio encoder and projector temporally downsample the waveform such that each projected audio hidden state represents approximately 80 ms of input. Let at denote the audio segment at slot t, vj the j-th sampled video frame with timestamp τj , and yt the output token aligned with slot t.The modality-specific representations are 
+
+zvj = Pv (fv (vj )) , zat = Pa(fa(at)) , (3) where zvj , z at ∈ Rd match the hidden dimension of the lan-guage model. We denote the visual context available at audio Video Source Duration Filter 30–600 s Valid Videos        
+
+> 0s Dt1
+> t₁~ U(5, 10 s) Δt ~ U(5, 10 s)
+> …t2 t3
+> Δt ~ U(5, 10 s)
+> GPT-5.4 GPT-5.4 GPT-5.4
+> ……
+> Previous turns as text memory
+> What are they doing in this half-defense drill?
+> I’m seeing the team in yellow circulate the …
+> <silence>
+> It looks like they reset again after that …
+> They finally carried it through the middle …
+> Yes, that’s what I’m seeing now. Green …
+> Previous turns as text memory Data Source
+> LLaVA-Video LiveCC EgoIT QAEgo4D
+> Question Type
+> Realtime Data Video QA + Caption Ego Video QA
+
+Figure 3: Realtime QA construction and training-data composition. Generation uses only past visual context and turns; source shares use unique videos and question-type shares use deduplicated samples. slot t as 
+
+Zv 
+
+> ≤t
+
+= {zvj | τj ≤ τt}, (4) where τt is the wall-clock timestamp of the audio slot. Each audio slot has exactly one output token, 
+
+yt ∈ V text ∪ { [P]}, (5) where [P] is a special silence token with a learned embedding 
+
+E([ P]) ∈ Rd. A lexical token indicates that the response ad-vances at the current slot, whereas [P] indicates that the model remains silent. Our causal audio-text recurrence follows the realtime formulation of Voxtral Realtime (Mistral AI et al. 2026); Aero Realtime extends it to multimodal generation by incorporating timestamp-aligned visual states into the same causal stream. To carry the output state along the audio time-line, we fuse the current audio hidden state with the preceding output-token embedding, 
+
+eat = zat + E(yt−1), y0 = [ P]. (6) Thus, listening context and response history are represented at every slot. An L-token response occupies L consecutive 80-ms slots while perception continues, yielding a maximum lexical rate of 12.5 tokens/s without accumulating an input backlog. Visual states remain independent tokens, whereas each au-dio state shares a position with the preceding text state. Fol-lowing Qwen2.5-Omni and Qwen3-Omni (Xu et al. 2025a,b), timestamped visual tokens are interleaved with the fused audio-text slots. Let ht denote the Transformer hidden state associated with the fused token eat . It is conditioned on all preceding fused audio-text tokens and all visual tokens available by time t,
+
+ht = Transformer  Zv
+
+> ≤t
+
+, e a
+
+> ≤t
+
+ . (7) The model predicts the aligned output using the original language-model head, 
+
+pθ (yt | Z v
+
+> ≤t
+
+, a ≤t, y <t ) = softmax( Wlm ht), (8) Predicting either a lexical token or [P] jointly models what to generate and when , without a separate response gate. 
+
+Training Objective The architecture retains standard next-token cross entropy, but changes its conditioning context from the turn-level prefix in Equation 2 to the aligned multi-modal history, 
+
+Lstream = −
+
+> N
+
+X
+
+> t=1
+
+mt log pθ (yt | x≤t, y <t ) , (9) where x≤t = (Zv
+
+> ≤t
+
+, a ≤t) denotes observations causally available through slot t, and mt masks excluded positions. Packed samples are shifted independently to prevent loss across sequence boundaries. Lexical tokens and [P] share the LM head, requiring no auxiliary timing loss. 
+
+3.3 Data Curation 
+
+Figure 3 summarizes our causal realtime QA generation pipeline and the composition of the resulting training mix-ture. 
+
+Data Construction Pipeline We first retain videos be-tween 30 and 600 seconds. For each video, we sample an initial timestamp uniformly between 5 and 10 seconds and ad-vance through the remaining video with intervals drawn from the same range. At each timestamp, GPT-5.4 receives only the video prefix available at that time together with all previously generated QA turns as text memory, and generates a new tem-porally grounded QA pair. Repeating this causal procedure produces a time-ordered sequence of realtime interactions without exposing future frames. This pipeline yields 103k realtime QA samples. Our training mixture also includes existing video corpora converted into the aligned stream format: video QA and caption data from LLaVA-Video (Zhang et al. 2025b) and LiveCC (Chen et al. 2025), and egocentric video QA from EgoIT (Yang et al. 2026a) and QAEgo4D (Patel, Chitalia, and Yang 2025). Sources carrying temporal annotations are con-verted as realtime data, and the remaining question-answer and caption samples are converted as conventional instruc-tion data. Three-Level Parallel Training Infrastructure 1. Frame-Parallel Vision Encoding Uneven Visual Workload                                                
+
+> GPU 0 GPU 1 GPU 2 GPU 3
+> Load Balancing All-to-All Frame Dispatch
+> GPU 0 GPU 1 GPU 2 GPU 3
+> 8×H×W8×H×W
+> ... ...
+> 9×H×W
+> ... ...
+> 9×H×W
+> ... ...
+> 9×H×W
+> ... ...
+> 9×H×W16 ×H×W4×H×W
+> 2. Balanced Token Distribution
+> GPU 0 GPU 1 GPU 2 GPU 3
+> Input Data
+> ... ... ... ...
+> VVVVATATAT
+> Ulysses Sequence Parallelism
+> ...
+> ...
+> ...
+> ...
+> VVVVAT
+> AT
+> 2. Balanced Token Distribution
+> Input Data ... ... ... ...
+> Per GPU Shard
+> VVVVATATAT
+> GPU 0 GPU 0 GPU 1 GPU 1 GPU 2 GPU 2 GPU 3 GPU 3
+> Packing + Sequence Parallelism
+> ...
+> VAT
+
+Figure 4: Three-level training parallelism: workload-balanced frame parallelism for vision and Ulysses sequence parallelism for audio and language. We preserve source identifiers and split metadata during conversion and remove duplicate source paths when assem-bling the mixture. We do not claim that this path-level pro-cedure establishes content-level independence from every evaluation video. In particular, because the training mixture and OVOBench draw on related egocentric-video sources, possible source overlap remains a limitation discussed in Section 5. 
+
+Aligned-Stream Conversion For temporally annotated examples, we map each response to the first audio slot at or after its timestamp, place the tokenized response in the following slots, and supervise all unoccupied positions as 
+
+[P]. Conventional video QA requires only a simple adapta-tion: we keep the question as context, append silent audio slots after the video, and place the answer tokens at the cor-responding output positions. Samples without video retain the standard conversation-template supervision. 
+
+3.4 Delta-Based Realtime Inference 
+
+Using vLLM-Omni resumable requests (Yin et al. 2026), each 80-ms update appends one audio feature and any times-tamped visual or structural tokens, then emits one token yt.The sampled token is fused into the next audio update rather than retained as an ordinary generated suffix: 
+
+et+1 = Pa(fa(at+1 )) + E(yt). (10) 
+
+Figure 5: Throughput and peak memory across packing lengths and parallel settings on four A6000 GPUs. Hatch-ing enables ViT frame parallelism; crosses denote OOM. The scheduler removes the sampled suffix, appends only the new multimodal delta, and reuses the KV-cached prefix, so only new positions are evaluated. For audio-only contin-uation, 
+
+(yt, KV t) = Fθ (xt, y t−1, KV t−1) . (11) 
+
+3.5 Three-Level Parallel Training Infrastructure 
+
+Figure 4 shows our modality-aware three-level strategy. 
+
+Workload-balanced frame parallelism. Text-token pack-ing alone does not balance the vision tower: packed samples contain videos with different numbers and resolutions of frames, while conventional LM-only sequence parallelism replicates the same visual encoding on every rank. For frame 
+
+f , we estimate its visual workload as wf = Hf Wf from the patch grid and assign frames to S sequence-parallel ranks by approximately minimizing 
+
+max 
+
+> r∈{ 1,...,S }
+
+X   
+
+> f:π(f)= r
+
+wf , (12) where π(f ) is the rank processing frame f . A deterministic locality-aware redistribution moves frames from overloaded to underloaded ranks before the vision forward pass and gath-ers their features afterward. This frame-level partition equal-izes vision compute, avoids replicated visual activations, and reduces both stragglers and peak memory. Unified packed-sequence parallelism. After on-the-fly packing, we remove padding and partition the audio sequence and the final multimodal language sequence across the same SP group. Both towers use DeepSpeed Ulysses (Jacobs et al. 2023), which exchanges sequence and attention-head di-mensions through all-to-all communication while preserving sample boundaries. Combining workload-balanced frame parallelism with audio- and LM-sequence parallelism dis-tributes all three dominant components; applying SP only to the LM would leave each rank repeatedly encoding the same frames and audio, limiting memory savings for long multimodal streams. 
+
+## 4 Experiments 
+
+4.1 Experimental Setup 
+
+Model initialization. Aero Realtime is initialized from Qwen3-VL-4B-Instruct (Bai et al. 2025a), whose vision tower and language model we retain. The audio tower is ini-tialized from Qwen3-Omni (Xu et al. 2025b) and adopts the temporal downsampling scheme of Qwen2-Audio (Chu et al. 2024), so that each projected audio token corresponds to an 80-ms chunk and matches the audio slot grid of Section 3.2. 
+
+Training configuration. We train with LMMs-Engine (LMMs-Lab 2025) using sequence-parallel size 4 and data-parallel size 8, for a world size of 32. Optimization uses fused AdamW, bf16 precision, a constant 
+
+5 × 10 −5 learning rate with 5% warmup, and 65k-token packed sequences. Padding removal and Liger kernels (Hsu et al. 2025) improve efficiency; because packing is online, training length is measured in consumed tokens rather than epochs. 
+
+Training stages. Training proceeds in two stages. The first stage uses the full training mixture to adapt the model to the aligned input-output stream distribution and consumes 2B tokens. The second stage strengthens response quality and video understanding, using our generated realtime data together with a subset of LLaVA-Video and QAEgo4D, and consumes 1B tokens. 
+
+Evaluation. All benchmark results use LMMs-Eval (Zhang et al. 2024; Li* et al. 2024). Training uses seed 42, and each reported configuration is evaluated from one training run. Complete optimization, data-sampling, parallelism, and hardware settings are provided in the supplementary appendix. 
+
+4.2 Video Understanding Performance 
+
+We evaluate streaming video understanding on OVOBench (Li et al. 2025). Table 2 reports the aver-age score for each track together with the interaction properties of each architecture. Aero Realtime uses a 4B language model and achieves 61.49 on Realtime, 44.07 on Backward, and 39.36 on Forward. It does not match the strongest baselines: it trails the best online models on all three tracks, and its Forward score is the lowest among the compared models. However, it is the only evaluated architecture that admits new observations into an active 
+
+Figure 6: Long-horizon processing lag under continuous audio-video streaming. decoding sequence, while also modeling silence and lexical generation within one autoregressive output stream. We hypothesize that this gap reflects several factors: the distribution shift from turn-formatted pretraining to dense aligned streams, the limited amount of native realtime su-pervision, and the large proportion of silence-aligned posi-tions. The current experiments do not isolate their individ-ual contributions. The results therefore demonstrate retained video-understanding capability under the aligned formula-tion rather than state-of-the-art benchmark accuracy. 
+
+4.3 Realtime Latency and Response Time 
+
+We evaluate whether Aero Realtime can keep its input and output streams fully overlapped under continuous audio-video input. Unlike a turn-based system, generation never closes an input turn: each 80-ms slot admits the next audio chunk, an optional video frame, and the previous slot’s out-put token into the same active autoregressive sequence. The model therefore continues ingesting new observations while it is deciding whether to remain silent or emit lexical out-put; speaking does not pause perception or start a separate generation request. Figure 6 reports the wall-clock completion lag of each processed interval relative to its source timestamp for a 30-minute Video-MME clip, streamed at its native wall-clock rate on four NVIDIA A6000-45G GPUs. The curve uses a 120-second Gaussian smoothing window to expose the long-horizon trend. For the first 20 minutes, Aero Realtime maintains a median lag of 84 ms, P95 lag of 173 ms, and 153 ms lag at the 20-minute boundary. Thus, even as the active sequence grows continuously, fully overlapping input and output keeps the system within 200 ms of the source stream for 20 minutes. This demonstrates sustained realtime processing rather than short-clip throughput or offline catch-up. 
+
+4.4 Effect of Silence-Label Masking 
+
+Silence labels dominate the aligned stream and can over-whelm sparse lexical targets. We define r as the fraction of [P] targets independently excluded from the loss; lexical targets are never masked. Without masking, the model re-Model LM Input Mode Duplex I/O Native Proactive Realtime Backward Forward Avg. Qwen2.5-VL (Bai et al. 2025b) 7B Offline ✗ ✗ 59.90 44.70 – –LLaVA-OneVision (Li et al. 2024) 7B Offline ✗ ✗ 64.00 43.70 50.50 52.73 InternVL2 (Chen et al. 2024b) 8B Offline ✗ ✗ 60.40 43.40 46.60 50.13 LLaVA-Video (Zhang et al. 2025b) 7B Offline ✗ ✗ 63.50 40.40 54.82 52.91 Qwen2-VL (Wang et al. 2024) 7B Offline ✗ ✗ 60.70 48.60 48.74 52.68 LongVU (Shen et al. 2025) 7B Offline ✗ ✗ 57.40 39.50 47.50 48.13 VideoLLM-online (Chen et al. 2024a) 8B Online ✗ ✗ 20.80 17.70 – –Flash-VStream (Zhang et al. 2025a) 7B Online ✗ ✗ 28.40 27.40 45.09 33.63 Dispider (Qian et al. 2025) 7B Online ✗ ✗ 54.60 36.10 34.72 41.81 TimeChat-Online (Yao et al. 2025) 7B Online ✗ ✗ 61.90 41.70 36.70 46.77 StreamForest (Zeng et al. 2025) 7B Online ✗ ✗ 61.20 52.00 53.49 55.56 Streamo (Xia et al. 2025) 7B Online ✗ ✓ 66.00 46.10 54.77 55.62                 
+
+> HERMES (Zhang et al. 2026) 7B Online ✗✗69.00 49.40 ––
+> Aero Realtime 4B Online ✓✓61.49 44.07 39.36 48.31
+
+Table 2: OVOBench track averages and interaction properties. Duplex I/O admits observations during generation; Native Proactive models silence and text in one autoregressive objective. Properties follow public sources; column maxima are bold.              
+
+> Streaming time 30 s 1 min 5 min 10 min 15 min 20 min Processing lag (ms) 37 37 39 95 56 153 Median / P95 over first 20 min 84 / 173 ms
+
+Table 3: Processing lag at selected streaming checkpoints.                           
+
+> OVOBench Setting Realtime Backward Forward Avg. No masking ( r= 0 .00 )0.36 0.96 17.87 6.40
+> +Masking ( r= 0 .70 )9.03 12.01 47.90 22.98
+> +Masking ( r= 0 .95 , Stage 1) 58.03 33.94 35.11 42.36
+> +Stage 2 61.49 44.07 39.36 48.31
+
+Table 4: Effects of silence-label masking and staged training on OVOBench. mains almost entirely silent, yielding only 6.40 average on OVOBench. Although r = 0 .70 recovers Forward perfor-mance, r = 0 .95 produces more balanced results, raising the average to 42.36 while retaining 5% of silence labels for Stage 1. 
+
+4.5 Training-Stage Ablations 
+
+The two stages separate interface adaptation from capability refinement. Stage 1 uses the full data mixture to teach the pretrained turn-based model the new slot-aligned interface, including silence prediction and continuous lexical output. Once this behavior is established, Stage 2 uses our realtime data with selected LLaVA-Video and QAEgo4D examples to reinforce response quality and temporal understanding without relearning the interface from scratch. It improves Realtime from 58.03 to 61.49 and Backward from 33.94 to 44.07, raising the overall average by 5.95 points to 48.31. The larger Backward gain suggests that the focused second-stage mixture particularly improves reasoning over previously ob-served events, while preserving the realtime behavior learned in Stage 1. 
+
+4.6 Training Infrastructure Ablation 
+
+Figure 5 studies packing length, unified sequence-parallel degree, and ViT frame parallelism on four A6000 GPUs. Longer packing improves throughput only when sufficient se-quence parallelism keeps activation memory tractable: low SP degrees run out of memory, whereas increasing SP re-duces peak memory with a modest communication over-head. ViT frame parallelism consistently recovers through-put by balancing visual work and avoiding replicated frame encoding. Guided by this trade-off, our full training uses an 
+
+SP = 4 × DP = 8 topology over 32 ranks. The system sustains over 1,600 tokens per GPU per second with limited parallelism overhead, allowing both training stages to finish within one day. These results show that the three-level design scales long packed multimodal streams beyond the four-GPU ablation setting. 
+
+## 5 Conclusion 
+
+We presented Aero Realtime, which aligns streaming obser-vations, silence, and lexical output on one temporal grid and preserves KV-cache reuse across continuous updates. Our data, training, and serving recipe demonstrates feasible du-plex, natively proactive, and hardware-aligned interaction. Aero Realtime remains an architectural exploration: its 80-ms grid caps output at 12.5 tokens per second, and it trails the strongest video LLMs on OVOBench. Moreover, latency re-flects deployment policy rather than isolated forward speed, while path-level deduplication does not guarantee content-level independence from every evaluation video. Adaptive-rate decoding, more native realtime supervision, and stronger contamination audits remain future work. 
+
+## Acknowledgments 
+
+This work was supported by the Hong Kong Research Grants Council General Research Fund (Grant Nos. 17202422, 17212923, and 17215025), Theme-based Research Scheme (Grant No. T45-701/22-R), and Strategic Topics Grant (Grant No. STG3/E-605/25-N). Part of this research was conducted in the JC STEM Lab of Robotics for Soft Materials, funded by The Hong Kong Jockey Club Charities Trust. 
+
+## References 
+
+An, X.; Xie, Y.; Tang, F.; Yan, Y.; Tan, H.; Zhu, D.; Chen, C.; Zhao, X.; Qin, B.; Yang, K.; Shen, Y.; Zhang, Y.; Zhang, K.; Zhang, W.; Cheng, Z.; Zhang, N.; Wu, C.; Ge, C.; Ran, Z.; Song, D.; Li, C.; Feng, S.; Hu, M.; Chen, Z.; Niu, J.; Li, B.; Feng, Z.; Liu, Z.; Ge, Z.; and Deng, J. 2026. LLaVA-OneVision-2: Towards Next-Generation Perceptual Intelli-gence. arXiv:2605.25979. Bai, S.; Cai, Y.; Chen, R.; Chen, K.; Chen, X.; Cheng, Z.; Deng, L.; Ding, W.; Gao, C.; Ge, C.; Ge, W.; Guo, Z.; Huang, Q.; Huang, J.; Huang, F.; Hui, B.; Jiang, S.; Li, Z.; Li, M.; Li, M.; Li, K.; Lin, Z.; Lin, J.; Liu, X.; Liu, J.; Liu, C.; Liu, Y.; Liu, D.; Liu, S.; Lu, D.; Luo, R.; Lv, C.; Men, R.; Meng, L.; Ren, X.; Ren, X.; Song, S.; Sun, Y.; Tang, J.; Tu, J.; Wan, J.; Wang, P.; Wang, P.; Wang, Q.; Wang, Y.; Xie, T.; Xu, Y.; Xu, H.; Xu, J.; Yang, Z.; Yang, M.; Yang, J.; Yang, A.; Yu, B.; Zhang, F.; Zhang, H.; Zhang, X.; Zheng, B.; Zhong, H.; Zhou, J.; Zhou, F.; Zhou, J.; Zhu, Y.; and Zhu, K. 2025a. Qwen3-VL Technical Report. arXiv:2511.21631. Bai, S.; Chen, K.; Liu, X.; Wang, J.; Ge, W.; Song, S.; Dang, K.; Wang, P.; Wang, S.; Tang, J.; Zhong, H.; Zhu, Y.; Yang, M.; Li, Z.; Wan, J.; Wang, P.; Ding, W.; Fu, Z.; Xu, Y.; Ye, J.; Zhang, X.; Xie, T.; Cheng, Z.; Zhang, H.; Yang, Z.; Xu, H.; and Lin, J. 2025b. Qwen2.5-VL Technical Report. arXiv:2502.13923. Chen, J.; Lv, Z.; Wu, S.; Lin, K. Q.; Song, C.; Gao, D.; Liu, J.-W.; Gao, Z.; Mao, D.; and Shou, M. Z. 2024a. VideoLLM-online: Online Video Large Language Model for Streaming Video. In CVPR .Chen, J.; Zeng, Z.; Lin, Y.; Li, W.; Ma, Z.; and Shou, M. Z. 2025. LiveCC: Learning Video LLM with Streaming Speech Transcription at Scale. In CVPR .Chen, Z.; Wang, W.; Tian, H.; Ye, S.; Gao, Z.; Cui, E.; Tong, W.; Hu, K.; Luo, J.; Ma, Z.; Ma, J.; Wang, J.; Dong, X.; Yan, H.; Guo, H.; He, C.; Shi, B.; Jin, Z.; Xu, C.; Wang, B.; Wei, X.; Li, W.; Zhang, W.; Zhang, B.; Cai, P.; Wen, L.; Yan, X.; Dou, M.; Lu, L.; Zhu, X.; Lu, T.; Lin, D.; Qiao, Y.; Dai, J.; and Wang, W. 2024b. How Far Are We to GPT-4V? Closing the Gap to Commercial Multimodal Models with Open-Source Suites. arXiv preprint arXiv:2404.16821 .Chu, Y.; Xu, J.; Yang, Q.; Wei, H.; Wei, X.; Guo, Z.; Leng, Y.; Lv, Y.; He, J.; Lin, J.; Zhou, C.; and Zhou, J. 2024. Qwen2-Audio Technical Report. arXiv:2407.10759. Défossez, A.; Mazaré, L.; Orsini, M.; Royer, A.; Pérez, P.; Jégou, H.; Grave, E.; and Zeghidour, N. 2024. Moshi: A Speech-Text Foundation Model for Real-Time Dialogue. arXiv:2410.00037. Hsu, P.-L.; Dai, Y.; Kothapalli, V.; Song, Q.; Tang, S.; Zhu, S.; Shimizu, S.; Sahni, S.; Ning, H.; Chen, Y.; and Wang, Z. 2025. Liger-Kernel: Efficient Triton Kernels for LLM Training. In Championing Open-source DEvelopment in ML Workshop @ ICML25 .Jacobs, S. A.; Tanaka, M.; Zhang, C.; Zhang, M.; Song, S. L.; Rajbhandari, S.; and He, Y. 2023. DeepSpeed Ulysses: Sys-tem Optimizations for Enabling Training of Extreme Long Sequence Transformer Models. arXiv:2309.14509. Li*, B.; Zhang*, P.; Zhang*, K.; Pu*, F.; Du, X.; Dong, Y.; Liu, H.; Zhang, Y.; Zhang, G.; Li, C.; and Liu, Z. 2024. LMMs-Eval: Accelerating the Development of Large Multi-moal Models. Li, B.; Zhang, Y.; Guo, D.; Zhang, R.; Li, F.; Zhang, H.; Zhang, K.; Zhang, P.; Li, Y.; Liu, Z.; and Li, C. 2024. LLaVA-OneVision: Easy Visual Task Transfer. arXiv:2408.03326. Li, X.; Zhu, Y.; Zeng, X.; Dong, Y.; Wu, H.; Zhang, Z.; Yang, Y.; Ma, C.; Zhang, Q.; Shi, Y.; Chen, X.; Chen, H.; Huang, Z.; Zhang, J.; Ouyang, K.; Sui, L.; Yan, Z.; Xu, Y.; Wang, C.; He, Y.; Zhang, H.; Wang, Y.; Qiao, Y.; Wang, Y.; Liu, Z.; Chen, K.; and Wang, L. 2026. VideoChat3: Fully Open Video MLLM for Efficient and Generalist Video Understanding. arXiv:2607.14935. Li, Y.; Niu, J.; Miao, Z.; Ge, C.; Zhou, Y.; He, Q.; Dong, X.; Duan, H.; Ding, S.; Qian, R.; Zhang, P.; Zang, Y.; Cao, Y.; He, C.; and Wang, J. 2025. OVO-Bench: How Far Is Your Video-LLMs from Real-World Online Video Understanding? In CVPR .LMMs-Lab. 2025. LMMs Engine: A simple, unified multi-modal framework for pretraining and finetuning. Lu, X.; Bo, Y.; Chen, J.; Li, S.; Guo, X.; Guan, H.; Liu, F.; Xu, D.; Sun, P.; Sun, H.; Liu, R.; and Li, H. 2026. AURA: Always-On Understanding and Real-Time Assistance via Video Streams. arXiv:2604.04184. Mistral AI; Liu, A. H.; Ehrenberg, A.; Lo, A.; Sun, C.-Y.; Lample, G.; Delignon, J.-M.; Chandu, K. R.; von Platen, P.; Muddireddy, P. R.; Arora, R.; Gandhi, S.; Subramanian, S.; Ghosh, S.; Mishra, S.; Rastogi, A.; Sadé, A.; Jeffares, A.; Jiang, A.; Cahill, A.; Gavaudan, A.; Sablayrolles, A.; Héliou, A.; You, A.; Bai, A.; Lenglemetz, A.; Agarwal, A.; Eliseev, A.; Calvi, A.; Majumdar, A.; Sooriyarachchi, A.; Bout, B.; Rozière, B.; Monicault, B. D.; Tibi, B.; Cronjäger, C.; Lan-franchi, C.; Chen, C.; Barreau, C.; Sautier, C.; Courtot, C.; Dabert, D.; de las Casas, D.; Demyanenko, E.; Chane-Sane, E.; Paquin, E.; Goffinet, E.; Niel, F.; Ahmed, F.; Baldas-sarre, F.; Berrada, G.; Ecrepont, G.; Guinet, G.; Hayes, G.; Novikov, G.; Pistilli, G.; Kunsch, G.; Martin, G.; Raille, G.; Dhanuka, G.; Gupta, G.; Zhou, H.; Shah, H.; McGovern, H.; Thimonier, H.; Mukherjee, I.; Zhang, I.; Kim, J.; Ludziejew-ski, J.; Rute, J.; Studnia, J.; Harvill, J.; Amar, J.; Delas, J.; Roberts, J. S.; Tauran, J.; Yadav, K.; Khandelwal, K.; Tep, K.; Jain, K.; Aitchison, L.; Fainsin, L.; Blier, L.; Zhao, L.; Mar-tin, L.; Saulnier, L.; Gao, L.; Buyl, M.; Sharma, M.; Jennings, M.; Pellat, M.; Prins, M.; Alexandre, M.; Poirée, M.; Guil-laumin, M.; Dinot, M.; Futeral, M.; Darrin, M.; Augustin, M.; Unsal, M.; Chiquier, M.; Pham, M.-Q.; Grinsztajn, N.; Gupta, N.; Bousquet, O.; Duchenne, O.; Wang, P.; Jacob, P.; Wambergue, P.; Kurylowicz, P.; Pinel, P.; Chagniot, P.; Stock, P.; Miłoś, P.; Gupta, P.; Agrawal, P.; Torroba, Q.; Ramrakhya, R.; Shah, R.; Sauvestre, R.; Soletskyi, R.; Millner, R.; Men-neer, R.; Vaze, S.; Barry, S.; Humeau, S.; Cha, S.; Verma, S.; Waghjale, S.; Gandhi, S.; Lepage, S.; Aithal, S.; Antoniak, S.; Scao, T. L.; Cachet, T.; Sorg, T. S.; Lavril, T.; Chabal, T.; Foubert, T.; Robert, T.; Wang, T.; Lawson, T.; Bewley, T.; Edwards, T.; Wang, T.; Jamil, U.; Tomasini, U.; Nemy-chnikova, V.; Phung, V.; Nanda, V.; Jouault, V.; Maladière, V.; Richard, V.; Bataev, V.; Bouaziz, W.; Li, W.-D.; Havard, W.; Marshall, W.; Li, X.; Guo, X.; Yang, X.; Neuhaus, Y.; Ouahidi, Y. E.; Bendou, Y.; Wang, Y.; Pan, Y.; Ramzi, Z.; and Xu, Z. 2026. Voxtral Realtime. arXiv:2602.11298. Patel, A.; Chitalia, V.; and Yang, Y. 2025. Advancing Ego-centric Video Question Answering with Multimodal Large Language Models. arXiv:2504.04550. Qian, R.; Ding, S.; Dong, X.; Zhang, P.; Zang, Y.; Cao, Y.; Lin, D.; and Wang, J. 2025. Dispider: Enabling Video LLMs with Active Real-Time Interaction via Disentangled Perception, Decision, and Reaction. In CVPR .Qwen Team. 2025. Qwen3-VL: Sharper Vision, Deeper Thought, Broader Action. https://qwen.ai/blog?id= 99f0335c4ad9ff6153e517418d48535ab6d8afef&from= research.latest-advancements-list. Accessed: 2025-11-14. Royer, A.; Böhle, M.; de Marmiesse, G.; Mazaré, L.; Zeghi-dour, N.; Défossez, A.; and Pérez, P. 2025. Vision-Speech Models: Teaching Speech Models to Converse about Images. arXiv:2503.15633. Shen, X.; Xiong, Y.; Zhao, C.; Wu, L.; Chen, J.; Zhu, C.; Liu, Z.; Xiao, F.; Varadarajan, B.; Borber, F.; et al. 2025. LongVU: Spatiotemporal Adaptive Compression for Long Video-Language Understanding. In ICML .Shen, Y.; Tian, S.; Yang, J.; and Liu, Z. 2026. A Simple Base-line for Streaming Video Understanding. arXiv:2604.02317. Thinking Machines Lab. 2026. Interaction Models: A Scal-able Approach to Human-AI Collaboration. Thinking Ma-chines Lab: Connectionism . https://thinkingmachines.ai/ blog/interaction-models/. Wang, H.; Feng, B.; Lai, Z.; Xu, M.; Li, S.; Ge, W.; Dehghan, A.; Cao, M.; and Huang, P. 2025. StreamBridge: Turning Your Offline Video Large Language Model into a Proactive Streaming Assistant. In NeurIPS .Wang, P.; Bai, S.; Tan, S.; Wang, S.; Fan, Z.; Bai, J.; Chen, K.; Liu, X.; Wang, J.; Ge, W.; et al. 2024. Qwen2-VL: Enhancing Vision-Language Model’s Perception of the World at Any Resolution. arXiv preprint arXiv:2409.12191 .Wang, P.; Tan, C.; Zhou, S.; Huang, W.; Zhou, Q.; Huang, Z.; Ye, Z.; Cheng, J.; Qian, X.; Chen, Y.; He, X.; Zeng, H.; Wang, C.; Wang, P.; Wang, H.; Gao, S.; Tian, Y.; Liu, C.; Wang, X.; Jiang, B.; and Qiu, X. 2026. MOSS-Video-Preview: Toward Real-Time Video Understanding via Cross-Attention. arXiv:2606.07639. Xia, J.; Chen, P.; Zhang, M.; Sun, X.; and Zhou, K. 2025. Streaming Video Instruction Tuning. arXiv preprint arXiv:2512.21334 . Introduces Streamo. Xu, J.; Guo, Z.; He, J.; Hu, H.; He, T.; Bai, S.; Chen, K.; Wang, J.; Fan, Y.; Dang, K.; Zhang, B.; Wang, X.; Chu, Y.; and Lin, J. 2025a. Qwen2.5-Omni Technical Report. arXiv:2503.20215. Xu, J.; Guo, Z.; Hu, H.; Chu, Y.; Wang, X.; He, J.; Wang, Y.; Shi, X.; He, T.; Zhu, X.; Lv, Y.; Wang, Y.; Guo, D.; Wang, H.; Ma, L.; Zhang, P.; Zhang, X.; Hao, H.; Guo, Z.; Yang, B.; Zhang, B.; Ma, Z.; Wei, X.; Bai, S.; Chen, K.; Liu, X.; Wang, P.; Yang, M.; Liu, D.; Ren, X.; Zheng, B.; Men, R.; Zhou, F.; Yu, B.; Yang, J.; Yu, L.; Zhou, J.; and Lin, J. 2025b. Qwen3-Omni Technical Report. arXiv:2509.17765. Xu, R.; Xiao, G.; Chen, Y.; He, L.; Peng, K.; Lu, Y.; and Han, S. 2026. StreamingVLM: Real-Time Understanding for Infinite Video Streams. In ICLR .Yang, J.; Liu, S.; Guo, H.; Dong, Y.; Zhang, X.; Zhang, S.; Wang, P.; Zhou, Z.; Xie, B.; Wang, Z.; Ouyang, B.; Lin, Z.; Cominelli, M.; Cai, Z.; Zhang, Y.; Zhang, P.; Hong, F.; Wid-mer, J.; Gringoli, F.; Yang, L.; Li, B.; and Liu, Z. 2026a. Ego-Life: Towards Egocentric Life Assistant. arXiv:2503.03803. Yang, S.; Zhang, K.; Jia, Z.; Guo, J.; Shen, Y.; Zhang, X.; Zhang, X.; Wang, H.; Li, X.; Zhang, P.; An, X.; Xie, Y.; Liu, Z.; Guo, X.; Li, J.; Zheng, S.; Wang, J.; Guo, Z.; Xie, W.; Zheng, Z.; Luo, Y.; Li, B.; and Lu, Y. 2026b. Mage-VL: An Efficient Codec-Native Streaming Multimodal Foundation Model. arXiv:2607.24904. Yao, D.; Zhou, J.; Yang, C.; Qin, C.; Hou, H.; Liang, Z.; Wang, C.; Cao, Y.; Ye, S.; Xie, S.; Gu, S.; Huang, H.; Si, Q.; Duan, N.; and Wang, J. 2026. JoyAI-VL-Interaction: Real-Time Vision-Language Interaction Intelli-gence. arXiv:2606.14777. Yao, L.; Li, Y.; Wei, Y.; Li, L.; Ren, S.; Liu, Y.; Ouyang, K.; Wang, L.; Li, S.; Li, S.; Kong, L.; Liu, Q.; Zhang, Y.; and Sun, X. 2025. TimeChat-Online: 80% Visual Tokens Are Naturally Redundant in Streaming Videos. In ACM Multimedia .Yin, P.; Zhu, J.; Gao, H.; Zheng, C.; Huang, Y.; Zhou, T.; Yang, R.; Liu, W.; Chen, W.; Guo, C.; Deng, D.; Mo, Z.; Wang, C.; Cheng, J.; Wang, R.; and Liu, H. 2026. vLLM-Omni: Fully Disaggregated Serving for Any-to-Any Multi-modal Models. arXiv preprint arXiv:2602.02204 .Zeng, X.; Qiu, K.; Zhang, Q.; Li, X.; Wang, J.; Li, J.; Yan, Z.; Tian, K.; Tian, M.; Zhao, X.; Wang, Y.; and Wang, L. 2025. StreamForest: Efficient Online Video Understanding with Persistent Event Memory. arXiv preprint arXiv:2509.24871 .Zhang, H.; Wang, Y.; Tang, Y.; Liu, Y.; Feng, J.; and Jin, X. 2025a. Flash-VStream: Efficient Real-Time Understanding for Long Video Streams. In ICCV .Zhang, H.; Yang, S.; Fu, J.; Ng, S.-K.; and Qiu, X. 2026. HERMES: KV Cache as Hierarchical Memory for Ef-ficient Streaming Video Understanding. arXiv preprint arXiv:2601.14724 .Zhang, K.; Li, B.; Zhang, P.; Pu, F.; Cahyono, J. A.; Hu, K.; Liu, S.; Zhang, Y.; Yang, J.; Li, C.; and Liu, Z. 2024. LMMs-Eval: Reality Check on the Evaluation of Large Multimodal Models. arXiv:2407.12772. Zhang, Y.; Li, B.; Liu, H.; Lee, Y. J.; Gui, L.; Fu, D.; Feng, J.; Liu, Z.; and Li, C. 2025b. Video Instruction Tuning with Synthetic Data. Transactions on Machine Learning Research .A Training Configuration 
+
+Table 5 lists the final hyperparameters used for both training stages. The two stages share all optimization and parallelism settings and differ only in the number of training steps and in the data mixture, as described in the main paper.                         
+
+> Hyperparameter Value Optimizer AdamW (fused) Learning rate 5×10 −5
+> Learning-rate schedule Constant Warmup ratio 0.05 Precision bf16 (tf32 matmul) Gradient checkpointing Enabled Per-device batch size 1Gradient accumulation 1Stage 1 steps 4000 Stage 2 steps 2000 Packing length 65536 tokens Packing strategy Balanced (10 buckets) Padding removal Enabled Sharding FSDP2 Sequence-parallel degree 4Attention implementation FlashAttention-2 Frame rate 1 fps Max frames per video 64 Max visual pixels 360448 Min visual pixels 28800 Silence-label masking ratio 0.95
+
+Table 5: Final hyperparameters for both training stages. We did not perform a systematic hyperparameter search. The learning rate and the learning-rate schedule were the only settings varied during development, and the reported configuration was selected from a small number of prelimi-nary runs. All remaining values were fixed a priori. 
+
+## B Training-Stage Data Mixtures 
+
+Training length is defined by consumed tokens because sam-ples are packed on the fly. Stage 1 uses the complete mixture to adapt the turn-based initialization to aligned-stream gen-eration. Stage 2 starts from the Stage 1 checkpoint and uses a focused mixture to strengthen response quality and video understanding.        
+
+> Stage Data mixture Token budget Stage 1 Generated realtime QA; LLaVA-Video QA/caption data; LiveCC; EgoIT; QAEgo4D 2B Stage 2 Generated realtime QA; selected LLaVA-Video data; QAEgo4D 1B
+
+Table 6: Data mixtures and token budgets for the two training stages. 
+
+## C Computing Infrastructure 
+
+All training runs use 4 nodes with 8 NVIDIA A100-40G GPUs each, for a total of 32 GPUs. The software stack is CUDA 13.2 and PyTorch 2.11, with LMMs-Engine for train-ing and LMMs-Eval for evaluation. The parallel-training ab-lation and long-horizon latency experiment use 4 NVIDIA A6000-45G GPUs. CPU model, host memory, and operating system version are not recorded. 
+
+## D Random Seeds 
+
+All training runs use a fixed random seed of 42, which con-trols data shuffling, packing order, and model initialization of newly added parameters. We report results from a single run per configuration and therefore do not report variance across seeds. 
+
+## E Qualitative Proactive Examples 
+
+The following examples are taken directly from the saved realtime runs. The image shows the current stream state, while the text is emitted by Aero Realtime as the stream continues; no separate answer-generation turn is opened. 
+
+## F Realtime Benchmark Data Samples 
+
+The benchmark samples pair a continuous video with time-aligned user turns and assistant responses. Each row below shows the video state at the annotated interaction time and the corresponding supervision. Proactive response at 00:32 
+
+00:30 I can see a person seated at a table with a bright yellow bag on the left side of the frame. The person is 
+
+00:32 gesturing with their hands and appears to be talking. The background includes a bookshelf and a floor lamp. The person is 
+
+00:34 still seated at the table, continuing to gesture and talk. The person is still seated at the table, continuing to gesture and 
+
+00:36 talk. The bright yellow bag remains on the left side of the frame, with the bookshelf and floor lamp in the back-ground. 
+
+Standing instruction: Describe what is happening now. Proactive response at 00:12 
+
+00:10 A woman in a green top and yellow belt is standing by a window, holding a small bottle and a plate. The text 
+
+00:12 “PARADOX” appears on screen. She is still holding the small bottle and plate as the scene continues. 
+
+00:14 The text “PARADOX” remains visible while she continues presenting the items. 
+
+00:16 She remains by the window with the bottle and plate as the shot continues. Cooking process with evolving observations 
+
+Q (00:10): That looks really buttery. 
+
+A: Yeah, she’s stirring a soft, grainy mixture in the bowl, and there are visible chunks of butter melting through it. 
+
+Q (00:17): It’s looking smoother now. 
+
+A: Yeah, the butter’s worked in more and the mixture has turned into a softer, mashed texture. 
+
+Q (00:24): Did she just add cream or milk there? 
+
+A: Yes, she’s pouring in a bit of milk from the white jug, then folding it through the mash. 
+
+Q (00:33): She’s adding something else now, right? 
+
+A: Yes—she’s adding a dollop of cream or soft cheese to the mash, making it look much silkier as she folds it in. Social interaction over time 
+
+Q (00:09): He was really quiet, and now he’s showing his notebook to someone. 
+
+A: Yeah, he stops writing and holds the sketchbook out toward the person beside him, like he’s asking for a look. 
+
+Q (00:17): Wait, did the other guy actually like what he wrote? 
+
+A: Yeah, he looks impressed now and keeps asking why he didn’t share it earlier. 
+
+Q (00:23): Aw, now he’s getting shy about it. 
+
+A: Yeah, he’s hiding behind the notebook while the other guy keeps insisting the idea is his and he should be the one to say it. 
+
+Q (00:29): He really won’t take credit for it, huh? 
+
+A: Yeah, he’s still trying to hand the idea over, and the other guy keeps pushing it back to him. Tracking a rapidly changing montage 
+
+Q (00:10): That cut was abrupt—did it just switch scenes twice? 
+
+A: Yeah, it jumped from the microphone setup to someone by a white car, then straight to a pizza close-up. 
+
+Q (00:17): It keeps cutting to random examples now—car, pizza, kid, police lights, even a red light. 
+
+A: Yeah, it’s turned into a rapid montage of examples while the two people by the microphone stay as the main setup. 
+
+Q (00:24): Now it’s connecting the montage back to the court-room, right? 
+
+A: Yeah, it cut from those example shots back to the person speaking at the microphone, and then wider courtroom views. 
+
+Q (00:32): So it’s back to the montage again—now tickets, a wedding clip, and saving money? 
+
+A: Yeah, it keeps bouncing from the courtroom testimony to these quick illustrative cutaways.

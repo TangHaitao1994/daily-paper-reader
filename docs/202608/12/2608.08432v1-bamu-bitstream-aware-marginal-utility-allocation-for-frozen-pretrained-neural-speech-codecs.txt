@@ -1,0 +1,301 @@
+Title: BAMU: Bitstream-Aware Marginal-Utility Allocation for Frozen Pretrained Neural Speech Codecs
+
+URL Source: https://arxiv.org/pdf/2608.08432v1
+
+Published Time: Tue, 11 Aug 2026 01:02:30 GMT
+
+Number of Pages: 5
+
+Markdown Content:
+BAMU: BITSTREAM-AWARE MARGINAL-UTILITY ALLOCATION FOR FROZEN PRETRAINED NEURAL SPEECH CODECS 
+
+Mingyu Zhao 1,∗, Zijian Lin 1,∗, Yutang Feng 2, Jiatao Chen 2, Fan Wang 1, Jiehui Luo 3,Yuhao Ding 3, Jinchao Zhang 2,†, Zhiyong Wu 1,†
+
+> 1
+
+Tsinghua Shenzhen International Graduate School, Tsinghua University, Shenzhen, China 
+
+> 2
+
+Tencent, Shenzhen, China 
+
+> 3
+
+Central Conservatory of Music, Beijing, China 
+
+{zmy24,linzj24,wang-f25 }@mails.tsinghua.edu.cn 
+
+{yutangfeng,wietchen,dayerzhang }@tencent.com 
+
+{luojiehui,dingyuhao }@mail.ccom.edu.cn zywu@sz.tsinghua.edu.cn 
+
+ABSTRACT 
+
+Pretrained neural speech codecs typically use a fixed residual vector quantization (RVQ) depth for all frames, ignoring tem-poral variation in quantization difficulty. We propose BAMU, a bitstream-aware dynamic RVQ allocation framework for frozen pretrained codecs. A lightweight, rate-independent predictor estimates frame- and layer-wise marginal latent-distortion reductions, while a constrained allocator selects prefix-valid depths under an exact serialized-size budget. Ex-periments on EnCodec and DAC over LibriSpeech, together with VCTK evaluation, show consistent EnCodec gains and DAC improvements mainly at medium and high rates. A30-listener study confirms a MOS improvement from 3.449 to 3.780 over matched fixed-depth coding. 
+
+Index Terms — neural speech coding, residual vec-tor quantization, dynamic bit allocation, marginal utility, variable-rate coding 
+
+1. INTRODUCTION 
+
+Neural speech codecs commonly combine learned encoder– decoder architectures with residual vector quantization (RVQ) for high-quality compression at low bitrates [1, 2, 3, 4, 5, 6]. Conventional codecs typically apply the same RVQ prefix depth to every frame, ignoring temporal variation and poten-tially wasting bits on frames that benefit little from additional refinement. Adaptive neural coding has been explored through quan-tizer dropout, frame-wise importance prediction, variable temporal resolution, semantic priors, and test-time code search [2, 7, 8, 9, 10, 11]. VRVQ is most closely related to our work, as it varies the number of active RVQ codebooks using predicted frame-wise importance [7]. Unlike VRVQ, which  
+
+> ∗Equal contribution. †Corresponding authors.
+
+learns variable-rate coding jointly with the codec, BAMU performs post-hoc allocation on frozen pretrained codecs and explicitly enforces the realized serialized-container budget. Other methods adapt temporal resolution [8, 9], introduce semantic guidance [10], or improve code selection at a pre-scribed depth [11]. This leaves a practical gap in post-hoc frame-wise RVQ allocation for frozen pretrained codecs, particularly when the realized container size rather than a nominal rate must be enforced. We propose a bitstream-aware dynamic RVQ alloca-tion framework for frozen pretrained neural speech codecs, as shown in Fig. 1. A lightweight predictor estimates the marginal latent-distortion reduction contributed by each RVQ layer at every frame, independently of the target bitrate. Aconstrained allocator then selects prefix-valid depths and ver-ifies the exact serialized size, including active indices, the run-length-coded depth map, the header, and byte padding. The allocation is realized through prefix early exit and a fully decodable dynamic bitstream, while the original codec remains frozen. Our contributions are threefold. First, we introduce rate-independent, frame- and layer-wise marginal-utility predic-tion for multiple operating rates. Second, we develop a bitstream-aware allocator with exact container-budget en-forcement, prefix early exit, and complete decoding. Third, extensive experiments demonstrate consistent EnCodec gains and DAC improvements primarily at medium and high rates under matched realized budgets. 
+
+2. PROPOSED METHOD 2.1. Marginal-Utility Prediction 
+
+Let the frozen encoder map waveform x to latent frames z =
+
+E(x) = {zt}Tt=1 , where zt ∈ RC . For an RVQ with K code-books, let rt, 0 = zt and let rt,k denote the residual after the arXiv:2608.08432v1 [eess.AS] 9 Aug 2026 � �                              
+
+> 1. Latent Extraction 2. Learned Marginal Utility Prediction 3. Bitstream-Aware Budget-Constrained Allocation 4. Prefix Early-Exit RVQ Encoding 5. Dynamic Bitstream and Frozen Decoding
+> Frozen Encoder
+> ��
+> ��
+> ��
+> …
+> Marginal Utility Predictor ��
+> Latent frames 123…T123456
+> Lagrangian--Viterbi Allocator 64 λ candidates
+> RVQ index bits RLE depth-map bits Header + byte-padding overhead
+> Frozen RVQ
+> ��������…
+> Frame 1 exit at
+> ��= �
+> Frame 2 exit at
+> ��= �
+> Frame 3 exit at
+> ��= �
+> Frame 4 exit at
+> ��= �
+> Frame 5 exit at
+> ��= �
+> Frame T exit at
+> ��= �
+> ………
+> Prefix early exit
+> Execute only active codebooks
+> ��
+> Frozen Decoder
+> Dynamic Bitstream
+> 192-bit header RLE depth map (byte-aligned)
+> Packed active RVQ indices (10-bit, byte-aligned) Speech waveform �
+
+❄️
+
+❄️  
+
+> frames
+> �
+> RVQ layer
+> �
+> 78
+> Target bit budget �
+
+❄️  
+
+> Reconstructed Speech �
+> Fully decodable
+> Rate-independent prediction
+> Low Utility High Utility Exact Feasibility and Container Checker
+> Budget-safe depths d
+
+Fig. 1 . Overview of the proposed framework. A lightweight predictor estimates frame- and layer-wise marginal utilities, and a bitstream-aware allocator selects prefix-valid RVQ depths under a realized container budget. The pretrained codec remains frozen. first k codebooks. We define the channel-normalized distor-tion and marginal utility as 
+
+Dt,k = 1
+
+C ∥rt,k ∥22, ∆Dt,k = [ Dt,k −1 − Dt,k ]+, (1) where [a]+ = max( a, 0) . Negative reductions are clipped to zero in the main system; Sec. 3.3 additionally evaluates signed marginal targets. Rather than predicting a bitrate-specific frame depth, a lightweight predictor Pθ estimates all frame- and layer-wise utilities. To stabilize regression, the targets are transformed as 
+
+yt,k = log 
+
+
+
+1 + ∆Dt,k 
+
+s
+
+
+
+, s = 10 −4. (2) The predictor is trained with a masked Smooth-L1 loss, 
+
+Lutility = 1
+
+|Ω|
+
+X
+
+(t,k )∈Ω
+
+SmoothL1( byt,k , y t,k ), (3) where Ω excludes padded frames. At inference, 
+
+d∆Dt,k = s[exp( byt,k ) − 1] +. (4) The predictor takes frozen encoder latents as input and con-sists of three non-causal temporal Conv1d blocks with kernel sizes 5, 3, and 3, followed by a 1 × 1 output layer. The hidden dimensions are 128, 128, and 64, with GELU activation and GroupNorm. 
+
+2.2. Bitstream-Aware Depth Allocation 
+
+Each frame is assigned a prefix-valid depth dt ∈ { 1, . . . , K }.The predicted utility of an allocation d is 
+
+U (d) = 
+
+TX
+
+t=1 
+
+dtX
+
+k=1 
+
+d∆Dt,k . (5) We seek 
+
+max 
+
+d U (d) s.t. Ractual (d) ≤ B, (6) where B is the target container budget. Adjacent frames may be grouped into blocks sharing one depth; the default block size is four. For block Bn, define its cumulative utility at depth 
+
+k as 
+
+Un,k = X
+
+t∈B n
+
+kX
+
+j=1 
+
+d∆Dt,j . (7) We employ parallel Lagrangian relaxation with GPU-batched Viterbi decoding. For 64 multiplier candidates, in-cluding λ = 0 and 63 logarithmically spaced positive values, the allocator optimizes 
+
+X
+
+n
+
+Un,d n − λ 10 X
+
+n
+
+Lndn + β X
+
+n> 1
+
+1[dn̸ = dn−1]
+
+!
+
+, (8) where n indexes blocks, Ln is the number of frames in block 
+
+n, and each RVQ index occupies 10 bits. The transition coef-ficient β = 6 approximates depth-map cost during optimiza-tion but is not an actual bitstream field. After backtracking, each candidate is evaluated using its exact raw payload, where Rraw code = 10 P
+
+t dt. For the K = 8 
+
+setting used in our experiments, each depth-map run stores a 3-bit depth value and an Elias-gamma-coded run length [12]: 
+
+Rraw depth = X
+
+m
+
+(3 + 2 ⌊log 2 ℓm⌋ + 1) . (9) The fixed 192-bit header is shared by the dynamic and matched fixed-depth containers and is therefore omitted dur-ing allocation. Let Bfixed payload denote the raw code-plus-depth payload of the matched fixed-depth stream. Because the code and depth payloads are independently byte aligned, we conservatively reserve 14 bits for their worst-case combined padding. Only candidates satisfying 
+
+Rraw code + Rraw depth ≤ Bfixed payload − 14 (10) are retained. The feasible candidate with the highest predicted utility is selected. A heap-based greedy step then proposes prefix-valid whole-block layer additions in descending marginal-utility-per-code-bit order. Each proposal is accepted only after re-computing the exact raw RLE payload. Finally, an external container-level checker computes the realized dynamic-stream size as 
+
+Rdyn actual (d) = 192 + 8 
+
+ Rraw depth (d)8
+
+
+
++ 8 
+
+ Rraw code (d)8
+
+
+
+, (11) where the two payloads are independently byte aligned. The same serializer is used to obtain the realized size Rfixed actual of the matched fixed-depth container, and the final allocation is accepted only if 
+
+Rdyn actual (d) ≤ Rfixed actual . (12) 
+
+2.3. Prefix Early Exit and Dynamic Bitstream 
+
+The selected allocation is realized through prefix early exit. At RVQ stage k, only frames satisfying dt ≥ k are processed by codebook Qk; frames that have reached their assigned depths skip subsequent codebook searches. This is numeri-cally equivalent to full RVQ evaluation followed by masking inactive indices. Both fixed and dynamic streams use the same explicitly specified prototype serializer. A fixed-depth stream repre-sents its constant depth using a single RLE run. Each stream stores a 192-bit header, the run-length-coded depth map, and the packed active RVQ indices. During decoding, the depth map specifies the number of prefix indices associated with each frame, and the reconstructed latent sequence is passed to the frozen decoder G:
+
+bx = G
+
+( dtX
+
+> k=1
+
+qt,k 
+
+)Tt=1 
+
+ . (13) 
+
+3. EXPERIMENTS AND RESULTS 3.1. Setup 
+
+We evaluate two pretrained 24-kHz neural codecs, EnCodec [3] and DAC [4], using the first eight RVQ codebooks of each codec. The original codecs remain frozen, and a separate util-ity predictor is trained for each. Both codecs use 1024-entry codebooks, so each RVQ index is represented by 10 bits. Training uses LibriSpeech train-clean-100 [13], comprising 28,539 utterances, 100.6 hours, and approxi-mately 27.2 million latent frames; dev-clean is used for validation. Evaluation is conducted on test-clean and 
+
+test-other , containing 2,620 and 2,939 utterances, re-spectively. We additionally evaluate the EnCodec predictor 1.5 2.0 2.5 3.0 3.5 4.0 4.5 5.0                       
+
+> Container bitrate (kb/s)
+> 1.6 1.8 2.0 2.2 2.4 2.6
+> PESQ
+> (a) EnCodec — PESQ
+> 2.4 2.6 2.8 3.0 3.2 3.4 3.6 3.8
+> Container bitrate (kb/s)
+> 2.0 2.2 2.4 2.6
+> PESQ
+> (b) DAC — PESQ
+> 1.5 2.0 2.5 3.0 3.5 4.0 4.5 5.0
+> Container bitrate (kb/s)
+> 0.86 0.88 0.90 0.92 0.94
+> STOI
+> (c) EnCodec — STOI
+> 2.4 2.6 2.8 3.0 3.2 3.4 3.6 3.8
+> Container bitrate (kb/s)
+> 0.87 0.88 0.89 0.90 0.91 0.92
+> STOI
+> (d) DAC — STOI
+> Fixed depth Ours
+
+Fig. 2. Rate–distortion performance on LibriSpeech 
+
+test-clean using realized container bitrates. Each dy-namic point does not exceed its matched fixed-depth con-tainer size. on 1,100 VCTK utterances [14] without VCTK training or fine-tuning. The EnCodec and DAC predictors contain 157,128 and 730,568 trainable parameters, respectively. Both are trained for 40 epochs using AdamW with an initial learning rate of 
+
+3 × 10 −4, cosine decay to 10 −6, and 512-frame crops. We use weight decay 10 −4, gradient clipping at 5.0, and per-GPU batch sizes of 32 and 16 for EnCodec and DAC, respectively. Unless otherwise stated, allocation uses four-frame blocks, 
+
+β = 6 , and 64 multiplier candidates. Fixed-depth RVQ is the primary baseline. EnCodec dy-namic points are matched to fixed depths two through seven, whereas DAC is evaluated at depths three through five. For EnCodec, additional comparisons at representative operat-ing points include random, periodic, waveform-energy, and ground-truth residual-utility allocation. We report PESQ [15], STOI [16], and ViSQOL [17]. All main fixed-versus-dynamic comparisons use exact serialized-container accounting rather than nominal average depth. 
+
+3.2. Rate–Distortion Performance 
+
+Fig. 2 shows that dynamic allocation consistently improves EnCodec. On test-clean , PESQ gains range from 0.088 to 0.151 at the matched depth-two to depth-seven budgets; at depth four, PESQ increases from 2.086 to 2.226. The corre-sponding gains on test-other are 0.086–0.149, and STOI improves at every matched operating point. All EnCodec PESQ bootstrap confidence intervals exclude zero, and both paired t-tests and Wilcoxon signed-rank tests are significant. At depth four on test-clean , Cohen’s dz is 1.12 and the utterance-level win rate is 89.6%. DAC exhibits a stronger rate dependence. On test-clean ,PESQ changes by −0.0256 , +0 .0123 , and +0 .0259 at depths three, four, and five, respectively. On test-other ,the corresponding changes are +0 .0078 , +0 .0412 , and 
+
++0 .0460 . The lowest-rate test-other result is conserva-Table 1 . EnCodec PESQ on LibriSpeech test-clean .Auxiliary baselines use raw-budget matching; BAMU addi-tionally enforces the packed container constraint. GT utility is a privileged frame-level reference. Method Depth-3 Depth-4 Fixed depth 1.831 2.086 Random 1.438 1.581 Periodic 1.491 1.646 Waveform energy 1.751 2.006 BAMU 1.982 2.226 GT utility 2.041 2.284 tively treated as approximately matched because its Wilcoxon test is not significant. Thus, DAC benefits most consistently at medium and high rates. ViSQOL shows the same overall trend, with EnCodec generally improving and DAC benefiting mainly at medium and high rates. Without VCTK adaptation, EnCodec improves PESQ from 2.303 to 2.490 at the matched depth-four budget, indi-cating cross-dataset generalization. 
+
+3.3. Baselines and Ablations 
+
+Table 1 shows that BAMU outperforms random, periodic, and waveform-energy allocation. GT utility is a privileged frame-level reference requiring all candidate-layer residu-als. For DAC, predicted and ground-truth utilities are eval-uated under the same block-wise protocol. At depth three, even ground-truth allocation reaches only 1.8779 PESQ, be-low fixed-depth coding at 1.8922. Negative gains occur in 12.83% of DAC frame–layer pairs, although their total mag-nitude is only 2.07% of the positive-gain magnitude. For the signed variant, we use δD t,k = Dt,k −1 − Dt,k and 
+
+yt,k = sgn( δD t,k ) log(1 + |δD t,k |/s ). Replacing clipped tar-gets with signed marginal targets improves depth-three PESQ from 1.8666 to 1.8810 on test-clean and from 1.8645 to 1.8759 on test-other , but slightly reduces the depth-four and depth-five results. Moreover, signed depth-three allo-cation remains below fixed-depth coding on test-clean 
+
+(1.8810 versus 1.8922). Thus, clipping contributes to but does not fully explain the lowest-rate degradation, indicating a limitation of latent-MSE utility as a perceptual allocation objective. Computed separately within each RVQ layer, Pearson cor-relations range from 0.908 to 0.952 and Spearman correla-tions from 0.945 to 0.960, with a mean top-quartile overlap of 0.822. Three training seeds produce less than 0.0011 PESQ variation at representative operating points. At depths three and four, the main temporal marginal-utility predictor obtains PESQ values of 1.9822 and 2.2265. Pointwise and reduced-width predictors perform similarly, whereas cumulative-utility prediction drops to 1.9261 and 2.1699, confirming the importance of marginal targets. Switch penalties of zero, six, and twelve yield similar quality, while larger values reduce depth-map variation. Block sizes of one, two, four, and eight obtain depth-four PESQ values of 2.260, 2.249, 2.226, and 2.186, respectively, compared with 2.086 for fixed depth four. Block size four is used as a practical quality–efficiency compromise. The GPU-batched allocator causes no budget violations and retains more than 99% of the utility achieved by the CPU reference allocator. 
+
+3.4. Bitstream, Efficiency, and Subjective Quality 
+
+All main comparisons use exact container-size account-ing. We additionally materialize and decode dynamic bit-streams for 200 DAC test-clean utterances at depths three through five. All depth maps and active indices are recovered exactly, with no failures and zero maximum latent error. The corresponding realized dynamic bitrates are 2.290, 3.041, and 3.792 kb/s. Prefix early exit is also numerically equivalent to full RVQ evaluation followed by masking. On a single NVIDIA A100 GPU, for a representative ten-second DAC input, the fixed and dynamic inference pipelines achieve RTFs of approximately 0.009 and 0.015, respectively, excluding audio I/O. Prefix early exit adds only 2.1–2.5% overhead to the codec hot path, while the utterance-level allocator increases end-to-end inference latency by ap-proximately 63–70%, representing the main computational overhead of BAMU. Finally, we conduct a randomized, anonymized P.800-style listening test [18] with 25 utterances, four conditions, and 30 listeners, yielding 3,000 valid ratings. Hidden ref-erence, fixed depth eight, our method, and fixed depth four obtain MOS values of 4.509, 4.040, 3.780, and 3.449, respec-tively. Under the matched depth-four container budget, our method improves MOS by 0.331, with a listener-level 95% confidence interval of [0 .247 , 0.414] and significance under both paired tests ( p < 10 −5). 
+
+4. CONCLUSIONS 
+
+We proposed BAMU, a bitstream-aware dynamic RVQ allo-cation framework for frozen pretrained neural speech codecs. BAMU combines marginal-utility prediction, exact container-budget enforcement, prefix early exit, and a fully decodable dynamic bitstream. Experiments show consistent EnCodec gains and DAC improvements primarily at medium and high rates, together with exact bitstream recovery and significant subjective quality gains. 
+
+Acknowledgment: This work is supported by National Nat-ural Science Foundation of China (62076144) and Shenzhen Science and Technology Program (JCYJ20220818101014030). 5. REFERENCES 
+
+[1] Robert M. Gray, “Residual vector quantization,” IEEE Trans. Acoust., Speech, Signal Process. , vol. 32, no. 3, pp. 545–553, 1984. [2] Neil Zeghidour, Alejandro Luebs, Ahmed Omran, Jan Skoglund, and Marco Tagliasacchi, “SoundStream: An end-to-end neural audio codec,” IEEE/ACM Trans. Au-dio, Speech, Lang. Process. , vol. 30, pp. 495–507, 2022. [3] Alexandre D´ efossez, Jade Copet, Gabriel Synnaeve, and Yossi Adi, “High fidelity neural audio compression,” 
+
+Trans. Mach. Learn. Res. , 2023. [4] Rithesh Kumar, Prem Seetharaman, Alejandro Luebs, Ishaan Kumar, and Kundan Kumar, “High-fidelity audio compression with improved RVQGAN,” in Proc. Adv. Neural Inf. Process. Syst. (NeurIPS) , 2023, vol. 36, pp. 27980–27993. [5] Yi-Chiao Wu, Israel D. Gebru, Dejan Markovic, and Alexander Richard, “AudioDec: An open-source streaming high-fidelity neural audio codec,” in 
+
+Proc. IEEE Int. Conf. Acoust., Speech Signal Process. (ICASSP) , 2023, pp. 1–5. [6] Zhihao Du, Shiliang Zhang, Kai Hu, and Siqi Zheng, “FunCodec: A fundamental, reproducible and inte-grable open-source toolkit for neural speech codec,” in 
+
+Proc. IEEE Int. Conf. Acoust., Speech Signal Process. (ICASSP) , 2024, pp. 591–595. [7] Yunkee Chae, Woosung Choi, Yuhta Takida, Junghyun Koo, Yukara Ikemiya, Zhi Zhong, Kin Wai Cheuk, Marco A. Mart´ ınez-Ram´ ırez, Kyogu Lee, Wei-Hsiang Liao, and Yuki Mitsufuji, “Variable bitrate residual vec-tor quantization for audio coding,” in Proc. IEEE Int. Conf. Acoust., Speech Signal Process. (ICASSP) , 2025, pp. 1–5. [8] Hanglei Zhang, Yiwei Guo, Zhihan Li, Xiang Hao, Xie Chen, and Kai Yu, “Unlocking temporal flexibility: Neural speech codec with variable frame rate,” in Proc. Interspeech , 2025, pp. 5003–5007. [9] Jiaqi Li, Yao Qian, Yuxuan Hu, Leying Zhang, Xiaofei Wang, Heng Lu, Manthan Thakker, Jinyu Li, Sheng Zhao, and Zhizheng Wu, “FlexiCodec: A dynamic neu-ral audio codec for low frame rates,” in Proc. Int. Conf. Learn. Represent. (ICLR) , 2026. [10] Mingyu Zhao, Zijian Lin, Kun Wei, and Zhiyong Wu, “SPG-Codec: Exploring the role and boundaries of se-mantic priors in ultra-low-bitrate neural speech coding,” 
+
+arXiv preprint arXiv:2604.26296 , 2026, Accepted to IEEE Int. Conf. Multimedia Expo (ICME). [11] Hyeongju Kim, Junhyeok Lee, Jacob Morton, Juheon Lee, and Jinhyeok Yang, “Improving test-time perfor-mance of RVQ-based neural codecs,” arXiv preprint arXiv:2509.19186 , 2025. [12] Peter Elias, “Universal codeword sets and representa-tions of the integers,” IEEE Trans. Inf. Theory , vol. 21, no. 2, pp. 194–203, 1975. [13] Vassil Panayotov, Guoguo Chen, Daniel Povey, and San-jeev Khudanpur, “LibriSpeech: An ASR corpus based on public domain audio books,” in Proc. IEEE Int. Conf. Acoust., Speech Signal Process. (ICASSP) , 2015, pp. 5206–5210. [14] Junichi Yamagishi, Christophe Veaux, and Kirsten Mac-Donald, “CSTR VCTK Corpus: English multi-speaker corpus for CSTR voice cloning toolkit (version 0.92),” 2019, Sound dataset. [15] Antony W. Rix, John G. Beerends, Michael P. Hol-lier, and Andries P. Hekstra, “Perceptual evaluation of speech quality (PESQ)—a new method for speech qual-ity assessment of telephone networks and codecs,” in 
+
+Proc. IEEE Int. Conf. Acoust., Speech Signal Process. (ICASSP) , 2001, vol. 2, pp. 749–752. [16] Cees H. Taal, Richard C. Hendriks, Richard Heusdens, and Jesper Jensen, “An algorithm for intelligibility prediction of time–frequency weighted noisy speech,” 
+
+IEEE Trans. Audio, Speech, Lang. Process. , vol. 19, no. 7, pp. 2125–2136, 2011. [17] Michael Chinen, Felicia S. C. Lim, Jan Skoglund, Nikita Gureev, Feargus O’Gorman, and Andrew Hines, “ViSQOL v3: An open source production ready objec-tive speech and audio metric,” in Proc. Int. Conf. Quality Multimedia Experience (QoMEX) , 2020, pp. 1–6. [18] ITU-T, “Recommendation P.800: Methods for subjec-tive determination of transmission quality,” 1996, In force.

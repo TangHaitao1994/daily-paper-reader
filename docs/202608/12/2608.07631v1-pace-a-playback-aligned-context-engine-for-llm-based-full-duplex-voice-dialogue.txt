@@ -1,0 +1,388 @@
+Title: PACE: A Playback-Aligned Context Engine for LLM-Based Full-Duplex Voice Dialogue
+
+URL Source: https://arxiv.org/pdf/2608.07631v1
+
+Published Time: Tue, 11 Aug 2026 00:05:39 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# PACE: A Playback-Aligned Context Engine for LLM-Based Full-Duplex Voice Dialogue 
+
+# Shibo Wang *, Zicheng Zhang *, Libo Wang †, and Junfeng Ma Alibaba Group 
+
+## Abstract 
+
+LLM-based full-duplex voice services allow users to speak while the assistant is responding. Because servers can gener-ate output and advance dialogue state faster than clients can play it, subsequent user speech may be interpreted based on content the user never heard. We call this failure Genera-tive Context Mis-anchoring (GCM). To address GCM issues, we present PACE, a provider-independent middleware layer that anchors model-facing context to the client playback boundary, a system-observable proxy for what the user could have heard. After an interruption, PACE repairs this context to exclude assistant content that never reached playback, while preserving low-latency generation across heteroge-neous voice runtimes. We implement PACE’s audio-only projection path end to end in a browser-based realtime voice assistant using a black-box speech model, without modifying the model service. We also construct GCM-Bench 1, a new controlled benchmark dataset of 108 playback-relative referent-anchoring cases. On GCM-Bench, PACE raises Referent Anchoring Accuracy from 25.0% to 96.3% over a cancellation-only baseline. On 200 Full-Duplex-Bench v1 interruption samples, it preserves in-terruption response quality. These results show that ground-ing model-facing context in actual playback is a practical way to maintain consistency in full-duplex voice dialogue. 
+
+## Keywords 
+
+Full-duplex voice dialogue, Speech LLM, Playback grounding, Generative Context Mis-anchoring, Benchmark dataset 
+
+## 1 Introduction 
+
+LLM-based voice assistants are moving beyond strict turn-taking toward full-duplex dialogue, in which the service con-tinues listening while assistant audio is generated and played. By allowing user speech to overlap with assistant output, this interaction pattern supports interruptions, backchan-nels, and clarifications without requiring users to wait for a response to finish [5, 6, 8], as illustrated in Fig. 1. Research on full-duplex dialogue has largely focused on co-ordinating this overlap. Learned full-duplex models represent overlapping speech, interjections, and interruptions without  
+
+> *Co-first authors. †Corresponding author.
+> 1Dataset: https://github.com/CodeForZzc/GCM-Bench.
+
+strict speaker-turn segmentation [5, 6, 16, 22, 24]. Modu-lar systems use explicit dialogue states, personalized VAD, semantic end-of-turn detection, and dialogue managers to control cascaded or semi-cascaded ASR–LLM–TTS pipelines [1, 10, 14, 23, 28–30]. Benchmarks and production APIs fur-ther emphasize pause handling, backchanneling, endpoint-ing, and interruption control [9, 12, 13, 15, 18, 19]. Together, these efforts advance the modeling, control, and evaluation of overlapping speech and turn-taking. Yet these advances overlook a basic asymmetry: assistant speech is generated far faster than it is played back to the user. Because server-side dialogue state advances with gen-eration, the model may have produced and recorded several sentences while the client is still playing the first. What the model assumes the user has received thus diverges from what has actually been played: a user utterance referring to the sen-tence just played may be interpreted against sentences that have not yet been played. Network RTT, inference queues, packet jitter, browser audio buffers, and local playback holds further widen this generation–playback gap. We call this failure mode Generative Context Mis-anchoring 
+
+(GCM). Unlike an ASR error, a TTS error, or a conventional hallucination, GCM is a distributed consistency failure: the recognized input and generated output may both be locally correct, but the input is anchored to the wrong point in the conversation. For example, a user may interrupt a list of tourist attractions after hearing the second item and ask, “How do I get there?” If the model has already generated and recorded a fourth item, it may resolve “there” to that unheard attraction and produce a coherent answer to the wrong referent. Stopping playback and canceling generation prevent ad-ditional output from reaching the user, but do not repair model-facing context that has already advanced. OpenAI’s Realtime API goes further: item truncation removes unplayed assistant audio and corresponding transcript content from server-side context [17]. However, this mechanism is tied to one provider’s conversation-item abstraction and still re-quires a mapping from client playback to dialogue state. We discuss these limitations in Section 2.4. To address GCM more generally, we present PACE, the 
+
+Playback-Aligned Context Engine , a provider-independent middleware abstraction that makes the mapping from client  
+
+> 1arXiv:2608.07631v1 [cs.SD] 7 Aug 2026 Shibo Wang, Zicheng Zhang et al.
+> (a) Half-duplex: sequential turns
+> User Assistant
+> time
+> speak assistant speech speak
+> microphone inactive
+> (b) Full-duplex: interruption while speaking
+> User Assistant
+> time
+> speak assistant speech original length
+> speak (interrupt)
+> brief overlap
+
+Figure 1: Half- and full-duplex voice interaction time-lines. In full-duplex dialogue, user speech can overlap with and interrupt assistant output. 
+
+playback to model-facing dialogue state explicit. PACE sep-arates two concerns: tracking how far playback has pro-gressed, and repairing model-facing context through what-ever mechanism the runtime offers. For each assistant turn, a server-side output ledger records the generated audio, and client playback acknowledgments report the latest sample rendered for that turn. This position is the physical playback boundary : content before it has been played on the client, whereas content beyond it is speculative and can still be revoked. Throughout this paper, we use “heard” operationally to denote content that had reached client playback, not to claim user attention or comprehension. The two sides of the bound-ary carry asymmetric evidence: content beyond it could not have been heard, whereas content before it was rendered and therefore available to be heard. The playback boundary itself is only a sample position. When the runtime also provides a reliable mapping from audio time to content, PACE can go one step further and treat the last span that finished playing before this position as semantically committed, yielding a conservative semantic commit boundary. Without such a mapping, PACE claims only which samples were played, not which content they carried. On a confirmed interruption, PACE snapshots the play-back boundary, closes a forward gate for new user audio, can-cels generation, suppresses late output, and revokes buffered client audio beyond the boundary. It then projects the played context before releasing the held user audio. Depending on the runtime, this projection can rewrite text history in a cascaded system, invoke provider truncation and cancella-tion operations, or re-inject recently played audio into a black-box voice model. The boundary abstraction is there-fore decoupled from the available projection mechanism; exact internal-state restoration is not assumed for a black-box runtime. We implement and evaluate PACE’s physical, audio-only projection path in a browser-based realtime voice assistant connected to a black-box speech model, without modifying the model service. Our new benchmark, GCM-Bench, sup-plies a reproducible user-input trajectory for each case, while every trial traverses the live client–middleware–model path and obtains its playback boundary from actual browser Play-backAck events. On GCM-Bench, PACE raises Referent An-choring Accuracy from 25.0% under a cancellation-only base-line to 96.3%. Separately, we reuse 200 official Full-Duplex-Bench (FDB) v1 interruption samples for compatibility and latency evaluation. Both PACE and the baseline respond to every FDB interruption; the mean response score changes from 4.975 to 4.995. Requests made while the assistant is not playing follow the original processing path and incur no additional PACE latency. This paper makes five contributions. (1) We formulate GCM as a distributed consistency failure caused by divergence among generated assistant output, client playback, and the model-facing dialogue state used for subsequent responses or actions. (2) We design PACE, a provider-independent middleware abstraction that combines a turn-local output ledger, playback acknowledgments, output revocation, ordered context projection, optional semantic commitment, and gates for consequential actions. (3) We implement and evaluate the physical, audio-only pro-jection path end to end in a browser-based voice assistant connected to a black-box realtime model without modi-fying the model service. (4) We construct GCM-Bench, a new 108-case benchmark dataset for playback-relative referent anchoring, and de-fine its task, metric, and evaluation protocol. We sepa-rately assess compatibility and latency on 200 official Full-Duplex-Bench v1 samples. (5) We show that PACE raises Referent Anchoring Accuracy from 25.0% to 96.3% on GCM-Bench, while preserving interruption response quality on Full-Duplex-Bench v1. 
+
+## 2 Background and Problem 2.1 Full-Duplex Voice Dialogue 
+
+An LLM-based voice assistant can be organized around two different interaction paradigms. In a half-duplex or push-to-talk interface, the application alternates between listening and speaking. The user finishes an utterance, the system processes it, the assistant speaks, and the microphone is either closed or treated as inactive until the next user turn. This design gives the application a simple state machine: each assistant response can be considered complete once generated, and the next user input is assumed to arrive after that response has been delivered. 
+
+> 2PACE: A Playback-Aligned Context Engine for LLM-Based Full-Duplex Voice Dialogue
+
+Full-duplex voice dialogue changes this paradigm. The microphone remains active while assistant audio is being generated, streamed, buffered, and played, so the user can interrupt, backchannel, hesitate, clarify, or continue speaking during assistant output [5, 6, 8]. The application is therefore no longer a sequence of isolated user and assistant turns. It is a continuous bidirectional stream in which input capture, model generation, network delivery, audio playback, and user perception proceed concurrently. This shift makes full-duplex systems feel more natural, but it also changes what the application must track. The system must decide not only whether new user speech is a true in-terruption, a short acknowledgment, acoustic echo, or back-ground noise, but also which assistant content had reached playback and could actually have been heard when that speech occurred. Client playback does not reveal whether the user attended to or understood that content, but it is the latest system-observable boundary on what the user could have heard. In other words, full-duplex dialogue separates 
+
+generated assistant context from playback-grounded assistant context. 
+
+## 2.2 Generative Context Mis-anchoring 
+
+GCM occurs when a model interprets a user input, chooses a continuation, or commits an external action using assis-tant content that has been generated but not yet grounded at the user’s playback boundary. Unlike ASR, TTS, or fac-tual errors, the recognized input and generated output may both be locally correct; the failure is that the model binds the input to the wrong point in the conversation. GCM be-comes likely when assistant generation outpaces playback, user speech overlaps buffered or playing audio, and the next model context includes content beyond what the user has heard. These conditions can arise in both native speech-to-speech runtimes and cascaded voice agents, and are amplified by faster-than-realtime TTS, large client buffers, temporary network spikes, or aggressive server-side streaming. This mismatch appears in several recurring forms. 
+
+Temporal reference shift. The user responds to an audi-ble sentence, but the model anchors the response to a later generated one. For example, if the assistant says “today is sunny” and then generates “tomorrow will rain,” a user who interrupts after the first sentence and asks, “Should I bring an umbrella?” may receive an answer about tomorrow. 
+
+Reference resolution collapse. Phrases such as “repeat the last sentence” resolve against the last generated sentence rather than the last audible one. This mismatch is especially damaging for instruction-following tasks, where the user and the assistant can end up several steps apart. 
+
+Confirmation binding error. A confirmation uttered against an audible proposal may bind to a later generated revision. A user may hear “I can book 10am,” say “OK,” and cause the assistant to execute an unheard change to 2pm. This form is high-risk because it can affect tool calls, trans-actions, and irreversible external actions. 
+
+Repair failure. Even when the user notices the drift, the assistant cannot explain or correct it, because it does not know which content was unheard. A user may say “wait, I was talking about the previous one” or “I had not heard that yet,” but the assistant may treat the confusion as a new semantic request and compound the misalignment. 
+
+## 2.3 Why Transport Feedback Alone Is Insufficient 
+
+Traditional realtime media systems already expose timing and receiver feedback. RTP and RTCP, for example, provide timestamps and reception reports for media delivery [21]. Browser audio APIs expose clocks and output latency in-formation that can help estimate audible playout [26]. Such signals are useful for media synchronization: they can indi-cate whether audio arrived, how much latency accumulated, and which portion of the waveform has likely reached the speaker. For a full-duplex voice LLM service, however, the relevant question is not only where playback is in the audio stream, but where the user is in the dialogue. Knowing that playback has reached a particular sample offset does not by itself reveal which sentence the user heard, which option was offered, or which tool precondition became audible. The sample offset is sufficient for audio-domain revocation or re-injection, but semantic commitment requires an additional mapping from speech playout to dialogue state. Transport-level feedback alone cannot provide that mapping, because it describes the media stream rather than the state of the conversation. PACE therefore uses playback as an asymmetric proxy for hearing: content beyond the boundary could not have been heard, while content before it had at least been rendered and made available to the user. 
+
+## 2.4 Limitations of Item Truncation and State Rewinding 
+
+A natural response to GCM is to delete or rewind the un-heard suffix of the assistant response. Item truncation, as exposed by commercial realtime APIs (Section 7), removes the unheard tail of an assistant turn from the server-side context [17]. In a self-hosted transformer runtime, the anal-ogous lower-level operation is to truncate or restore the key–value (KV) cache—and, for speech-to-speech models, the associated acoustic and streaming decoder states—back to the token position that corresponds to the audible bound-ary. These mechanisms are useful, but they are not sufficient as a general grounding method. 
+
+> 3Shibo Wang, Zicheng Zhang et al.
+
+Runtime projection. Item truncation repairs a high-level conversation object, but the public API does not specify how that repair is projected into the model runtime. If truncation is realized mainly as a conversation-log rewrite, the next request may need to re-prefill the modified prefix, weakening prefix caching. If it is realized by reconstructing or rewinding internal state, the runtime must expose and maintain finer-grained cache state. In both cases, the operation still depends on a separate playout-to-dialogue mapping if it is to restore a textual or semantic state: the system must know which text span, semantic proposal, or tool precondition corresponds to the audio that the user could have heard at the playback boundary. 
+
+Access and precision. Hosted realtime voice APIs expose high-level conversation and response events, not direct han-dles to KV cache or streaming decoder state [17]. Self-hosted systems provide more control, but the repair boundary must still be placed precisely. A playback boundary can fall inside a word, token, or audio span, while speech-to-speech run-times may carry acoustic state, vocoder state, and decoder state beyond the text tokens alone. Restoring a coherent dia-logue state is therefore more involved than removing a suffix from a transcript or truncating a single tensor. 
+
+Serving cost. Modern runtimes lean on prefix and prompt caching, paged attention, and continuous batching to sus-tain throughput. Mutating cache state mid-stream to track playback works against these optimizations. Checkpointing KV state frequently enough to restore arbitrary playback boundaries consumes memory bandwidth and capacity that scale with sequence length and batch size, and invalidating a shared prefix can disturb batching for co-scheduled requests. In runtimes whose cache is a single continuous sequence, removing an unheard suffix can degrade into a heavier re-prefill, erasing the latency advantage that generating ahead of playback was meant to provide. 
+
+Generality. Finally, item truncation is tied to a provider-specific conversation-item abstraction, while cache rewind-ing is tied to one model architecture and inference engine. Both approaches must be re-implemented and re-validated across runtimes; neither naturally covers black-box voice models that expose no truncation handle or cascaded VAD– ASR–LLM–TTS pipelines whose stateless per-turn calls carry no persistent cache to rewind. In short, these mechanisms can be useful adapters for particular systems, but they bind playback grounding either to a provider API or to model internals while still depending, for semantic restoration, on a playout-to-dialogue mapping they do not supply by them-selves. 
+
+## 3 The PACE Framework 
+
+PACE is a middleware layer placed between the transport stack and the model runtime. It does not prescribe a specific LLM, ASR, TTS, or transport protocol. Instead, it defines a small set of state objects and events that let the runtime align its conversational context with the user’s playback boundary. Fig. 2 provides an architectural overview of PACE. 
+
+## 3.1 Design Principles 
+
+Separate generation from grounding. PACE records generated output immediately, but marks samples as playback-grounded only after a client acknowledgment passes them. When audio-to-content alignment is available, a semantic unit becomes eligible for commitment only after playback passes its finalized audio endpoint. This preserves low-latency streaming while avoiding premature context commitment. 
+
+Use turn-local coordinates. Playback samples and text offsets are reported relative to a stable assistant turn iden-tifier. A global sample count is fragile because buffers can be reset, turns can overlap, and transport streams can be reordered. Turn-local coordinates make acknowledgments composable across WebTransport, WebSocket, WebRTC, and SIP. 
+
+Project to the available runtime. PACE does not require every backend to expose the same state-control interface. A cascaded text LLM can be controlled by rewriting prompt history. A black-box realtime voice API can be controlled through audio re-injection when truncate events are unavail-able, or through truncate and cancel events when available. A self-hosted speech-to-speech model can expose stronger checkpoint, rewind, or mask operations. 
+
+Gate irreversible actions. It is acceptable for speculative speech to be generated ahead of playback. It is not acceptable for irreversible tool calls to commit based on proposals that were never grounded. PACE therefore separates response generation from action commitment. 
+
+## 3.2 Core Abstractions 
+
+PACE introduces two primary state objects: the OutputTurn-Ledger , which lives on the server, and the PlaybackAck , which flows from client to server. 
+
+Turn and OutputTurnLedger. A turn in PACE is not the model’s output content itself, but the lifecycle process of one assistant response—spanning generation, network delivery, client playback, and availability for user perception (or revo-cation). Each time the model starts a new response (signaled by a response.created event), PACE opens a new turn and assigns it a sequential identifier 𝑖 . The OutputTurnLedger 
+
+maintains one entry 𝑇 𝑖 per turn, recording both the content produced and the delivery progress observed so far: 
+
+> 4PACE: A Playback-Aligned Context Engine for LLM-Based Full-Duplex Voice Dialogue
+
+Client PACE middleware Model runtime     
+
+> Playback + clock Microphone
+> Playback boundary
+> 𝐴 𝑖 =⟨turn ,sample ⟩
+> Turn ledger
+> audio • optional text / spans
+> Interrupt control snapshot • gate • cancel / revoke
+> Context projection Voice model
+> Ack
+
+Figure 2: PACE architecture and data flow. The upper path tracks streamed output and client playback acknowledg-ments to maintain a turn-local playback boundary. Upon an interruption, the lower path snapshots this boundary, cancels or revokes stale output, gates new user audio, and projects the grounded context into the model runtime. 
+
+• turn_id (= 𝑖 ): a monotonically increasing identifier as-signed when the model begins a new response. It serves as the primary key that binds all related artifacts—downlink audio deltas, client playback reports, and projections—to a single response episode; 
+
+• audio_copy : a server-side retained copy of the audio chunks delivered to the client for this turn, bounded to the most recent 𝑊 max seconds. Without this copy, the played prefix could not be recovered for context re-injection after an interruption; 
+
+• text_copy (optional): the textual content of the assistant’s response for this turn. While audio_copy preserves what the response sounded like , text_copy records what it said —enabling risk evaluation and history rewriting and, when paired with audio alignment, semantic-level boundary placement; 
+
+• semantic_spans (optional): structured annotations over the turn’s content. Each span records a turn-local audio interval [𝑏 𝑗 , 𝑒 𝑗 ], a finalized flag, and a dialogue role— e.g., plain statement, proposal, question, tool-intent, or confirmation request. A span may additionally carry a text or semantic-token range, a runtime checkpoint, and alignment confidence; 
+
+• played_samples : the sample offset of the playback bound-ary —how far into this turn’s audio the client has rendered to the speaker, updated on each PlaybackAck. Content before this offset is playback-grounded; content after it is speculative; 
+
+• state : the lifecycle phase of this turn— generating → sent 
+
+→ playing → playback-complete , or revoked if interrupted before completion. For cascaded systems, text_copy is the text LLM output and 
+
+audio_copy is filled by TTS. For native speech-to-speech models, text_copy is often unavailable; when the model does expose an aligned view, it may take the form of a stream-ing transcript or a semantic-token sequence. Such a view supports semantic commitment only if its finalized units are also mapped to output sample positions. A latent token sequence or inner monologue without this mapping is not sufficient. 
+
+PlaybackAck. The client continuously reports its play-back progress via a PlaybackAck :
+
+𝐴 = ⟨audio_turn_id , played_samples ⟩. (1) The field audio_turn_id identifies which turn is currently being rendered by the client speaker, while played_samples 
+
+indicates how far into that turn the client has rendered, ex-pressed as a cumulative sample count. Together, the two fields identify the active turn’s playback boundary .
+
+Onset anchoring. Because the client playback clock is the sole authority on playout timing, and each uplink micro-phone tick co-transmits the audio frame and the instanta-neous played_samples at the moment of capture, the server can anchor the playback boundary directly to the user’s 
+
+speech onset . Upon detecting that the user has begun speak-ing, the server-side VAD locates the onset tick and reads its played_samples as the cut-off line: all audio preceding this point had reached playback when the user began speak-ing, whereas any audio that continues to play out after this instant falls outside the conversational basis for the inter-ruption. 
+
+## 3.3 Playback-Boundary Projection 
+
+PACE always exposes a physical PlaybackBoundary :
+
+𝐵 𝑝 𝑖 = ⟨audio_turn_id = 𝑖, played_samples = 𝑛 ⟩. (2) When aligned semantic spans are available, PACE may ad-ditionally derive a semantic commit boundary . Let 𝑒 𝑗 be the aligned audio endpoint of a finalized span 𝑠 𝑗 , and let 𝜖 bound acknowledgment and alignment uncertainty. Then 
+
+𝐵 𝑠 𝑖 (𝑛 ) = max  {𝑒 𝑗 | finalized (𝑠 𝑗 ) ∧ 𝑒 𝑗 + 𝜖 ≤ 𝑛 } ∪ { 0}. (3) 
+
+> 5Shibo Wang, Zicheng Zhang et al.
+
+The runtime or online segmenter sets finalized only after declaring a span closed; provisional streaming hypotheses do not qualify. If the runtime and middleware provide no audio-to-content alignment, 𝐵 𝑠 𝑖 (𝑛 ) = ⊥: PACE does not infer a semantic boundary from the waveform or from elapsed time alone. The two boundaries serve different purposes. 𝐵 𝑝 𝑖 controls media revocation and preserves the exact played audio prefix, including a partial utterance that may have prompted the interruption. 𝐵 𝑠 𝑖 controls which complete propositions may enter canonical text history or satisfy an action precondi-tion. A third, runtime-specific restoration boundary identifies the latest checkpoint, token position, or conversation item to which internal state can actually be restored. It may be coarser than either boundary or may not exist. When user activity begins, PACE snapshots 𝐵 𝑝 𝑖 and uses the strongest projection supported by the runtime. Projection is therefore not synonymous with state rewind: it may rewrite history, truncate a conversation item, re-inject played audio, or re-store native model state. 
+
+Cascaded adapter. A cascaded voice agent typically calls a stateless chat-completion API on each turn. For this class, projection is implemented by rewriting history. TTS times-tamps or forced alignment map 𝐵 𝑝 𝑖 to a text offset; if finalized spans are available, the canonical history is truncated at 𝐵 𝑠 𝑖 .If no reliable alignment exists, PACE does not estimate a text offset from character count or elapsed time: it either removes the incomplete assistant turn or uses the audio re-injection adapter. The next LLM call receives a short system context such as: “The previous assistant response was interrupted; only the following prefix was played.” This adapter requires no model changes and is practical for many VAD–ASR–LLM– TTS systems. 
+
+Audio re-injection adapter. When the model runtime does not expose item-level truncation or history editing (e.g., a black-box realtime voice API accessed only through audio input/output buffers), PACE projects the playback boundary by re-injecting the played audio suffix as model input. The procedure operates in three steps: (1) Extract played context. PACE first reads the playback position reported by the client: played_samples . It then uses this value and the turn-indexed downlink buffer to slice the most recent 𝐿 seconds of played audio (the 
+
+lookback window ). Let 𝑛 denote played_samples and 𝑓 𝑝 
+
+the playback sample rate. The slice boundary is [𝑠, 𝑛 ],where 𝑠 = max (0, 𝑛 − 𝐿 · 𝑓 𝑝 ).(2) Resample and concatenate the instruction delimiter. The extracted segment (at the playback rate 𝑓 𝑝 ) is resampled to the model’s upstream rate 𝑓 𝑢 via linear interpolation. A pre-synthesized audio prompt 𝑃 delim is appended to mark the preceding segment as assistant output already heard by the user and to separate it from the post-interrupt request. In our deployment, 𝑃 delim is the TTS rendering of the fixed phrase “That was what I heard before inter-rupting. Now, here is what I want to say:”, synthesized once at server startup and cached on disk as raw PCM. (3) Inject as model input. PACE sends the concatenated audio to the model’s input buffer: first the heard assis-tant context, then the instruction delimiter, and finally the user speech captured after the interruption. The de-limiter directs the model to treat the preceding audio as previously heard context and to answer the request that follows. This sequence grounds the model’s next response at the playback boundary. This audio-only fallback requires an audio input path and a way to cancel or suppress stale output, but makes no as-sumption about text, conversation-item APIs, or KV-cache accessibility. It preserves the physical played prefix; it does not by itself establish a proposition-level boundary or exact internal state rollback. 
+
+Native speech-to-speech adapter. Native runtimes ex-pose three useful capability levels. A cooperative runtime may emit finalized transcript or semantic-token spans to-gether with output-sample endpoints and restoration check-points; PACE then computes 𝐵 𝑠 𝑖 and restores the latest com-patible checkpoint. When only output audio is exposed, an external streaming ASR and online span segmenter may pop-ulate approximate semantic_spans ; their alignment error must be reflected in 𝜖 and evaluated explicitly. A fully black-box runtime with neither form of alignment has 𝐵 𝑠 𝑖 = ⊥.PACE then uses 𝐵 𝑝 𝑖 for revocation and audio re-injection, and treats semantic preconditions as ungrounded until an explicit confirmation. 
+
+## 3.4 Triggering and Interruption Handling 
+
+Trigger policy. PACE applies grounding projection when it observes a risk event . Common risk events include con-firmed user interruption, explicit push-to-talk down, manual interrupt, new response replacing an old one, transport re-connection, and tool commit. An acoustic speech-start signal is treated as a candidate risk event rather than an uncondi-tional projection trigger: short backchannels, echo leakage, and false positives may update the playback boundary with-out canceling the assistant’s current output. A more selective policy, suitable for runtimes with richer semantic information, also considers semantic risk: 
+
+• the unheard suffix contains a proposal, question, correc-tion, or tool precondition; 
+
+• the user utterance contains a deictic phrase such as “that”, “last one”, “OK”, “repeat”, or “why”; 
+
+• the system is about to execute an external action whose proposal span is not grounded. 
+
+> 6PACE: A Playback-Aligned Context Engine for LLM-Based Full-Duplex Voice Dialogue
+
+In-flight cancellation. Projecting the playback bound-ary into the model-facing context does not remove output already in flight. By the time the server processes an interrup-tion, audio from the interrupted response may still be queued in the transport pipeline or the client playback buffer. PACE therefore cancels the response along two paths: it stops and suppresses further output at the source, and revokes buffered output at the sink. (1) Upstream cancellation. PACE issues response.cancel 
+
+to stop further generation. At the same time, the middle-ware raises a suppression flag , preventing any remaining audio or text deltas from the interrupted response from reaching the client. (2) Downstream revocation. PACE also sends the client a Revoke event: 
+
+𝑅 = ⟨audio_turn_id , after_sample , reason ⟩. (4) Here, audio_turn_id identifies the interrupted response and after_sample marks the last sample that may be retained. Upon receipt, the client discards all scheduled or buffered audio beyond this boundary, preserving only the prefix already rendered. PACE keeps the suppression flag active until the next 
+
+response.created event. This blocks late deltas from the interrupted response, which black-box runtimes may emit even after cancellation. 
+
+Forward gate and ordering. Context re-injection must be sequenced correctly relative to user speech: the model should see the injected heard-context audio before the post-interrupt user utterance, never after. Without explicit ordering, user speech ticks that were in-flight or queued during the inter-rupt could leak ahead of the injected context, causing the model to hear user speech without the grounding prefix. PACE enforces ordering through a forward gate mecha-nism: (1) When an interrupt event is detected, the gate is closed 
+
+synchronously , before any asynchronous operation be-gins. This blocks subsequent uplink ticks from reaching the model backend. (2) The middleware acquires a send-serialization lock, exe-cutes response.cancel , builds the re-injection payload, and transmits it to the model. (3) Any ticks that passed the gate before closure but were waiting for the send lock are held rather than dropped; they are flushed in order after the injected context, pre-serving the user’s post-interrupt speech. (4) The gate is re-opened only after injection completes, allowing normal tick forwarding to resume. This guarantees the model receives the sequence: last pre-interrupt tick → cancel → injected context (played audio + delimiter) → held ticks → new user speech .
+
+## 4 Implementation 
+
+We implemented PACE in a browser-based realtime voice assistant. The prototype consists of a JavaScript client, an asynchronous Python middleware server, and an adapter to the DashScope Qwen-Audio-Realtime API. PACE requires no changes to the model service: playback tracking runs at the client, while the ledger, ordering, and context projection run in the middleware. The evaluation uses this same end-to-end path; the benchmark runner replaces only the live microphone source with a prerecorded user-input trajectory. 
+
+## 4.1 Prototype and Playback Tracking 
+
+The browser sends float32 microphone audio in 100-ms ticks. WebTransport is the primary client–server transport, using unidirectional streams for media ticks and a long-lived bidi-rectional stream for control messages; WebSocket provides a compatibility fallback. The server reorders WebTransport ticks by a 16-bit sequence number, waiting at most 50 ms for a missing tick. Interrupt-marked ticks bypass this queue and are handled immediately. Assistant audio is scheduled with the Web Audio clock. For each assistant turn, the client counts fully rendered chunks and the elapsed portion of the active chunk. Every uplink tick header carries the current 16-bit audio_turn_id and 32-bit played_samples offset at 24 kHz, continuously re-porting the latest playback progress. At interruption, the server reads the values carried by the speech-onset tick, and the client then stops active and queued audio from that turn. These fields extend the existing tick header to 33 bytes. Each downlink delta carries a 27-byte header containing its delta ID, sample rate, audio length, end-of-turn flag, audio-turn ID, source tick ID, and server timestamp. 
+
+## 4.2 Server-Side Execution 
+
+The middleware copies each model audio delta into a turn-indexed buffer before forwarding it to the client. It retains at most eight turn entries, together with a 10-s live fallback buffer and the previous response buffer. This layout allows an interrupt report to select the turn actually being played even when the model has already emitted response.created for a newer turn. The interrupt fast path closes the forward gate, incre-ments an interruption generation counter, and copies the live and previous-response buffers before the first asynchro-nous yield. The interrupt handler then acquires the same send lock used by normal model-input writes. Under this lock, it issues response.cancel , injects the repaired con-text, and releases held microphone ticks in order. A finally 
+
+path always reopens the gate, while output suppression re-mains active until the next response.created event. These implementation-level safeguards cover both ticks that arrive 
+
+> 7Shibo Wang, Zicheng Zhang et al.
+
+after gate closure and asynchronous senders that had already passed the gate. For the black-box model adapter, the middleware extracts at most 5 s of played audio, resamples it from 24-kHz float32 to 16-kHz PCM16, and appends the spoken instruction de-limiter 𝑃 delim described in Section 3.3. The delimiter is syn-thesized once with the assistant voice and cached as raw PCM. The played context and delimiter are appended to the model’s audio-input buffer in chunks of at most 192,000 raw bytes before held user audio is released. The prototype therefore implements the physical bound-ary 𝐵 𝑝 𝑖 and the audio-only projection path. The model back-end adapter does not expose an aligned transcript or restorable semantic checkpoint, so the prototype does not populate 
+
+semantic_spans or compute 𝐵 𝑠 𝑖 . Its guarantee is that un-played audio remains externally revocable and that the played prefix is presented before post-interruption user speech; it does not claim exact proposition-level commitment or internal-state equivalence. 
+
+## 5 GCM-Bench: A Dataset for Generative Context Mis-anchoring 
+
+This section presents GCM-Bench, a controlled benchmark of 108 interruption cases designed to measure GCM. Its cen-tral task is playback-relative referent anchoring: after an interruption, the system must ground its response in the content item at the playback boundary rather than in un-heard, model-internal continuation. We first motivate the dataset and explain why existing interruption benchmarks do not capture GCM (Section 5.1), then describe the factorial construction of the 108 cases (Section 5.2), and finally de-tail the end-to-end measurement protocol and the Referent Anchoring Accuracy metric (Section 5.3). 
+
+## 5.1 Dataset Objective 
+
+Existing interruption benchmarks evaluate whether a voice agent yields the floor and whether its subsequent response is relevant to the user’s new request. These criteria, however, do not test GCM. The user-interruption track of Full-Duplex-Bench (FDB) [13], for instance, reports turn-obedience rate (TOR), response quality, and latency, yet it does not identify which portion of the interrupted response the model treats as the referent. A model may therefore elaborate an internally generated fifth list item and still receive a high relevance score even though the user had only heard the third. To fill this gap, we construct GCM-Bench, a new con-trolled benchmark dataset designed specifically to measure GCM. It defines a playback-relative referent-anchoring task and contains 108 controlled interruption cases. Its primary metric is Referent Anchoring Accuracy (RAA)—whether a post-interruption response is anchored to the content item 
+
+Table 1: GCM-Bench factorial composition. Crossing 12 scenarios (four per class), three delays, and three referential operations yields 108 cases; #/level denotes the cases at each listed level.           
+
+> Dimension Levels #/level Scenario class concept, procedure, condition 36 Interrupt. delay 12 s, 16 s, 20 s 36 Referential operation elaborate ,next ,repeat 36
+
+at the playback boundary rather than to an unheard, model-internal item. We use 200 official FDB v1 user-interruption samples in a separate compatibility study. These external samples are not part of GCM-Bench. The FDB study tests whether context repair degrades ordinary topic-switching interruptions and provides an independent latency check. 
+
+## 5.2 GCM-Bench Construction 
+
+We construct GCM-Bench as the full Cartesian product of 12 listing scenarios, three interruption delays, and three ref-erential operations, yielding 12 × 3 × 3 = 108 samples (Ta-ble 1). The scenarios span three discourse structures: four concept lists (e.g., programming languages), four procedural lists (e.g., preparing scrambled eggs with tomatoes), and four preparation or requirement lists (e.g., traveling abroad). We choose listing tasks because they produce a sequence of discrete, identifiable items whose boundaries are exter-nally verifiable—an evaluator can determine unambiguously which item occupies the playback boundary—while still pre-serving natural variation in item length and discourse de-pendency. The three operations exercise distinct uses of the playback context. Elaborate (“Tell me more about this one”) requires expanding the item at the boundary; next (“Tell me about the next one”) requires advancing relative to that item; and 
+
+repeat (“I didn’t catch that, say it again”) requires reproducing it verbatim. Together, they probe whether the system can locate, extend, and advance from the playback-grounded referent. Interruptions occur at 12, 16, or 20 s after the end of the initial query, placing the same referential request at pro-gressively later stages of the generated list. We arrived at these delays empirically: an initial 5–9 s range frequently interrupted before the model had established a stable item, causing the task to measure response startup latency rather than referent anchoring. We manually author the 12 source prompts and program-matically generate all 108 GCM-Bench cases. User utterances are synthesized with DashScope Qwen3-TTS-Flash using the 
+
+> 8PACE: A Playback-Aligned Context Engine for LLM-Based Full-Duplex Voice Dialogue
+
+Cherry voice, resampled to 16 kHz, stripped of trailing si-lence, padded with 0.3 s of silence, and peak-normalized. Each case packages a reproducible user-input trajectory that concatenates the initial query, the designated delay, the in-terruption utterance, and 15 s of trailing silence. The con-struction process records the exact interruption onset and endpoint consumed by the streaming runner and evaluator. The trajectory fixes only user-side input and timing; assis-tant generation, network delivery, browser playback, and interruption repair execute online in every trial. 
+
+## 5.3 Measurement Protocol 
+
+GCM-Bench evaluation proceeds in three stages: streaming execution, transcription, and automated judging. 
+
+Streaming execution. Each sample runs through the de-ployed end-to-end system in a fresh model session. The run-ner feeds the 16-kHz user-input trajectory into the same up-link path used by live microphone audio, at wall-clock rate. Returned assistant audio is scheduled through the browser’s Web Audio playback path, whose clock produces the Play-backAck consumed by PACE. A synchronized recorder cap-tures the live model output while preserving its temporal correspondence with user input and actual client playback. The benchmark supplies neither assistant output nor a play-back boundary and does not simulate playback. 
+
+Transcription. We transcribe the full assistant audio with the Qwen3-ASR service, retaining word-level timestamps. The playback boundary captured at interruption partitions each transcript into before-text (the assistant speech already played when the interruption began) and after-text (the re-sponse generated after the interruption). 
+
+Automated judging. We report TOR separately from an-choring quality. Under the evaluation protocol, a response shorter than 1 s with at most three words is classified as no effective response. For every effective response, ChatGPT 5.5 receives the before-text, after-text, interruption utterance, and operation type. The judge returns a binary decision with an explanation indicating whether the after-text elaborates, advances from, or repeats the referent at the end of the played prefix. Conditional on an effective response, RAA is RAA = 1
+
+𝑁 resp 
+
+> 𝑁 resp
+
+∑︁ 
+
+> 𝑘 =1
+
+⊮[ ˆ𝑦 𝑘 = correct ]. (5) Crucially, the judge sees the model’s actual output before interruption, not a canonical item list. This design accommo-dates the fact that independent realtime runs may enumerate items at different rates or with different wording. Report-ing TOR alongside RAA prevents a system from inflating conditional accuracy by simply refusing to respond. In our benchmark, however, every system achieves TOR = 100% (𝑁 resp = 𝑁 ), so the conditioning is vacuous and RAA reduces to unconditional accuracy. Posterior judging is reliable for elaborate and repeat : the played item alone suffices to determine whether the response uses the correct referent. For next , however, the method is weaker. The judge observes the played prefix but not the generated-yet-unplayed continuation, and therefore cannot always verify the identity and order of the true next item. It may accept a new, non-repeated item even when the model has advanced from an internal item beyond the playback boundary. We accordingly report next separately and treat 
+
+elaborate as the cleanest direct measure of GCM repair. For the separate FDB compatibility study, we retain the original v1 evaluation protocol unmodified. We crop out-put from the end of the interruption, transcribe it, and cor-rect the first-word timestamp using audio energy. We then report TOR, the original 0–5 LLM-judge response score, and interruption-to-response latency. Because these exter-nal FDB samples predominantly contain topic switches (e.g., “Actually, can we talk about movies instead?”) rather than referential requests, they are not used to estimate RAA. 
+
+## 6 Evaluation 
+
+This section evaluates PACE on the deployed end-to-end system, organized around three research questions on an-choring, robustness, and compatibility. On the 108 paired GCM-Bench cases, playback-context projection raises Refer-ent Anchoring Accuracy from 25.0% to 96.3%, and a separate study on 200 FDB v1 samples confirms that ordinary inter-ruption handling is preserved at a modest repair cost. 
+
+## 6.1 Experimental Setup 
+
+Our evaluation addresses three questions: 
+
+• RQ1: Anchoring. Does playback-context projection re-duce referent mis-anchoring relative to cancellation alone? 
+
+• RQ2: Robustness. Does the effect persist across inter-ruption times, referential operations, and discourse struc-tures, and how sensitive is it to the delimiter and lookback-window design? 
+
+• RQ3: Compatibility and cost. Does projection preserve interruption quality, and what latency does interruption repair add? We evaluate anchoring and robustness on the newly con-structed 108-case GCM-Bench dataset. Separately, we as-sess compatibility and latency on 200 official FDB v1 user-interruption samples; these external samples are not part of GCM-Bench. All trials exercise the deployed PACE path end to end. GCM-Bench supplies only the prerecorded user-input tra-jectory: assistant output is generated online, scheduled by 
+
+> 9Shibo Wang, Zicheng Zhang et al.
+
+the browser for actual playback, and tracked by client Play-backAck events. The middleware consumes those acknowl-edgments to update the OutputTurnLedger, snapshot the interruption boundary, revoke queued audio, and order can-cellation and context projection. The benchmark runner nei-ther precomputes nor injects a playback position. Each sample is evaluated under a cancellation-only base-line and PACE . The baseline cancels the active response and forwards the interruption without context repair. PACE ad-ditionally snapshots the client-reported playback boundary and extracts the latest 5 s of played assistant audio from the server-side turn-indexed output buffer. Let 𝐻 denote this segment and 𝑈 the post-interrupt user audio. Following the notation of Section 3.3, the deployed configuration uses 
+
+𝑃 delim = P1; P2 and P3 are evaluated only as ablations: 
+
+• P1 (natural statement): 𝐻 → “That was what I heard before interrupting. Now, here is what I want to say:” → 𝑈 .
+
+• P2 (direct handoff): 𝐻 → “That was what I heard. Now please respond to my following request instead:” → 𝑈 .
+
+• P3 (wrapped context): “I heard you say the following:” 
+
+→ 𝐻 → “Now please respond to my following request instead:” → 𝑈 .Each instruction is synthesized in the assistant voice and in-jected through the model’s audio-input interface in the order shown. This audio-only condition instantiates 𝐵 𝑝 𝑖 without semantic spans or model-state checkpoints. Both conditions use the same user-input trajectories, inter-ruption timestamps, realtime model, and inference configura-tion. Each sample is run independently in each condition, and the judge conditions on the output actually produced in that run. We report percentage-point (pp) changes for RAA and apply McNemar’s test with continuity correction to the 108 paired GCM-Bench outcomes. We additionally ablate three delimiter designs at a fixed 5-s window and three lookback windows with the selected delimiter. Cochran’s Q tests com-pare each set of three paired conditions, followed by exact pairwise McNemar tests with Holm correction. The 2.5- and 10-s lookback conditions were collected in a later realtime batch than the 5-s condition; we therefore treat their near-tied results cautiously. For the paired FDB study, we report the score difference descriptively and use paired bootstrap intervals and a Wilcoxon signed-rank test for latency. 
+
+## 6.2 RQ1: Referent Anchoring 
+
+Both conditions produce an effective response for all 108 GCM-Bench samples (TOR = 100%). The baseline anchors 27 responses correctly (25.0%), whereas PACE anchors 104 (96.3%), an improvement of 71.3 pp (Table 2). The result iso-lates a failure that conventional interruption metrics miss: both systems respond, but only the playback-aligned condi-tion usually resolves what the user is referring to. 
+
+Table 2: Referent Anchoring Accuracy (RAA) for the cancellation-only baseline and PACE on 108 paired GCM-Bench cases, overall and by operation. Both achieve 100% TOR.                
+
+> Operation Baseline PACE Δ
+> elaborate 1/36 (2.78%) 34/36 (94.44%) +91.67 pp
+> next 22/36 (61.11%) 35/36 (97.22%) +36.11 pp
+> repeat 4/36 (11.11%) 35/36 (97.22%) +86.11 pp Overall 27/108 (25.0%) 104/108 (96.3%) +71.3 pp
+
+The paired outcomes comprise 26 samples correct under both conditions, one baseline-only success, 78 PACE-only successes, and three failures under both. McNemar’s test with continuity correction yields 𝑝 < 0.001. Thus, the im-provement is not explained by a small number of cases: PACE repairs 78 baseline failures while introducing one regression, a 78:1 improvement-to-regression ratio. The operation breakdown shows where the repair pipeline matters. Elaborate improves from 2.78% to 94.44%; without repaired playback context, the model almost never resolves “this one.” Repeat improves from 11.11% to 97.22%, and next 
+
+from 61.11% to 97.22%, though its baseline is likely inflated by the judging limitation in Section 5.3. Accordingly, elab-orate provides the cleanest evidence for playback-relative anchoring. A representative case illustrates the difference. When the played output ends while introducing bananas and the user asks “Tell me more about this one,” the baseline asks which fruit the user means. PACE instead identifies bananas and elaborates on their nutritional properties. Both responses are fluent; the difference is whether the referent is grounded at the user’s playback boundary. 
+
+## 6.3 RQ2: Robustness Across Conditions 
+
+PACE exceeds 91% RAA at every tested interruption time (Ta-ble 3). It reaches 91.7%, 100.0%, and 97.2% at 12, 16, and 20 s, respectively, compared with baseline accuracies of 33.3%, 19.4%, and 22.2%. We do not observe a monotonic decline with delay: PACE reaches 100% at 16 s and 97.2% at 20 s. This pattern suggests that performance depends on which discourse item falls within the lookback, not on elapsed con-versation time alone. The effect also persists across discourse structures. PACE obtains 97.2% on concept lists, 100.0% on condition lists, and 91.7% on procedural lists. Concept items such as languages or fruits have distinct lexical boundaries and are readily recovered from the injected audio. Procedural steps are more causally and linguistically connected, making the current unit harder to isolate. Nine scenarios reach 100% RAA. The 
+
+> 10 PACE: A Playback-Aligned Context Engine for LLM-Based Full-Duplex Voice Dialogue
+
+Table 3: Referent Anchoring Accuracy (RAA) for the cancellation-only baseline and PACE on GCM-Bench, stratified by interruption delay and scenario class.                      
+
+> Group Baseline PACE Δ
+> Delay: 12 s 12/36 (33.3%) 33/36 (91.7%) +58.3 pp Delay: 16 s 7/36 (19.4%) 36/36 (100.0%) +80.6 pp Delay: 20 s 8/36 (22.2%) 35/36 (97.2%) +75.0 pp Concept lists 12/36 (33.3%) 35/36 (97.2%) +63.9 pp Procedure lists 2/36 (5.6%) 33/36 (91.7%) +86.1 pp Condition lists 13/36 (36.1%) 36/36 (100.0%) +63.9 pp
+
+Table 4: Ablations of the audio projection adapter on GCM-Bench. Each row evaluates one variant on all 108 cases: delimiter variants fix the lookback at 5 s, and lookback variants fix the delimiter at P1. The deployed configuration is P1 with a 5-s lookback.                  
+
+> Ablation Setting Correct RAA Delimiter P1 (natural statement) 104/108 96.30% P2 (direct handoff) 91/108 84.26% P3 (wrapped context) 99/108 91.67% Lookback 2.5 s 103/108 95.37% 5 s 104/108 96.30% 10 s 71/108 65.74%
+
+remaining errors concentrate in two procedural scenarios— tomato-egg cooking and laundry—indicating broad, but not uniform, robustness across the controlled conditions. 
+
+Configuration ablations. Table 4 isolates the effects of two design choices in the audio projection adapter: the in-struction delimiter and the playback lookback window. At a fixed 5-s lookback, P1 achieves the highest RAA among the three tested delimiters. With P1 fixed, the 2.5- and 5-s windows yield similarly high RAA, whereas the 10-s window substantially degrades anchoring. Delimiter choice has a significant overall effect (Cochran’s 
+
+𝑄 = 8.897, 𝑝 = 0.012). After Holm correction, P1 significantly outperforms P2 ( 𝑝 = 0.022), but not P3. We therefore deploy P1 as the best-performing tested delimiter without claiming a reliable advantage over P3. P2 performs particularly poorly on next (75.0%), suggesting that its direct-handoff wording may disrupt list continuation. Lookback length also has a significant overall effect ( 𝑄 = 51 .561, 𝑝 < 0.001). Both 2.5 and 5 s significantly outperform 10 s after Holm correction (𝑝 < 10 −6), whereas their 0.93-pp difference is not significant (𝑝 = 1.000). The 10-s window is particularly harmful for 
+
+repeat (50.0%), suggesting that the longer history introduces competing candidate referents. Because the 2.5- and 10-s conditions were collected in a later realtime batch, the near tie between 2.5 and 5 s should be interpreted cautiously. We 
+
+Table 5: Compatibility results on 200 paired FDB v1 samples for the cancellation-only baseline and de-ployed PACE (P1 with a 5-s lookback). Quality is the original FDB v1 LLM-judge response-quality score.             
+
+> Metric Baseline PACE Δ
+> TOR 1.000 1.000 0.000 Quality score (0–5) 4.975 4.995 +0.020 Latency (s) 0.771 0.830 +0.059
+
+therefore retain 5 s as a conservative default and regard 2.5 s as a viable lower-overhead alternative. 
+
+## 6.4 RQ3: Compatibility and Repair Cost 
+
+Table 5 reports the separate compatibility study on 200 offi-cial FDB v1 samples. Baseline and P1 run on the same 200 samples in the same batch, with four concurrent workers and alternating execution order across samples. Both conditions respond to every interruption. The mean response-quality score changes only from 4.975 for the baseline to 4.995 for P1. Mean response latency rises from 0.771 to 0.830 s, an ad-ditional 58.7 ms consistent with transmitting and processing the injected audio context. This overhead occurs only after a confirmed interruption, when PACE invokes context repair. A request issued while the assistant is not playing follows the original, unchanged processing path and therefore incurs no additional PACE latency. The FDB result is a compatibility check rather than ev-idence of superiority on general interruptions: FDB does not measure playback-relative anchoring, and we report the score change descriptively. The latency increase is sta-tistically reliable (paired bootstrap 95% CI [24 .8, 96 .4] ms; Wilcoxon 𝑝 = 6.66 × 10 −7), but remains below 0.1 s. Within that scope, PACE preserves response rate and judged quality while introducing a measurable, modest repair delay only on the interruption path. 
+
+## 6.5 Error Analysis and Validity 
+
+The four PACE errors fall into two recurring modes. One next 
+
+response (25%) repeats the current item rather than advanc-ing. The remaining three errors (75%) occur in procedural scenarios and anchor to a neighboring sub-action rather than the sub-action being played at interruption. These residual errors suggest that PACE usually restores the relevant lo-cal context, while fine-grained boundaries within a chain of closely related procedural actions remain difficult. Three limitations bound the interpretation of our results. First, GCM-Bench uses TTS-constructed user-input trajec-tories, listing tasks, one judge, and one realtime model. The 
+
+> 11 Shibo Wang, Zicheng Zhang et al.
+
+trajectories make user input and interruption timing repro-ducible, but assistant generation, transport, browser play-back, and repair remain live; the study demonstrates the mechanism under controlled inputs rather than estimating GCM prevalence in natural conversations. Second, poste-rior judging can overestimate next accuracy because it lacks the unplayed item sequence. Third, the experiment evalu-ates only the audio re-injection adapter. It does not validate semantic-span commitment, irreversible tool-call gating, or cross-provider generalization. The lookback ablation addi-tionally compares realtime batches, so its near-tie between 2.5 and 5 s warrants replication. Human validation of RAA judgments, boundary-aware context selection, additional runtime adapters, and natural conversational data are there-fore the next steps. 
+
+## 7 Related Work 
+
+Full-duplex spoken dialogue models. Recent work dis-tinguishes learned synchronization , implemented inside a spoken language model, from engineered synchronization ,implemented by external dialogue components [2]. Learned approaches remove explicit turn boundaries in different ways. Moshi uses parallel speech streams [6]; LSLM fuses dedicated listening and speaking channels [16]; Synchronous LLMs in-corporate wall-clock time into generation [22]; and NTPP jointly predicts token pairs from dual-channel dialogue [24]. Freeze-Omni and MiniCPM-o 4.5 further combine speech un-derstanding and generation with duplex training or unified streaming [5, 25]. These models establish how an agent can listen and speak concurrently. PACE addresses an orthogonal runtime issue: how dialogue state should reflect the portion of a generated stream that has actually reached playback. 
+
+Controllers for cascaded full-duplex dialogue. Engi-neered synchronization adds duplex behavior around cas-caded or semi-cascaded systems. Duplex Conversation uses user-state and barge-in detection, while an LLM-based full-duplex scheme combines control tokens with a neural finite-state machine [14, 23]. FlexDuo isolates duplex control in a plug-and-play module with an explicit idle state, and LLM-enhanced dialogue management uses semantic control sig-nals to distinguish intentional from incidental barge-ins [10, 30]. More recent systems use micro-turns, personalized VAD, semantic end-of-turn detection, and unit-level state tran-sitions to retain the strengths of ASR–LLM–TTS pipelines while supporting overlapping speech [1, 28, 29]. Their central task is interaction arbitration: deciding whether and when the agent should yield, resume, or respond. PACE consumes such a decision rather than replacing it; its task begins after-ward, by determining which assistant output remains valid for the next model state or external action. 
+
+Full-duplex dialogue evaluation. Full-Duplex-Bench evaluates pause handling, backchanneling, turn-taking, and interruption management [13]; FD-Bench extends the scope to delay and robustness [19]; subsequent versions and MTR-DuplexBench add multi-turn tasks, instruction following, safety, disfluencies, and tool use [9, 11, 12]. Other bench-marks target general spoken-dialogue understanding, task-oriented interaction, and multi-aspect dialogue quality [7, 20, 27]. These efforts primarily measure interaction timing, task completion, or overall dialogue quality. To cover the miss-ing playback-relative dimension, we construct GCM-Bench. Its 108 cases vary the generation–playback gap and test whether referential requests are anchored to played rather than merely generated output. 
+
+Realtime interruption mechanisms. Commercial real-time APIs and voice-agent frameworks expose the closest deployed controls. OpenAI’s Realtime API accepts an as-sistant item identifier and an audio_end_ms offset in the 
+
+conversation.item.truncate event. It truncates the au-dio and removes the corresponding server-side transcript so that unheard text does not remain in the conversation [17]. Gemini Live cancels ongoing generation when VAD detects an interruption, retains content already sent to the client, and requires the application to stop playback and clear queued audio [8]. LiveKit combines endpointing, VAD, semantic or acoustic turn detection, and adaptive interruption handling to distinguish intentional barge-ins from backchannels and false interruptions [15]. These mechanisms demonstrate the practical importance of interruption-aware state management, but expose dif-ferent boundaries: item-relative audio time, content sent to a client, or an interruption decision. We analyze the in-herent limitations of these item-level and state-level ap-proaches in Section 2.4. PACE factors out the common miss-ing abstraction—a turn-local playback boundary—and projects it through whichever state-control interface the runtime pro-vides. 
+
+Conversational grounding. Clark and Brennan describe grounding as the collaborative accumulation of evidence that an utterance has been understood well enough for the current purpose [4]; Clark subsequently frames language use as a joint action coordinated by speakers and listeners [3]. PACE is not a cognitive model of attention or understanding; it uses playback as a system-observable proxy for what the user heard. This evidence is asymmetric: content that never reached playback could not have been heard, whereas ren-dered content was available to be heard but was not necessar-ily attended to or understood. PACE uses this conservative boundary to exclude assistant content that cannot yet be treated as established dialogue context. 
+
+> 12 PACE: A Playback-Aligned Context Engine for LLM-Based Full-Duplex Voice Dialogue
+
+## 8 Discussion 
+
+Scope of the current comparison. The cancellation-only condition is intentionally a mechanism-level control: it pre-serves the same model, interruption timing, and input audio while removing the playback-context repair pipeline. The comparison therefore evaluates the combined effect of re-injecting the played prefix and its spoken delimiter; it does not separately identify their individual contributions. The delimiter ablation confirms that this design choice materially affects anchoring. The comparison should not be interpreted as establishing superiority over all context-repair mecha-nisms. Stronger alternatives include provider-native item truncation, aligned transcript re-injection, and checkpoint-based state rewinding. These mechanisms require runtime interfaces or aligned intermediate representations that are not exposed by the black-box speech backend used in our prototype. To our knowledge, no commercial black-box re-altime speech backend currently exposes these alternative context-repair mechanisms through interfaces that permit a controlled, like-for-like comparison. We therefore leave such a comparison to future work as suitable provider interfaces become available. 
+
+Audio re-injection for native speech systems. For a cascaded ASR–LLM–TTS pipeline, the played prefix can be transcribed and reintroduced into the text history. This op-tion is not universally available in native speech-to-speech systems. Such systems may expose speech as the only input modality, provide no external transcript, or offer no defined mechanism for inserting text into an ongoing audio con-text. Relying on text re-injection would therefore require additional assumptions about ASR availability, audio–text alignment, and mixed-modal context handling. PACE instead repairs the context through the modality that every system in its target class already accepts: speech. Audio re-injection is thus a modality-preserving realization of playback ground-ing under a weaker backend interface, rather than a claim that audio must be intrinsically superior to text. For backends that support reliable text insertion, transcript re-injection remains a complementary option. 
+
+Ambiguity of the next operation. The next operation requires the playback anchor just as elaborate and repeat do: a correct response must advance from the item at the play-back boundary. Where the three operations differ is in how observable this requirement is. For elaborate and repeat , the played item alone determines whether a response uses the correct referent. For next , correctness additionally depends on the generated-but-unplayed continuation: a response that advances from an unheard internal item still names a plau-sible new item and is superficially indistinguishable from a correctly anchored one. An LLM judge that observes only the played prefix and the post-interruption response may therefore accept any novel, non-repeated item as “next,” even when the underlying anchor is wrong. Reliable resolution of such cases may require case-level human inspection against both the playback boundary and the generated-but-unplayed sequence. We do not introduce this manual annotation pro-tocol in the current work; instead, we report next separately, treat it as weaker evidence, and leave human-validated eval-uation of this operation to future work. 
+
+## 9 Conclusion 
+
+LLM-based full-duplex voice dialogue can cause Genera-tive Context Mis-anchoring (GCM) when model-facing con-text advances beyond what the client has played. PACE ad-dresses this mismatch with a provider-independent middle-ware abstraction. It uses a turn-local playback boundary as an observable proxy for what the user heard, keeps unheard output revocable, and projects played context before post-interruption input. We implement its physical, audio-only path in a browser-based assistant connected to a black-box speech model without modifying the model service. We also introduce GCM-Bench, a new 108-case dataset that we construct for controlled playback-relative referent anchoring and publicly release to support reproducible study of GCM. On GCM-Bench, PACE raises Referent Anchoring Accuracy from 25.0% to 96.3%. In a separate study on 200 official FDB v1 samples, the mean response score changes from 4.975 to 4.995, with 58.7 ms higher mean latency only on the interruption path; requests made while the assistant is not playing retain the original processing path and incur no additional PACE latency. These results demonstrate the feasibility of playback-grounded context repair in practice. 
+
+## References         
+
+> [1] Junjie Chen, Yao Hu, Junjie Li, Kangyue Li, Kun Liu, Wenpeng Li, Xu Li, Ziyuan Li, Feiyu Shen, Xu Tang, Manzhen Wei, Yichen Wu, Fenglong Xie, Kaituo Xu, and Kun Xie. 2025. FireRedChat: A Pluggable, Full-Duplex Voice Interaction System with Cascaded and Semi-Cascaded Implementations. arXiv:2509.06502 [cs.CL] https://arxiv.org/abs/2509. 06502 [2] Yuxuan Chen and Haoyuan Yu. 2025. From Turn-Taking to Synchro-nous Dialogue: A Survey of Full-Duplex Spoken Language Models. arXiv:2509.14515 [cs.CL] https://arxiv.org/abs/2509.14515 [3] Herbert H. Clark. 1996. Using Language . Cambridge University Press, Cambridge, UK. [4] Herbert H. Clark and Susan E. Brennan. 1991. Grounding in Com-munication. In Perspectives on Socially Shared Cognition . American Psychological Association, Washington, DC, USA, 127–149. [5] Junbo Cui, Bokai Xu, Chongyi Wang, Tianyu Yu, Weiyue Sun, et al. 2026. MiniCPM-o 4.5: Towards Real-Time Full-Duplex Omni-Modal Interaction. arXiv:2604.27393 [cs.CL] https://arxiv.org/abs/2604.27393 [6] Alexandre Défossez, Laurent Mazaré, Manu Orsini, Amélie Royer, Patrick Pérez, Hervé Jégou, Edouard Grave, and Neil Zeghidour. 2024. Moshi: A Speech-Text Foundation Model for Real-Time Dialogue. arXiv:2410.00037 [eess.AS] https://arxiv.org/abs/2410.00037 13
+
+Shibo Wang, Zicheng Zhang et al. 
+
+[7] Yuhao Du, Qianwei Huang, Guo Zhu, Zhanchen Dai, Shunian Chen, et al. 2025. MTalk-Bench: Evaluating Speech-to-Speech Models in Multi-Turn Dialogues via Arena-style and Rubrics Protocols. arXiv:2508.18240 [cs.CL] https://arxiv.org/abs/2508.18240 [8] Google. 2026. Live API Capabilities Guide. https://ai.google.dev/ gemini-api/docs/live-api/capabilities. [9] Zhang He, Wenqian Cui, Haoning Xu, Xiao-Hui Li, Lei Zhu, Haoli Bai, Ma Shaohua, and Irwin King. 2026. MTR-DuplexBench: Towards a Comprehensive Evaluation of Multi-Round Conversations for Full-Duplex Speech Language Models. In Findings of the Association for Computational Linguistics: ACL 2026 . Association for Computational Linguistics, San Diego, California, USA, 5334–5351. doi:10.18653/v1/ 2026.findings-acl.263 [10] Borui Liao, Yulong Xu, Jiao Ou, Kaiyuan Yang, Weihua Jian, Pengfei Wan, and Di Zhang. 2025. FlexDuo: A Pluggable System for Enabling Full-Duplex Capabilities in Speech Dialogue Systems. arXiv:2502.13472 [cs.CL] https://arxiv.org/abs/2502.13472 [11] Guan-Ting Lin, Chen Chen, Zhehuai Chen, and Hung-yi Lee. 2026. Full-Duplex-Bench-v3: Benchmarking Tool Use for Full-Duplex Voice Agents Under Real-World Disfluency. arXiv:2604.04847 [cs.CL] https: //arxiv.org/abs/2604.04847 [12] Guan-Ting Lin, Shih-Yun Shan Kuan, Jiatong Shi, Kai-Wei Chang, Siddhant Arora, Shinji Watanabe, and Hung-yi Lee. 2025. Full-Duplex-Bench-v2: A Multi-Turn Evaluation Framework for Duplex Dialogue Systems with an Automated Examiner. arXiv:2510.07838 [cs.CL] https: //arxiv.org/abs/2510.07838 [13] Guan-Ting Lin, Jiachen Lian, Tingle Li, Qirui Wang, Gopala Anu-manchipalli, Alexander H. Liu, and Hung-yi Lee. 2025. Full-Duplex-Bench: A Benchmark to Evaluate Full-duplex Spoken Dialogue Mod-els on Turn-taking Capabilities. arXiv:2503.04721 [cs.CL] https: //arxiv.org/abs/2503.04721 [14] Ting-En Lin, Yuchuan Wu, Fei Huang, Luo Si, Jian Sun, and Yongbin Li. 2022. Duplex Conversation: Towards Human-Like Interaction in Spoken Dialogue Systems. In Proceedings of the 28th ACM SIGKDD Conference on Knowledge Discovery and Data Mining . Association for Computing Machinery, Washington, DC, USA, 3299–3308. doi:10. 1145/3534678.3539209 [15] LiveKit. 2026. Turns Overview. https://docs.livekit.io/agents/logic/ turns/. [16] Ziyang Ma, Yakun Song, Chenpeng Du, Jian Cong, Zhuo Chen, Yuping Wang, Yuxuan Wang, and Xie Chen. 2025. Language Model Can Listen While Speaking. Proceedings of the AAAI Conference on Artificial Intelligence 39, 23 (2025), 24831–24839. doi:10.1609/aaai.v39i23.34665 [17] OpenAI. 2026. Realtime Client Events: Conversation Item Trun-cate. https://platform.openai.com/docs/api-reference/realtime-client-events/conversation/item/truncate. [18] OpenAI. 2026. Voice Activity Detection (VAD) in the Realtime API. https://developers.openai.com/api/docs/guides/realtime-vad. [19] Yizhou Peng, Yi-Wen Chao, Dianwen Ng, Yukun Ma, Chongjia Ni, Bin Ma, and Eng Siong Chng. 2025. FD-Bench: A Full-Duplex Bench-marking Pipeline Designed for Full Duplex Spoken Dialogue Systems. arXiv:2507.19040 [cs.CL] https://arxiv.org/abs/2507.19040 [20] Soham Ray, Keshav Dhandhania, Victor Barres, and Karthik Narasimhan. 2026. 𝜏 -Voice: Benchmarking Full-Duplex Voice Agents on Real-World Domains. arXiv:2603.13686 [cs.CL] https://arxiv.org/ abs/2603.13686 [21] Henning Schulzrinne, Stephen Casner, Ron Frederick, and Van Jacob-son. 2003. RTP: A Transport Protocol for Real-Time Applications . RFC 3550. Internet Engineering Task Force. https://www.rfc-editor.org/ rfc/rfc3550 [22] Bandhav Veluri, Benjamin N. Peloquin, Bokai Yu, Hongyu Gong, and Shyamnath Gollakota. 2024. Beyond Turn-Based Interfaces: Synchro-nous LLMs as Full-Duplex Dialogue Agents. In Proceedings of the 2024 Conference on Empirical Methods in Natural Language Process-ing . Association for Computational Linguistics, Miami, Florida, USA, 21390–21402. doi:10.18653/v1/2024.emnlp-main.1192 [23] Peng Wang, Songshuo Lu, Yaohua Tang, Sijie Yan, Wei Xia, and Yuan-jun Xiong. 2024. A Full-duplex Speech Dialogue Scheme Based on Large Language Models. arXiv:2405.19487 [cs.CL] https://arxiv.org/ abs/2405.19487 [24] Qichao Wang, Ziqiao Meng, Wenqian Cui, Yifei Zhang, Pengcheng Wu, Bingzhe Wu, Irwin King, Liang Chen, and Peilin Zhao. 2025. NTPP: Generative Speech Language Modeling for Dual-Channel Spoken Dia-logue via Next-Token-Pair Prediction. In Proceedings of the 42nd Inter-national Conference on Machine Learning . PMLR, Vancouver, Canada, 63912–63928. https://proceedings.mlr.press/v267/wang25by.html [25] Xiong Wang, Yangze Li, Chaoyou Fu, Yunhang Shen, Lei Xie, Ke Li, Xing Sun, and Long Ma. 2024. Freeze-Omni: A Smart and Low Latency Speech-to-Speech Dialogue Model with Frozen LLM. arXiv:2411.00774 [cs.CL] https://arxiv.org/abs/2411.00774 [26] World Wide Web Consortium. 2021. Web Audio API. https://www. w3.org/TR/webaudio/. [27] Ruiqi Yan, Xiquan Li, Wenxi Chen, Zhikang Niu, Chen Yang, Ziyang Ma, Kai Yu, and Xie Chen. 2025. URO-Bench: Towards Com-prehensive Evaluation for End-to-End Spoken Dialogue Models. arXiv:2502.17810 [cs.CL] https://arxiv.org/abs/2502.17810 [28] Jianing Yang, Yusuke Fujita, and Yui Sudo. 2026. Duplex-Cascade: Full-Duplex Speech-to-Speech Dialogue with VAD-Free Cascaded ASR–LLM–TTS Pipeline and Micro-Turn Optimization. arXiv:2603.09180 [cs.CL] https://arxiv.org/abs/2603.09180 [29] Haoyuan Yu, Yuxuan Chen, and Minjie Cai. 2026. Unit-Based Agent for Semi-Cascaded Full-Duplex Dialogue Systems. arXiv:2601.20230 [cs.CL] https://arxiv.org/abs/2601.20230 [30] Hao Zhang, Weiwei Li, Rilin Chen, Vinay Kothapally, Meng Yu, and Dong Yu. 2025. LLM-Enhanced Dialogue Management for Full-Duplex Spoken Dialogue Systems. arXiv:2502.14145 [cs.CL] https://arxiv.org/ abs/2502.14145 14

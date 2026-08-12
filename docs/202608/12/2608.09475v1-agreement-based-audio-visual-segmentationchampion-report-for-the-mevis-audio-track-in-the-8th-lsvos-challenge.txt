@@ -1,0 +1,153 @@
+Title: Agreement-Based Audio-Visual Segmentation:Champion Report for the MeViS-Audio Track in the 8th LSVOS Challenge
+
+URL Source: https://arxiv.org/pdf/2608.09475v1
+
+Published Time: Tue, 11 Aug 2026 02:42:45 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# Agreement-Based Audio-Visual Segmentation: Champion Report for the MeViS-Audio Track in the 8th LSVOS Challenge 
+
+Yiwen Ren 1, Jianing Liu 1, Yingxin Wang 1, Kexin Zhang 1, Licheng Jiao 1,Lingling Li 1, and Xu Liu 1
+
+National 111 Project Base of Intelligent Information Processing 
+
+Abstract. The MeViS-Audio track asks a system to segment the objects described by a spoken motion expression throughout a video and to return empty masks when the described target is absent. We present a simple staged solution. Qwen3-ASR first converts speech into text. Several video mask tracks are then produced with complementary grounding and segmentation models. Instead of trusting a single prediction, we select the track that has the highest average mask agreement with the other candidates. A small set of explicit direction, count, and plural rules corrects queries that require more than ordinary single-object tracking. Finally, a video-level classifier combines visual, audio-visual, and within-video query scores to decide whether any target is present. The submitted system obtains 0.5952 J &F, 0.7931 no-target accuracy, 0.9205 target accuracy, and a final score of 0.769589. The challenge organizers notified our team that this result ranked first in the track. 
+
+Keywords: Audio-guided video segmentation · Referring video object segmentation · Video object tracking 
+
+## 1 Introduction 
+
+Referring video object segmentation predicts a binary mask sequence for the object described by a language query. MeViS emphasizes motion expressions, which often cannot be resolved from a single frame [4, 5]. The Audio track adds another source of uncertainty: the query is spoken and must first be understood from audio. Recognition errors can change the object, its motion, or its number. Moreover, some queries have no matching target in the video, so a segmenter must sometimes return an empty sequence rather than the most plausible visible object. Earlier MeViS-Audio systems established a useful modular design. APRVOS uses speech recognition, visual existence checking, video segmentation, and mask refinement [8]. ASR-SaSaSa2VA combines Qwen3-ASR, SaSaSa2VA, and a separate no-target classifier [13]. VIRST-Audio also separates transcription, segmentation, and existence prediction [7]. These systems show that speech recognition, pixel-level tracking, and target existence are different decisions and should not be forced into one output score. arXiv:2608.09475v1 [cs.CV] 10 Aug 2026 2 Y. Ren et al. 
+
+Our system follows this modular view but reduces dependence on any single video segmenter. It creates several full-video mask tracks and selects the one most consistent with the others. The selection uses only predicted masks, not validation or test labels. Explicit motion and count rules are applied only to queries for which the ordinary single-target assumption is insufficient. A final presence classifier handles no-target inputs while protecting high-confidence structured predictions. The main contributions are: 
+
+– an audio-to-mask pipeline that combines strong open models without end-to-end retraining; 
+
+– a label-free, agreement-based rule for selecting a complete video mask track, followed by a small structured correction stage 
+
+– a video-level target-presence classifier designed to maintain high recall on valid targets while improving no-target accuracy. 
+
+## 2 Challenge and Dataset 
+
+The 8th LSVOS Challenge at ECCV 2026 contains three tracks. The MOSEv2 track evaluates class-agnostic video object segmentation in crowded scenes with occlusion, disappearance, small objects, and distractors; it uses the MOSEv2 dataset [6]. The MeViS-Text track evaluates referring video object segmentation from written motion expressions. The MeViS-Audio track uses spoken versions of motion expressions and additionally evaluates whether the referred target exists. Both referring tracks are based on MeViS v2 [5]. MeViS contains 2,006 videos, 8,171 annotated objects, and 33,072 motion expressions in text and audio [5]. Unlike referring expressions dominated by color or object category, many MeViS queries describe relative motion, temporal order, or interactions. Correctly identifying the target therefore requires evidence across time. For the Audio track, the input is a video V = {It}Tt=1 and an audio query 
+
+A. The output is a mask sequence M = {mt}Tt=1 . If the query has no matching target, all mt must be empty. 
+
+## 3 Method 
+
+3.1 Overview 
+
+Figure 1 shows the complete inference path. The method first transcribes the audio, then builds several candidate mask tracks. An agreement rule chooses one complete track per query. Structured corrections are applied to a small set of direction, count, and plural queries. Finally, the presence classifier either keeps the masks or replaces the whole sequence with empty masks. 
+
+3.2 Audio Transcription 
+
+We use Qwen3-ASR-1.7B [12] to convert the audio query into a text expression 
+
+q = ASR( A). (1) Agreement-Based Audio-Visual Segmentation 3 
+
+> Fig. 1: System overview. Audio is transcribed once, and all visual modules receive the same text query. Candidate tracks are selected by mask agreement; the final presence decision either keeps the masks or returns an empty sequence.
+
+Keeping transcription separate makes the visual stages easier to inspect and allows all candidate generators to receive exactly the same expression. The ASR model produced transcripts for all 444 test queries. 
+
+3.3 Candidate Mask Tracks 
+
+Point-guided SAM3 track. The main candidate uses MolmoPoint-8B [3] to predict object points with timestamps from the video and transcript. The video is encoded at 6 frames per second and the prompt requests points at 1 frame per second. We use at most 128 input frames, with deterministic 96- and 64-frame fallbacks when necessary. These points initialize SAM3 [2], which propagates masks through the original video. A parallel SAM2.1 propagation [11] provides an independent consistency signal for the frame-level fallback path. 
+
+Complementary tracks. We retain three candidates with different error patterns. SaSaSa2VA-26B [9] directly predicts a text-conditioned video mask track using its wrap-around-plus inference mode. A frame-level planner chooses between point-guided and fallback masks using point hits, agreement between SAM2.1 and SAM3, support from neighboring frames, and mask similarity. A structured track is generated for queries that explicitly state horizontal direction, object count, or plural subjects. Qwen3-VL-30B-A3B [1] reads 16 sampled frames to extract these constraints, and SAM3 forms the corresponding candidate tracks. The point-guided route is available for 407 of the 444 test queries. Queries without a complete set of candidates use the full-coverage frame-level track. 4 Y. Ren et al. 
+
+3.4 Agreement-Based Track Selection 
+
+For a query with K candidate tracks, let M ti be the mask from candidate i at frame t. We first compute the mean temporal overlap between every pair: 
+
+a(i, j ) = 1
+
+T
+
+> T
+
+X
+
+> t=1
+
+IoU( M ti , M tj ). (2) When both masks are empty, their frame-level overlap is defined as one. The score for candidate i is its mean agreement with all other tracks, 
+
+s(i) = 1
+
+K − 1
+
+X 
+
+> j̸=i
+
+a(i, j ), i∗ = arg max  
+
+> i
+
+s(i). (3) The output is the complete track Mi∗ . This is the medoid of the candidate set under mask overlap, but in the remainder of the paper we simply call it agreement-based selection. It needs no ground-truth labels and avoids calibrating confidence values from unrelated models. On the test set, the selected source was point-guided SAM3 for 403 queries and the structured candidate for two. The frame-level and SaSaSa2VA candidates were each selected once. These counts cover the 407 queries with a full candidate set. 
+
+3.5 Structured Correction 
+
+Ordinary track selection can preserve a visually plausible answer while still missing a constraint such as “moving left,” “two people,” or a plural subject. We therefore apply a separate, conservative correction after agreement selection. A query is considered only if its transcript contains an explicit direction, number, or plural construction. Candidate tracks are then checked for the requested horizontal motion and count; plural targets are combined by mask union. This stage changed 25 of the 444 test queries. The rules and thresholds were fixed before test inference. 
+
+3.6 Target-Presence Classification 
+
+The final stage predicts whether the transcript has a matching visual target. It combines three scores: a Qwen3-VL-8B visual score, a direct Qwen2.5-Omni audio-visual score [14], and the relative rank of the query among all expressions for the same video. For each score we compute seven features: its raw value, within-video percentile, standard and robust z-scores, gaps to the video-level maximum and minimum, and the logarithm of the number of queries. The resulting 21 features are passed to a balanced logistic regression classifier. The feature design and regularization were fixed on the training data. For the development domain, the classifier weights and threshold were refit with video-grouped five-fold predictions. The threshold was selected under a minimum Agreement-Based Audio-Visual Segmentation 5
+
+target recall of 0.97. If the predicted probability is below the threshold, all masks are replaced by empty masks. As a safeguard, a query accepted by the structured correction is not removed solely by the presence classifier. This safeguard restored three structured test predictions. The final classifier explicitly marked 42 test queries as no-target. 
+
+## 4 Experiments 
+
+4.1 Evaluation Protocol 
+
+Mask quality is measured with region overlap J and boundary accuracy F
+
+following DAVIS [10]; J &F is their mean. Target accuracy (T-acc.) is the fraction of target-present queries kept by the presence classifier, while no-target accuracy (N-acc.) is the fraction of target-absent queries correctly rejected. The challenge score is 
+
+Final = J &F + N-acc. + T-acc. 
+
+3 . (4) Mask component studies use a frozen set of 100 target-present queries from the official valid_u split. Presence results are reported as out-of-fold (OOF) predictions with videos kept intact across folds. No test masks or per-query test labels were available when fixing the final rules. 
+
+4.2 Implementation Details 
+
+Qwen3-ASR-1.7B is used without task-specific fine-tuning. MolmoPoint-8B runs in 4-bit form, and Qwen3-VL-30B-A3B uses its released AWQ weights. SAM3 and SAM2.1 propagate masks at the original frame resolution. The SaSaSa2VA candidate is the 26B checkpoint. Agreement selection uses the same four candidate types and the same rule on validation and test data. The final archive was checked against the sample submission and contains 28,415 PNG masks in 50 video directories. 
+
+4.3 Mask Components 
+
+Table 1 isolates the two decisions added after the main point-guided SAM3 candidate. Agreement-based selection improves both region and boundary quality. Structured correction brings a further 1.15-point gain in J &F, with the largest change in queries involving direction or multiple objects. Agreement selection chose the point-guided track for 91 of the 100 valid_u 
+
+queries and the frame-level track for nine. The rule nevertheless improves the mean because it changes only complete tracks whose masks are better supported by the other candidates. This conservative behavior also explains why the main point-guided track remains dominant on the test set. 6 Y. Ren et al.                               
+
+> Table 1: Mask component study on 100 target-present valid_u queries. All values are percentages. Method JFJ&F
+> Point-guided SAM3 71.07 78.13 74.60 + agreement selection 71.69 78.60 75.15 + structured correction 73.00 79.60 76.30 Table 2: Video-grouped out-of-fold target-presence results. The model design is fixed before the valid_u refit. Split Queries Videos N-acc. T-acc. Training OOF 781 75 94.94 97.68
+> valid_u OOF 907 50 81.58 97.58
+
+4.4 Presence Classification 
+
+Table 2 reports video-grouped OOF accuracy. The classifier was first designed on the training split and then refit to valid_u without changing its inputs, feature transformations, regularization, or target-recall constraint. The lower valid_u 
+
+N-acc. indicates a shift in absent-target expressions, while target recall remains above the predefined 0.97 requirement. 
+
+4.5 Official Test Result 
+
+Table 3 gives the score returned by the official server for the submitted package (submission ID 865991). The organizers subsequently notified our team that the entry placed first in the MeViS-Audio track. The result also shows that existence prediction is a major part of this benchmark: N-acc. and T-acc. contribute two thirds of the final score.          
+
+> Table 3: Official hidden-test result of our final submission. Method JFJ&FN-acc. T-acc. Final Ours 0.5698 0.6205 0.5952 0.7931 0.9205 0.769589
+
+## 5 Discussion and Limitations 
+
+The experiments support two practical observations. First, a strong spatial point-ing model followed by a video mask propagator is an effective main path, but Agreement-Based Audio-Visual Segmentation 7
+
+independent tracks still help identify occasional identity switches and missed ob-jects. Comparing masks is more stable than comparing model-specific confidence scores. Second, presence classification should be handled at the video-query level. Within-video relative features are useful because many queries refer to related objects in the same scene and raw multimodal scores are not directly comparable across videos. The method also has clear limitations. Agreement can preserve a common error when all candidates follow the same distractor. The structured rules cover only explicit direction, count, and plural expressions and do not perform general language reasoning. Small objects and long occlusions remain hard for point-guided propagation. Finally, the drop from valid_u mask quality to the hidden-test J &F shows that the two domains differ substantially. Future work should replace hand-written structured cases with a trained temporal grounding model and calibrate target presence on a larger variety of no-target examples. 
+
+## 6 Conclusion 
+
+We presented the winning entry of the ECCV 2026 8th LSVOS MeViS-Audio track. The system separates audio transcription, video mask generation, track selection, structured correction, and target-presence classification. Its central mask rule selects the candidate that agrees most with the other full tracks and requires no test labels. This simple modular design achieved a final official score of 0.769589 and can be reproduced from fixed model checkpoints and deterministic post-processing rules. 
+
+## References   
+
+> 1. Bai, S., Cai, Y., Chen, R., Chen, K., Chen, X., Cheng, Z., Deng, L., Ding, W., Gao, C., Ge, C., et al.: Qwen3-VL technical report. arXiv preprint arXiv:2511.21631 (2025) 2. Carion, N., Gustafson, L., Hu, Y.T., Debnath, S., Hu, R., Suris, D., Ryali, C., Alwala, K.V., Khedr, H., Huang, A., et al.: SAM 3: Segment anything with concepts. arXiv preprint arXiv:2511.16719 (2025) 3. Clark, C., Yang, Y., Park, J.S., Ma, Z., Zhang, J., Tripathi, R., Salehi, M., Lee, S., Anderson, T., Han, W., Krishna, R.: MolmoPoint: Better pointing for VLMs with grounding tokens. arXiv preprint arXiv:2603.28069 (2026) 4. Ding, H., Liu, C., He, S., Jiang, X., Loy, C.C.: MeViS: A large-scale benchmark for video segmentation with motion expressions. In: Proceedings of the IEEE/CVF International Conference on Computer Vision. pp. 2694–2703 (2023) 5. Ding, H., Liu, C., He, S., Ying, K., Jiang, X., Loy, C.C., Jiang, Y.G.: MeViS: A multi-modal dataset for referring motion expression video segmentation. IEEE Transactions on Pattern Analysis and Machine Intelligence 47 (12), 11400–11416 (2025). https://doi.org/10.1109/TPAMI.2025.3600507
+> 6. Ding, H., Ying, K., Liu, C., He, S., Jiang, X., Jiang, Y.G., Torr, P.H.S., Bai, S.: MOSEv2: A more challenging dataset for video object segmentation in complex scenes. arXiv preprint arXiv:2508.05630 (2025)
+
+8 Y. Ren et al. 7. Hong, J., Do, J.: 3rd place of MeViS-Audio track of the 5th PVUW: VIRST-Audio. arXiv preprint arXiv:2603.23126 (2026) 8. Miao, D., Gu, Y., Yang, C., Li, X., Zhang, H., Yang, M.H.: APRVOS: 1st place winner of 5th PVUW MeViS-Audio track. arXiv preprint arXiv:2604.18665 (2026) 9. Niu, Q., Gong, D., Chen, S., Zhang, T., Zhou, Y., Yuan, H., Qi, L., Li, X., Ji, S.: The 1st solution for 7th LSVOS RVOS track: SaSaSa2VA. arXiv preprint arXiv:2509.16972 (2025) 10. Pont-Tuset, J., Perazzi, F., Caelles, S., Arbeláez, P., Sorkine-Hornung, A., Van Gool, L.: The 2017 DAVIS challenge on video object segmentation. arXiv preprint arXiv:1704.00675 (2017) 11. Ravi, N., Gabeur, V., Hu, Y.T., Hu, R., Ryali, C., Ma, T., Khedr, H., Rädle, R., Rolland, C., Gustafson, L., et al.: SAM 2: Segment anything in images and videos. arXiv preprint arXiv:2408.00714 (2024) 12. Shi, X., Wang, X., Guo, Z., Wang, Y., Zhang, P., Zhang, X., Guo, Z., Hao, H., Xi, Y., Yang, B., et al.: Qwen3-ASR technical report. arXiv preprint arXiv:2601.21337 (2026) 13. Wang, Z., Kang, X., Li, S.: 2nd of the 5th PVUW MeViS-Audio track: ASR-SaSaSa2VA. arXiv preprint arXiv:2604.23935 (2026) 14. Xu, J., Guo, Z., He, J., Hu, H., He, T., Bai, S., Chen, K., Wang, J., Fan, Y., Dang, K., et al.: Qwen2.5-Omni technical report. arXiv preprint arXiv:2503.20215 (2025)
