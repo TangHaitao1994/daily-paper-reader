@@ -1,0 +1,265 @@
+Title: On-Policy Self-Distillation for Multi-Dialect ASR: Mastering Dialects, Retaining Mandarin
+
+URL Source: https://arxiv.org/pdf/2608.11898v1
+
+Published Time: Thu, 13 Aug 2026 00:45:55 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# On-Policy Self-Distillation for Multi-Dialect ASR: Mastering Dialects, Retaining Mandarin 
+
+Shuiyuan Wang 1, Bingshen Mu 1, Pengshen Zhang 2, Chengyou Wang 1, Yujie Liao 1, Chengdong Liang 2, Binbin Zhang 2, Qiangze Feng 3, and Lei Xie 1 
+
+> 1
+
+Audio, Speech and Language Processing Group (ASLP@NPU), School of Computer Science, Northwestern Polytechnical University, Xi’an, China  
+
+> 2
+
+WeNet Community  
+
+> 3
+
+NEXDATA TECHNOLOGY INC. 
+
+wangshuiyuan@mail.nwpu.edu.cn, lxie@nwpu.edu.cn 
+
+Abstract. Recent large-scale ASR models already achieve strong Man-darin recognition accuracy and have some ability to recognize Chinese dialects. However, their dialect recognition accuracy is still limited in real-world speech. Direct dialect adaptation can lower dialect CER, but it may also raise Mandarin CER. We therefore study how to adapt a ca-pable ASR model to improve multi-dialect recognition without degrading Mandarin recognition. We adopt an adaptation pipeline where contin-ual pre-training (CPT) and dialect supervised fine-tuning (SFT) provide a strong foundation, and On-Policy Self-Distillation (OPSD) serves as the final refinement. OPSD addresses the train–test mismatch in autore-gressive ASR by training the student model on its own decoded pre-fixes while a frozen teacher, conditioned on the reference transcript as privileged context, provides soft token-level targets. This replaces hard cross-entropy updates on dialect data with distillation, preserving Man-darin ability while refining dialect recognition. We instantiate the frame-work with Qwen3-ASR-1.7B and evaluate it on public and internal Man-darin and dialect test sets. Under matched refinement data and sched-ule, OPSD improves dialect recognition without raising Mandarin CER, whereas continued teacher-forced fine-tuning increases Mandarin CER. We will release the model weights and evaluation scripts. 4
+
+Keywords: Chinese multi-dialect ASR · dialect adaptation · on-policy self-distillation 
+
+## 1 Introduction 
+
+Recent large-scale ASR models [22, 36, 21, 10, 5, 28, 25] offer a capable foundation for Mandarin and dialect ASR [20], with strong Mandarin performance and some ability to recognize dialects. The remaining challenge is to improve their dialect robustness without sacrificing the Mandarin ability they already provide. However, dialect speech is still difficult to recognize in real-world applica-tions [29]. Different regions use different dialects, and many dialects have little  
+
+> 4
+
+https://github.com/ASLP-lab/CN-MultiDialect-ASR arXiv:2608.11898v1 [eess.AS] 12 Aug 2026 2 S. Wang et al. 
+
+labeled training data. As a result, current ASR models still perform poorly on dialect speech in real-world scenarios. The adaptation objective therefore has two parts. Fine-tuning with more dialect speech can lower dialect character error rate (CER), but it may also increase Mandarin CER. The model must gain robustness to dialect variation while keeping its strong Mandarin recognition ability. This trade-off motivates the staged adaptation framework described below. We adopt a three-stage adaptation framework for this trade-off. First, con-tinual pre-training (CPT) further adapts the strong base model to large-scale Mandarin-dialect data. Second, dialect supervised fine-tuning (SFT) increases the training weight of dialect speech while retaining a small amount of Man-darin data. This stage is intended to lower dialect CER, but it can still increase Mandarin CER. Third, we apply On-Policy Self-Distillation (OPSD) [37] as the final refinement objective to lower dialect CER under decoding states closer to inference while preserving Mandarin performance. OPSD is well suited for autoregressive ASR refinement because it replaces teacher-forced prefixes with student-decoded ones, reducing the mismatch be-tween training and inference. In teacher-forced training, the model predicts the next token from gold transcript prefixes. At inference time, it must predict from its own previous outputs. OPSD closes part of this gap by using prefixes gener-ated by the student itself. At inference time, only the student is used. We instantiate this framework with Qwen3-ASR-1.7B [25], an open-source model that already has strong Mandarin recognition and some dialect capability. The experiments compare the effects of the three adaptation stages. Direct di-alect SFT lowers dialect CER but substantially increases Mandarin CER, show-ing the trade-off caused by dialect-focused training. CPT followed by dialect SFT improves dialect performance with a smaller Mandarin cost. Starting from this checkpoint, OPSD lowers CER on both Mandarin and dialect test sets. Com-pared with continuing teacher-forced fine-tuning on the same refinement data, OPSD achieves broader improvements across the evaluation sets. Our contributions are summarized as follows: 
+
+– We adopt a three-stage framework for Chinese multi-dialect ASR adaptation, consisting of CPT, dialect SFT, and OPSD refinement. 
+
+– We propose OPSD for autoregressive ASR refinement, where the reference transcript serves as training-time privileged teacher context and student-decoded prefixes provide on-policy states. 
+
+– We provide a controlled empirical study on public and internal Mandarin and dialect test sets. The proposed framework improves dialect recognition while maintaining or improving Mandarin recognition, and we will release the model weights and evaluation scripts to support future research. OPSD for Multi-Dialect ASR 3
+
+## 2 Related Work 
+
+2.1 Chinese Dialect Speech Data 
+
+Recent public corpora have expanded the coverage of Chinese dialect speech. WenetSpeech-Yue [18], WenetSpeech-Chuan [11], and WenetSpeech-Wu [27] pro-vide large-scale transcribed speech for Cantonese, Sichuan, and Wu, respectively. KeSpeech [24] covers Mandarin together with several Chinese subdialects. These resources support training and evaluation for several major dialect families. Although more dialect data are now available, the coverage is still uneven. Some dialects have large transcribed corpora, while many local varieties have limited labeled data. Differences in speakers, recording conditions, and speech domains also make dialect speech difficult to recognize in real-world applica-tions [15, 17]. Therefore, existing resources support research on several major dialects, but they do not fully represent the range of Chinese dialect speech. 
+
+2.2 Chinese Dialect ASR Models 
+
+Several modeling approaches have been proposed for Chinese dialect ASR. Dolphin-CN-Dialect [19] is a Chinese dialect ASR model that focuses on dialect-rich training and evaluation. Mixture-of-experts models use shared components and different experts to model multiple dialects [38]. Adapter methods add small trainable modules to a pretrained ASR model, which makes adaptation more efficient for long-tail languages or dialects [4]. Other studies use dialect-related representations or embeddings to provide the model with dialect information [9]. These methods improve dialect modeling through model structure, small adaptation modules, or dialect information. However, dialect adaptation may also affect the model’s Mandarin ability. A model for Chinese multi-dialect ASR must therefore learn dialect variation while keeping its existing Mandarin per-formance. This issue is closely related to the choice of adaptation objective. 
+
+2.3 Adaptation Objectives for ASR 
+
+Adapting a pretrained ASR model usually starts with supervised fine-tuning on target speech. This objective is simple and effective. However, it also moves the model toward the target distribution. In Chinese multi-dialect ASR, the goal is not only lower dialect CER. The model should also keep the Mandarin ability learned from much larger data. This makes dialect adaptation close to continual learning [8, 26]: the model learns new varieties while an existing ability must be retained. Several lines of work address parts of this issue. Parameter-efficient meth-ods, such as adapters and LoRA [16], reduce the cost of adaptation. Continual-learning methods add constraints so the model does not move too far from ear-lier tasks [8, 26]. Domain adaptation and self-training use unlabeled or weakly labeled speech to improve robustness [2]. These studies show that adaptation 4 S. Wang et al. 
+
+is not only a data problem. The training objective also affects which ability is strengthened and which ability is weakened. Distillation provides another way to guide the adapted model. In ASR, teacher–student training can use stronger models, multiple teachers, pseudo la-bels, or consistency targets [30, 14, 32]. Soft targets retain more of a capable teacher’s knowledge than one-hot labels, which can help limit overwrite of an existing ability such as Mandarin recognition. Soft targets alone are not enough, however. Standard supervised fine-tuning still trains the decoder on reference transcript prefixes, while autoregressive decoding must continue from the model’s own previous tokens. This train–test gap has long been studied for sequence mod-els, for example through scheduled sampling that mixes gold and model prefixes during training [6]. Recent on-policy distillation further trains the student on its own rollouts while a teacher provides dense token-level feedback on those states [1]. This train–test gap is especially harmful for dialect speech: early errors are more common, and a wrong prefix quickly leaves the gold path. Continued hard cross-entropy on dialect data can further push the model away from Mandarin. An effective final objective should therefore train under decoding states closer to inference, while using soft teacher guidance to refine difficult dialect cases without another aggressive one-hot shift. 
+
+## 3 Method 
+
+3.1 Overview 
+
+Figure 1 shows the proposed framework. The pipeline has three stages. CPT builds a stronger ASR foundation. SFT shifts the training mixture toward dialect speech and lowers dialect CER, but may increase Mandarin CER. OPSD then refines the SFT checkpoint to reduce this Mandarin CER increase. 1. CPT: continual pre-training on large-scale Mandarin-dialect data. This step strengthens the overall ASR foundation. 2. SFT: Dialect supervised fine-tuning. This step lowers dialect CER, but it may also increase Mandarin CER. 3. OPSD: Final refinement on selected dialect training data. This step further trains the SFT checkpoint with the OPSD objective. 
+
+3.2 CPT Stage 
+
+The first stage is CPT. It adapts the base ASR model to large-scale Mandarin-dialect data before the dialect SFT stage. The model is trained on a large Mandarin-dialect corpus 
+
+Dzh = {(xi, yi)}Nzh  
+
+> i=1
+
+,OPSD for Multi-Dialect ASR 5
+
+Fig. 1. Overview of the staged adaptation pipeline. Top: from the base model through CPT and SFT to OPSD. Bottom: OPSD with student on-policy prefixes, a frozen teacher with reference transcript as privileged context, soft targets qt, and token-level KL. 
+
+This dataset comprises a union of large-scale Mandarin-dialect corpora. Detailed sources and hour counts are given in Table 1. The loss is standard sequence-level cross-entropy: 
+
+LCPT = −
+
+> Nzh
+
+X
+
+> i=1
+> Ti
+
+X
+
+> t=1
+
+log pθ (yi,t | xi, yi,<t ), (1) where pθ denotes the ASR model parameterized by θ. This stage uses paired audio and transcripts. It provides a stronger ASR foundation for the subsequent dialect SFT stage. 
+
+3.3 SFT Stage 
+
+The second stage is dialect SFT. It lowers dialect CER on the CPT checkpoint. This stage does not mainly add new dialect types. Instead, it changes the sam-pling ratio and gives dialect speech a larger weight. We construct 
+
+Ddial zh = Dall dial ∪ D small mand ,
+
+where Dall dial contains all dialect training data already used in CPT. Dsmall mand is a small amount of Mandarin training data. The stage uses the same sequence-level cross-entropy objective as CPT. Compared with Dzh , the main change is the Mandarin–dialect sampling ratio. Corpus sources and hour counts are given in Section 4.1. This stage lowers dialect CER. It also produces the shared starting checkpoint for the final refinement stage. 6 S. Wang et al. 
+
+3.4 OPSD Stage 
+
+The third stage applies OPSD to the SFT checkpoint. The goal is twofold. First, we train under decoding states closer to inference, which helps dialect speech: standard teacher-forced SFT predicts each token from the reference transcript prefix, but decoding must continue from the model’s own previous tokens, and an early error can leave the gold path. Second, we replace another hard cross-entropy update on dialect data with soft targets from a capable teacher, which helps limit further overwrite of Mandarin ability. We formulate OPSD for autoregressive ASR refinement. In the original for-mulation, a single model acts as both teacher and student with different contexts, and gradients do not flow through the teacher pathway. For ASR refinement, we instead keep a frozen teacher copy ¯θ initialized from the SFT checkpoint, and train only the student θ. This keeps the soft targets stable while the student up-dates on long speech sequences. The refinement set Dref is selected from Dall dial .For each (x, y⋆) ∈ D ref , the student samples its own hypothesis, and the teacher provides token-level soft targets on the same student prefixes. The teacher receives the reference transcript as privileged context; the student does not. We write this privileged context as c(y⋆). It is a training-time prompt field separated from the student prefix by a delimiter. It is used only in the teacher pathway and is unavailable to the student or the deployed model. For each training example: 1. Sample a student hypothesis ˆy≤T from pθ (· | x) with the standard ASR prompt. Here T is the number of sampled prediction positions up to the EOS token. We use temperature τ = 0 .8 during training. 2. For each position t = 1 , . . . , T , compute the teacher distribution on the same student prefix: 
+
+qt(v) = p¯θ (v | x, c (y⋆), ˆy<t ), v ∈ V . (2) 3. Update only the student by matching this distribution: 
+
+LOPSD =
+
+> T
+
+X
+
+> t=1
+
+DKL 
+
+ qt ∥ pθ (· | x, ˆy<t ). (3) Only θ is updated. The teacher ¯θ remains frozen. At inference, y⋆ and c(y⋆) are absent. The deployed model is the student pathway pθ (· | x, ˆy<t ). We use pure 
+
+LOPSD without an auxiliary cross-entropy term. 
+
+## 4 Experimental Setup 
+
+4.1 Datasets 
+
+The full training collection Dzh contains approximately 100k hours of Mandarin-dialect data. Table 1 lists each source and its approximate hours after filtering. CPT trains on this full collection. Dialect SFT keeps the same sources but in-creases the sampling weight of dialect speech and retains a small Mandarin subset, forming Ddial zh .OPSD for Multi-Dialect ASR 7
+
+Table 1. Training data sources, dialect coverage, and approximate hours.                        
+
+> Source Dialect coverage Hours
+> WenetSpeech [35] Mandarin ∼22.4k AISHELL-1 [7] Mandarin ∼178 AISHELL-2 [12] Mandarin ∼1,000 AliMeeting [33] Mandarin ∼0.1k Common Voice 17.0 [3] Mandarin ∼234 MAGICDATA Read Speech [31] Mandarin ∼755 KeSpeech [24] Accented Mandarin ∼1.5k WenetSpeech-Yue [18] Cantonese ∼21.8k WenetSpeech-Chuan [11] Sichuan ∼10.0k WenetSpeech-Wu [27] Wu ∼8.0k Internal data Mandarin, Anhui, Cantonese, Changsha, Chaoshan
+> ∼34.1k Dongbei, Henan, Kejia, Minnan Nanchang, Nanjing, Shanxi, Shaanxi Shandong, Shanghai, Sichuan, Suzhou Tianjin, Wuhan, Xuzhou, Ningxia, Gansu Total training data ∼100k
+
+For OPSD and Continued SFT, we further select a refinement set Dref of approximately 5k hours from the dialect training partition of Dall dial . We decode these utterances with the SFT model, compute CER against the references, and filter out cases with unreliable metadata, abnormal duration, empty or extremely short transcripts, or failed audio loading. From the remainder, we keep high-CER utterances from human-annotated sources and cap the hours per dialect so that a few difficult dialects do not dominate. No development or test utterances are used. When speaker IDs are available, test speakers are held out from train-ing and refinement; we also apply utterance-level de-duplication across training, refinement, development, and test sets. We evaluate on 13 public and shared Mandarin and dialect test sets. Eight are Mandarin: AISHELL-1, AISHELL-2, KeSpeech, SpeechIO-1 to SpeechIO-3 [23], and the WenetSpeech Test_Meeting and Test_Net sets. Five are di-alect sets: WenetSpeech-Yue (long/short), WenetSpeech-Chuan (easy/hard), and WenetSpeech-Wu. We further evaluate an Internal Dialect suite; the dialect names appear in Table 6. 
+
+4.2 Baselines 
+
+We compare against three open-source ASR models: GLM-ASR-Nano-2512 [34], Fun-ASR-Nano-2512 [13], and Qwen3-ASR-1.7B. Hereafter we refer to them as GLM-ASR, Fun-ASR, and Qwen3-ASR. Qwen3-ASR is also the starting check-point of our pipeline. The labels CPT, SFT, and OPSD denote the cumulative checkpoints after each stage. For controlled ablations in Section 6, we add two settings: 
+
+– Direct Dialect SFT: the same Ddial zh and training recipe as SFT, but start-ing from Qwen3-ASR without CPT. 
+
+– Continued SFT: the SFT checkpoint further trained on Dref with teacher-forced cross-entropy, using the same data and schedule as OPSD. 8 S. Wang et al. 
+
+Table 2. Definition of the four CER averages. Each average is a simple macro-average of its constituent test sets.     
+
+> Average Constituent test sets
+> Mandarin Avg. AISHELL-1, AISHELL-2, KeSpeech, SpeechIO-1 ∼3, Test_Meeting, Test_Net Dialect Avg. WenetSpeech-Yue, WenetSpeech-Chuan, WenetSpeech-Wu Internal Avg. Anhui, Cantonese, Changsha, Chaoshan, Dongbei, Henan Kejia, Minnan, Nanchang, Nanjing, Shanxi, Shaanxi Shandong, Shanghai, Sichuan, Suzhou, Wuhan, Xuzhou Overall Avg. All of the above
+
+4.3 Evaluation Metrics 
+
+We use Character Error Rate (CER) as the primary evaluation metric for all test sets. All references and hypotheses are scored at the character level after shared text normalization. The pipeline unifies full-width and half-width characters. It removes punctuation and whitespace. It also converts common spoken variants to a canonical written form when the corpus guidelines provide one. Dialect utterances are transcribed in Chinese characters rather than phonetic dialect orthography. Code-switched Mandarin–dialect spans are scored as one character sequence against the reference. We do not apply dialect-specific pronunciation lexicons at scoring time. Macro-averages treat each test set equally and are not weighted by utterance count. We report four CER averages as defined in Table 2. Overall Avg. is the macro-average of all 31 test sets. 
+
+4.4 Implementation Details 
+
+We use Qwen3-ASR as the base model. All stages are trained on 8 NVIDIA RTX A6000 GPUs with DeepSpeed ZeRO-2 and FlashAttention-2. CPT runs for one epoch on Dzh . It uses learning rate 1 × 10 −5, global batch size 1536, and standard cross-entropy loss. SFT starts from the CPT checkpoint and runs for one epoch on Ddial zh . It uses the same learning rate, batch size, and objective. Direct Dialect SFT uses the same Ddial zh and hyperparameters as SFT, but starts from Qwen3-ASR without CPT. Stage-3 refinement compares OPSD with Continued SFT under a matched schedule. Both start from the same SFT checkpoint. Both train for one epoch on the same ∼5k-hour dialect data Dref . The learning rate is 1×10 −4 and the global batch size is 512. The only difference is the supervision signal. Continued SFT uses teacher-forced cross-entropy. OPSD uses the KL objective with a frozen teacher initialized from the SFT checkpoint. Student outputs are sampled with temperature τ = 0 .8. No auxiliary cross-entropy term is used. All reported CER numbers use the same greedy decoding configuration unless otherwise noted. This setting is shared by CPT, SFT, OPSD, Direct Dialect SFT, and Continued SFT. Thus, differences reflect training rather than search. The sampling temperature τ = 0 .8 is used only during OPSD training to construct on-policy prefixes. It does not change the evaluation decoder. OPSD for Multi-Dialect ASR 9                                                                         
+
+> Table 3. Aggregate CER (%) for open-source baselines and our staged checkpoints. Lower is better. The four average columns are defined in Table 2.
+> Model Mandarin Dialect Internal Overall Avg. Avg. Avg. Avg.
+> Open-source baselines
+> GLM-ASR 5.28 37.21 41.55 31.49 Fun-ASR 4.59 18.43 27.10 19.89 Qwen3-ASR 3.46 15.37 21.01 15.57
+> Our staged checkpoints
+> CPT 3.78 13.74 15.09 11.95 SFT 3.40 13.16 13.30 10.72 OPSD 3.27 12.79 12.42 10.12 Table 4. CER (%) on the eight Mandarin evaluation sets. Lower is better; bold marks the best staged model.
+> Evaluation set Qwen3-ASR CPT SFT OPSD
+> AISHELL-1 1.57 1.47 1.43 1.38
+> AISHELL-2 2.79 2.62 2.58 2.52
+> KeSpeech 5.11 4.72 4.84 4.56
+> SpeechIO-1 0.75 0.71 0.89 0.86 SpeechIO-2 3.83 4.17 3.50 3.39
+> SpeechIO-3 1.39 1.33 1.35 1.27
+> Test_Meeting 6.74 8.50 7.22 6.85
+> Test_Net 5.46 6.74 5.38 5.30
+> Mandarin Avg. 3.46 3.78 3.40 3.27
+
+We will release evaluation scripts for the 13 evaluation sets. We will also release the hyperparameter settings, decoding settings, and random seeds used for the reported run. 
+
+## 5 Results 
+
+5.1 Main Results 
+
+To evaluate the framework, Table 3 reports aggregate CER for open-source base-lines and our staged checkpoints. Tables 4 and 5 expand the 13 evaluation sets into Mandarin and dialect details, and Table 6 covers the Internal Dialect sets. GLM/Fun appear in Table 3. We read the results in the same order as the training story. Starting from the released Qwen3-ASR model, the full CPT–SFT–OPSD path lowers Mandarin Avg. CER from 3.46% to 3.27%, Dialect Avg. CER from 15.37% to 12.79%, and Internal Avg. CER from 21.01% to 12.42%. 
+
+CPT. CPT mainly improves the ASR foundation for later dialect train-ing. Compared with Qwen3-ASR, it reduces Dialect Avg. CER from 15.37% to 10 S. Wang et al.                                    
+
+> Table 5. CER (%) on the five public dialect evaluation sets. Lower is better; bold marks the best staged model.
+> Evaluation set Dialect Qwen3-ASR CPT SFT OPSD
+> WenetSpeech-Yue Long Cantonese 9.99 9.40 9.01 8.80
+> WenetSpeech-Yue Short Cantonese 6.93 6.09 5.60 5.31
+> WenetSpeech-Chuan Easy Sichuan 12.38 12.91 12.30 11.86
+> WenetSpeech-Chuan Hard Sichuan 21.79 23.24 22.27 21.74
+> WenetSpeech-Wu Wu 25.74 17.06 16.60 16.26
+> Dialect Avg. 15.37 13.74 13.16 12.79
+
+13.74% and Internal Avg. CER from 21.01% to 15.09%. Mandarin Avg. CER rises from 3.46% to 3.78%, so CPT alone is not sufficient. 
+
+SFT. Dialect SFT further lowers Dialect Avg. CER from 13.74% to 13.16% and Internal Avg. CER from 15.09% to 13.30%. It also lowers Mandarin Avg. CER relative to CPT, but some Mandarin sets, such as KeSpeech and SpeechIO-1, remain worse than CPT. This shows that training with more dialect speech can change the Mandarin–dialect CER trade-off. 
+
+OPSD. OPSD improves all three evaluation groups after SFT. Mandarin Avg. CER improves from 3.40% to 3.27%, Dialect Avg. CER from 13.16% to 12.79%, Internal Avg. CER from 13.30% to 12.42%, and Overall Avg. CER from 10.72% to 10.12%. Relative to SFT, it lowers CER on all eight Mandarin sets and all five public dialect sets. Absolute gains include KeSpeech from 4.84% 
+
+to 4.56% , SpeechIO-2 from 3.50% to 3.39% , Test_Net from 5.38% to 5.30% ,and, on the internal suite, Nanchang from 18 .63% to 15 .58% , Kejia from 32 .01% 
+
+to 28 .60% , and Chaoshan from 27 .34% to 25 .21% . SpeechIO-1 is 0.86% under OPSD, still above the CPT value of 0.71% . Section 6 shows that these gains do not come from simply training one more epoch with cross-entropy. A central question is whether lower dialect CER comes with higher Mandarin Avg. CER. We therefore keep the four averages (Mandarin Avg., Dialect Avg., Internal Avg., and Overall Avg.) separate. Relative to SFT, OPSD lowers all four averages and all eight Mandarin sets in Table 4. SpeechIO-1 remains worse than CPT, with CER of 0.86% versus 
+
+0.71% , so OPSD is not best on every individual set. Its main value is the better Mandarin–dialect balance: unlike Continued SFT in Section 6, it does not raise Mandarin Avg. CER while refining dialect performance. 
+
+5.2 Analysis of Dialect Performance 
+
+Table 6 shows a clear easy–hard split across the 18 internal dialects. Under OPSD, Dongbei, Sichuan, Xuzhou, and Henan stay below 6% CER, while Shaanxi, Shandong, Wuhan, and Nanjing also remain relatively easy. In contrast, Ke-jia, Chaoshan, and Suzhou remain the hardest dialects, with CER of 28 .60% ,
+
+25 .21% , and 20 .73% , followed by Minnan, Shanxi, and Nanchang. Cantonese OPSD for Multi-Dialect ASR 11                                                                                  
+
+> Table 6. CER (%) on the 18 internal dialect evaluation sets. Lower is better; bold marks the best staged model.
+> Dialect Qwen3-ASR CPT SFT OPSD
+> Anhui 18.95 14.63 13.99 13.08
+> Cantonese 10.06 8.71 7.87 7.74
+> Changsha 14.79 11.98 10.83 10.23
+> Chaoshan 45.59 32.26 27.34 25.21
+> Dongbei 6.45 6.09 5.95 5.80
+> Henan 8.46 7.26 6.27 5.99
+> Kejia 60.47 37.70 32.01 28.60
+> Minnan 30.03 23.09 19.79 18.59
+> Nanchang 33.41 20.47 18.63 15.58
+> Nanjing 13.37 10.58 9.67 9.33
+> Shanxi 28.53 21.88 20.17 18.69
+> Shaanxi 9.68 6.93 6.69 6.28
+> Shandong 8.78 8.39 7.82 7.64
+> Shanghai 15.78 12.86 11.94 12.07 Sichuan 5.99 6.13 5.13 5.38 Suzhou 50.35 26.73 22.12 20.73
+> Wuhan 11.30 10.22 8.12 7.59
+> Xuzhou 6.12 5.66 5.10 5.04
+> Internal Avg. 21.01 15.09 13.30 12.42
+
+reaches 7.74% CER and is mid-tier rather than hard, despite being a southern variety. These gaps align with several factors that often co-occur. First, distance from Mandarin: northern and Mandarin-continuum varieties such as Dongbei, Henan, Xuzhou, and Shaanxi share more phonetic and lexical overlap with the Mandarin-heavy pretraining and CPT mixture, so recognition starts from a stronger base. More distant Min, Hakka, and Wu varieties such as Minnan, Chaoshan, Kejia, and Suzhou diverge more in pronunciation and word choice, leaving a larger residual after adaptation. Second, public data coverage is uneven. Large transcribed resources such as WenetSpeech-Chuan and WenetSpeech-Yue directly support Sichuan and Cantonese-style speech, whereas Hakka and Chaoshan have less dedicated large-scale public coverage in our mixture. WenetSpeech-Wu helps Wu overall, but local cities such as Suzhou can remain difficult. Third, accent and speaking style still matter within a family: Shanghai is easier than Suzhou in our suite, and Sichuan is easier than many southern dialects, consis-tent with stronger resource support and milder mismatch to Mandarin ASR. Across stages, CPT usually gives the largest single drop for the hardest di-alects. For example, Kejia falls from 60 .47% to 37 .70% , and Suzhou falls from 
+
+50 .35% to 26 .73% . OPSD then adds further gains where early errors are more likely to accumulate: Nanchang from 18 .63% to 15 .58% , Kejia from 32 .01% to 
+
+28 .60% , and Chaoshan from 27 .34% to 25 .21% . A few easier sets such as Shang-hai and Sichuan are slightly better under SFT than OPSD, so the refinement 12 S. Wang et al.                                                 
+
+> Table 7. CER (%) on the ablation of CPT before dialect SFT. Lower is better; bold marks the best.
+> Model CPT SFT Mandarin Dialect Internal Overall Avg. Avg. Avg. Avg.
+> Qwen3-ASR ––3.46 15.37 21.01 15.57 w/o CPT –✓5.16 14.70 14.20 11.95 w/ CPT ✓✓3.40 13.16 13.30 10.72 Table 8. CER (%) on the final refinement step. Continued SFT and OPSD start from the same SFT checkpoint. Lower is better; bold marks the best.
+> Model Mandarin Dialect Internal Overall Avg. Avg. Avg. Avg.
+> SFT checkpoint 3.40 13.16 13.30 10.72 + Continued SFT 4.43 12.89 12.95 10.74 + OPSD 3.27 12.79 12.42 10.12
+
+is not uniformly best on every dialect. Overall, the pattern supports CPT for building dialect coverage and OPSD as a final refinement on difficult varieties. 
+
+## 6 Ablation Studies 
+
+We use two ablations to check the main claims. The first asks whether CPT is useful before dialect SFT. The second asks whether OPSD is better than continuing cross-entropy training on the same data. Tables 7 and 8 report the two comparisons separately. 
+
+6.1 Effect of CPT 
+
+Table 7 compares the Qwen3-ASR, dialect SFT without CPT, and dialect SFT after CPT. Direct dialect SFT lowers Dialect Avg. CER from 15.37% to 14.70% and Internal Avg. CER from 21.01% to 14.20%, but substantially raises Man-darin Avg. CER from 3.46% to 5.16%. Overall Avg. CER falls from 15.57% to 11.95% under the macro-average, yet this is not a balanced gain because Man-darin Avg. CER increases substantially. Adding CPT before SFT yields 3.40% Mandarin Avg. CER, 13.16% Dialect Avg. CER, 13.30% Internal Avg. CER, and 10.72% Overall Avg. CER. Thus CPT on Mandarin-dialect data before dialect SFT is needed for a stable Mandarin–dialect trade-off and provides the SFT checkpoint used by OPSD. 
+
+6.2 Effect of OPSD 
+
+Table 8 starts from the same SFT checkpoint. Continued SFT slightly lowers Dialect Avg. CER from 13.16% to 12.89% and Internal Avg. CER from 13.30% to OPSD for Multi-Dialect ASR 13 
+
+12.95%, but raises Mandarin Avg. CER from 3.40% to 4.43%; Overall Avg. CER rises from 10.72% to 10.74%. OPSD lowers all three group averages and Overall Avg. CER to 10.12%. Both runs use the same Dref and schedule (Section 4.4), so the difference is the objective rather than extra data or training budget. Relative to Continued SFT, OPSD lowers Mandarin Avg. CER from 4.43% to 3.27%, Dialect Avg. CER from 12.89% to 12.79%, Internal Avg. CER from 12.95% to 12.42%, and Overall Avg. CER from 10.74% to 10.12%. 
+
+## 7 Conclusion References 
+
+1. Agarwal, R., Vieillard, N., Zhou, Y., Stanczyk, P., Ramos, S., et al.: On-policy distillation of language models: Learning from self-generated mistakes. In: Proc. ICLR (2024) 2. Ahmad, R., Farooq, M.U., Hain, T.: Progressive unsupervised domain adaptation for ASR using ensemble models and multi-stage training. In: Proc. ICASSP. pp. 11466–11470 (2024) 3. Ardila, R., Branson, M., Davis, K., Henretty, M., Kohler, M., et al.: Common voice: A massively-multilingual speech corpus. In: Proc. LREC. pp. 4218–4222 (2020) 4. Bai, J., Li, B., Li, Q., Sainath, T.N., Strohman, T.: Efficient adapter finetuning for tail languages in streaming multilingual ASR. In: Proc. ICASSP. pp. 10841–10845 (2024) 5. Bai, Y., Chen, J., Chen, J., Chen, W., Chen, Z., et al.: Seed-asr: Understand-ing diverse speech and contexts with llm-based speech recognition. arXiv preprint arXiv:2407.04675 (2024) 6. Bengio, S., Vinyals, O., Jaitly, N., Shazeer, N.: Scheduled sampling for sequence prediction with recurrent neural networks. In: Proc. NeurIPS (2015) 7. Bu, H., Du, J., Na, X., Wu, B., Zheng, H.: AISHELL-1: an open-source mandarin speech corpus and a speech recognition baseline. In: Proc. O-COCOSDA. pp. 1–5 (2017) 8. Chang, H., Lee, H., Lee, L.: Towards lifelong learning of end-to-end ASR. In: Proc. Interspeech. pp. 2551–2555 (2021) 9. Chang, K., Shao, Y., Li, J., Yu, D.: Towards comprehensive semantic speech em-beddings for chinese dialects. arXiv preprint arXiv:2601.07274 (2026) 10. Chu, Y., Xu, J., Zhou, X., Yang, Q., Zhang, S., et al.: Qwen-audio: Advancing universal audio understanding via unified large-scale audio-language models. arXiv preprint arXiv:2311.07919 (2023) 11. Dai, Y., Zhang, Z., Wang, S., Li, L., Guo, Z., et al.: Wenetspeech-chuan: A large-scale sichuanese corpus with rich annotation for dialectal speech processing. arXiv preprint arXiv:2509.18004 (2025) 12. Du, J., Na, X., Liu, X., Bu, H.: AISHELL-2: transforming mandarin ASR research into industrial scale. arXiv preprint arXiv:1808.10583 (2018) 13. Gao, Z., Li, Z., Wang, J., Luo, H., Shi, X., et al.: Funasr: A fundamental end-to-end speech recognition toolkit. In: Proc. Interspeech. pp. 1593–1597 (2023) 14. Higuchi, Y., Moritz, N., Roux, J.L., Hori, T.: Momentum pseudo-labeling for semi-supervised speech recognition. In: Proc. Interspeech. pp. 726–730 (2021) 15. Hinsvark, A., Delworth, N., Rio, M.D., McNamara, Q., Dong, J., et al.: Accented speech recognition: A survey. arXiv preprint arXiv:2104.10747 (2021) 14 S. Wang et al. 16. Hu, E.J., Shen, Y., Wallis, P., Allen-Zhu, Z., Li, Y., et al.: LoRA: low-rank adap-tation of large language models. In: Proc. ICLR (2022) 17. Hu, Y., Chen, C., Yang, C., Qin, C., Chen, P., et al.: Self-taught recognizer: Toward unsupervised adaptation for speech foundation models. In: Proc. NeurIPS (2024) 18. Li, L., Guo, Z., Chen, H., Dai, Y., Zhang, Z., et al.: Wenetspeech-yue: A large-scale cantonese speech corpus with multi-dimensional annotation. In: Proc. AAAI. pp. 31627–31635 (2026) 19. Meng, Y., Zhong, H., Lin, G., Wang, G., Du, H., et al.: Dolphin-cn-dialect: Where chinese dialects matter. arXiv preprint arXiv:2605.08961 (2026) 20. Prabhavalkar, R., Hori, T., Sainath, T.N., Schlüter, R., Watanabe, S.: End-to-end speech recognition: A survey. IEEE ACM Trans. Audio Speech Lang. Process. 32 ,325–351 (2024) 21. Pratap, V., Tjandra, A., Shi, B., Tomasello, P., Babu, A., et al.: Scaling speech technology to 1, 000+ languages. J. Mach. Learn. Res. 25 , 97:1–97:52 (2024) 22. Radford, A., Kim, J.W., Xu, T., Brockman, G., McLeavey, C., et al.: Robust speech recognition via large-scale weak supervision. In: Proc. ICML. vol. 202, pp. 28492–28518 (2023) 23. Song, X., Liang, C., Zhang, B., Zhang, P., Wang, Z., Ma, Y., Xu, M., Wang, L., Wu, D., Pan, F., Zhou, D., Peng, Z.: TouchASP: elastic automatic speech perception that everyone can touch. arXiv preprint arXiv:2412.15622 (2024) 24. Tang, Z., Wang, D., Xu, Y., Sun, J., Lei, X., et al.: Kespeech: An open source speech dataset of mandarin and its eight subdialects. In: NeurIPS Datasets and Benchmarks (2021) 25. Team, Q.: Qwen3-asr technical report. arXiv preprint arXiv:2601.21337 (2026) 26. Trinh, V.A., Ghahremani, P., King, B.J., Droppo, J., Stolcke, A., et al.: Reducing geographic disparities in automatic speech recognition via elastic weight consoli-dation. In: Proc. Interspeech. pp. 1298–1302 (2022) 27. Wang, C., Shao, M., Hu, J., Zhu, Z., Xue, H., et al.: Wenetspeech-wu: Datasets, benchmarks, and models for a unified chinese wu dialect speech processing ecosys-tem. In: ACL Findings. pp. 27999–28011 (2026) 28. Xu, K., Xie, F., Tang, X., Hu, Y.: Fireredasr: Open-source industrial-grade man-darin speech recognition models from encoder-decoder to LLM integration. arXiv preprint arXiv:2501.14350 (2025) 29. Yang, S., Ruan, S., Wu, S., Liu, Y., Fan, L., et al.: Polyspeech-100: A large-scale benchmark for speech understanding across 100+ languages and dialects. arXiv preprint arXiv:2606.01016 (2026) 30. Yang, X., Li, Q., Zhang, C., Woodland, P.C.: Knowledge distillation from multiple foundation models for end-to-end speech recognition. arXiv preprint arXiv:2303.10917 (2023) 31. Yang, Z., Chen, Y., Luo, L., Yang, R., Ye, L., Cheng, G., Xu, J., Jin, Y., Zhang, Q., Zhang, P., Xie, L., Yan, Y.: Open source MagicData-RAMC: A rich annotated mandarin conversational speech dataset. arXiv preprint arXiv:2203.16844 (2022) 32. Yao, Z., Kang, W., Yang, X., Kuang, F., Guo, L., et al.: CR-CTC: consistency regularization on CTC for improved speech recognition. In: Proc. ICLR (2025) 33. Yu, F., Zhang, S., Fu, Y., Xie, L., Zheng, S., Du, Z., Huang, W., Guo, P., Yan, Z., Ma, B., Xu, X., Bu, H.: M2MeT: the ICASSP 2022 multi-channel multi-party meeting transcription challenge. arXiv preprint arXiv:2110.07393 (2021) 34. Zeng, A., Du, Z., Liu, M., Wang, K., Jiang, S., et al.: Glm-4-voice: Towards intelli-gent and human-like end-to-end spoken chatbot. arXiv preprint arXiv:2412.02612 (2024) OPSD for Multi-Dialect ASR 15 35. Zhang, B., Lv, H., Guo, P., Shao, Q., Yang, C., et al.: WENETSPEECH: A 10000+ hours multi-domain mandarin corpus for speech recognition. In: Proc. ICASSP. pp. 6182–6186 (2022) 36. Zhang, Y., Han, W., Qin, J., Wang, Y., Bapna, A., et al.: Google USM: Scaling au-tomatic speech recognition beyond 100 languages. arXiv preprint arXiv:2303.01037 (2023) 37. Zhao, S., Xie, Z., Liu, M., Huang, J., Pang, G., et al.: Self-distilled reasoner: On-policy self-distillation for large language models. arXiv preprint arXiv:2601.18734 (2026) 38. Zhou, J., Gao, S., Yu, Z., Dong, L., Wang, W.: Dialectmoe: An end-to-end multi-dialect speech recognition model with mixture-of-experts. In: Proc. CCL. vol. 14761, pp. 243–258 (2024)
