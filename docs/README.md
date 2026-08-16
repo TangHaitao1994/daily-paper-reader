@@ -6,35 +6,29 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-15
-- 运行时间：2026-08-15 20:38:09 UTC
+- 最新运行日期：2026-08-16
+- 运行时间：2026-08-16 19:41:47 UTC
 - 运行状态：成功
-- 本次总论文数：4
+- 本次总论文数：2
 - 精读区：0
-- 速读区：4
+- 速读区：2
 
 ### 今日简报（AI）
-- 今日共生成 4 篇推荐（精读 0 篇，速读 4 篇）
-- 速读：《SonicWeave: Chunk-Routed Mixture-of-Experts for Unified Audio Scene Generation》（6.0/10）, 《RT-SEMamba: Real-Time Speech Enhancement Mamba via Progressive Knowledge Distillation》（6.0/10）, 《HybridSB-MoE: Dual-Domain Schrödinger Bridges with Scene-Adaptive Expert Routing for Speech Enhancement》（6.0/10）
+- 今日共生成 2 篇推荐（精读 0 篇，速读 2 篇）
+- 速读：《Listen, See and Track: Spatio-Temporal Audio-Visual Sound Event Reasoning for Omni-Modal Language Models》（7.0/10）, 《Ripple-Pivot Search: Active Parallel Decoding for Diffusion Large Language Models》（6.0/10）
 - 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
-- 详情：[/202608/15/README](/202608/15/README)
+- 详情：[/202608/16/README](/202608/16/README)
 
 ### 精读区论文标签
 - 本次无精读推荐。
 
 ### 速读区论文标签
-1. [SonicWeave: Chunk-Routed Mixture-of-Experts for Unified Audio Scene Generation](/202608/15/2608.09571v1-sonicweave-chunk-routed-mixture-of-experts-for-unified-audio-scene-generation)  
+1. [Listen, See and Track: Spatio-Temporal Audio-Visual Sound Event Reasoning for Omni-Modal Language Models](/202608/16/2608.09435v1-listen-see-and-track-spatio-temporal-audio-visual-sound-event-reasoning-for-omni-modal-language-models)  
+   标签：评分：7.0/10、query:speech-model
+   evidence：面向时空声音事件推理的音视频基准
+2. [Ripple-Pivot Search: Active Parallel Decoding for Diffusion Large Language Models](/202608/16/2608.11742v1-ripple-pivot-search-active-parallel-decoding-for-diffusion-large-language-models)  
    标签：评分：6.0/10、query:speech-model
-   evidence：文本条件下的统一音频场景生成包括语音，提升语音清晰度
-2. [RT-SEMamba: Real-Time Speech Enhancement Mamba via Progressive Knowledge Distillation](/202608/15/2608.12099v1-rt-semamba-real-time-speech-enhancement-mamba-via-progressive-knowledge-distillation)  
-   标签：评分：6.0/10、query:speech-model
-   evidence：基于Mamba和知识蒸馏的实时语音增强，可作ASR前端。
-3. [HybridSB-MoE: Dual-Domain Schrödinger Bridges with Scene-Adaptive Expert Routing for Speech Enhancement](/202608/15/2608.12715v1-hybridsb-moe-dual-domain-schrdinger-bridges-with-scene-adaptive-expert-routing-for-speech-enhancement)  
-   标签：评分：6.0/10、query:speech-model
-   evidence：基于薛定谔桥和专家路由的生成式语音增强。
-4. [CASA: Content-Acoustic Speaking Assessment with Speech Encoder and Large Language Model](/202608/15/2608.13101v1-casa-content-acoustic-speaking-assessment-with-speech-encoder-and-large-language-model)  
-   标签：评分：6.0/10、query:speech-model
-   evidence：结合Whisper与LLM进行口语评估
+   evidence：扩散LLM并行解码加速，可用于语音合成推理
 
 
 <div class="dpr-home-promo-card">
