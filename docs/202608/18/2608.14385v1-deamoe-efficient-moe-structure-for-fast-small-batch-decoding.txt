@@ -1,0 +1,314 @@
+Title: DeaMoE: Efficient MoE Structure for Fast Small-Batch Decoding
+
+URL Source: https://arxiv.org/pdf/2608.14385v1
+
+Published Time: Mon, 17 Aug 2026 00:56:52 GMT
+
+Number of Pages: 11
+
+Markdown Content:
+# DeaMoE: Efficient MoE Structure for Fast Small-Batch Decoding 
+
+Zewen Jin 1 2 Shen Fu 1 Zeping Duan 1 Shannon Wang 2 Weihao Wu 1 Chengjie Tang 2 3 
+
+Congkun Ai 1 Ping Gong 1 Zijian Dai 1 2 Youhui Bai 1 Cheng Li 1 2 
+
+## Abstract 
+
+Mixture-of-Experts (MoE) models have been widely adopted in real-time interactive applica-tions such as coding assistants, real-time audio-video interaction systems. To meet the extremely low response latency requirements of these scenar-ios, practitioners commonly employ small-batch decoding, under which MoE inference becomes memory-bound and is severely bottlenecked by expert weight loading. However, this bottleneck has received limited attention, and existing solu-tions such as post-training weight compression or fine-grained expert design during pre-training either degrade model accuracy or introduce ad-ditional computation and communication over-head. To tackle this issue, we propose DeaMoE, a decoding-efficient MoE architecture, in which the experts are grouped into several departments, and the experts belonging to the same department share most parameters since they come from the same professional field, and additionally each expert contains a few private parameters to re-flect its uniqueness. Moreover, we design cus-tomized two-stage routing strategy for DeaMoE 
+
+to avoid redundant loading, under which DeaMoE greatly improves the efficiency during LLM de-coding. Compared with vanilla MoE, DeaMoE re-duces per-step loaded weights by up to 50.9% and achieves up to 1.33 × end-to-end TPOT speedup for the pre-trained 7B model on A40, and up to 2.00 × and 1.97 × peak speedup for DeepSeek-V3 on A40 and H100 in microbenchmarks. 
+
+## 1. Introduction 
+
+Mixture-of-Experts (MoE) models have become a central approach for scaling large language models (LLMs) by in-creasing model capacity while keeping per-token compu-
+
+> 1
+
+University of Science and Technology of China 2Institute of Artificial Intelligence, Hefei Comprehensive National Science Center 3Shanxi University. 
+
+Preprint. 
+
+tation manageable. Consequently, MoE architectures have been widely adopted in state-of-the-art LLMs and large-scale industrial deployments (DeepSeek, 2025; Qwen, 2025; Kimi, 2025; Meituan, 2025). It has been witnessing that MoE models are increasingly de-ployed in real-time and interactive applications such as code completion, voice assistants, and multi-modal audio-video systems, where strict latency requirements make decoding efficiency a primary concern. In these scenarios, practi-tioners typically favor small-batch decoding to balance the trade-off between decoding latency and throughput, as larger batch sizes improve throughput but introduce unacceptable delays. However, under small-batch decoding, MoE infer-ence becomes memory-bound and is severely bottlenecked by expert weight loading. During autoregressive decoding, only a few tokens are processed per step while multiple experts are activated per token, leading to scattered expert access with minimal weight reuse. As a result, decoding la-tency is dominated by repeatedly loading expert parameters rather than computation. Despite its importance in real-time serving, this small-batch expert loading bottleneck has been largely overlooked by existing MoE optimizations. While post-hoc expert com-pression (Liu et al., 2025; Chen et al., 2026; Li et al., 2025; Gu et al., 2025) and pre-training-time architectural modi-fications with more fine-grained experts (NVIDIA, 2025) may indirectly reduce expert footprints, they either risk de-grading model quality or rely on serving-time parallelism that is often unavailable in small-batch settings. Conse-quently, no existing approach directly targets the expert loading inefficiency that dominates small-batch MoE decod-ing, motivating the need for decoding-driven designs that explicitly reduce per-step expert loading without sacrificing model quality. To this end, we propose DeaMoE, a new MoE architecture that reduces expert weight loading overhead while preserv-ing model quality under comparable parameter and FLOPs budgets. As Figure 1(b) shows, our key idea is to group experts into a small number of departments : experts within the same department share most parameters as a common backbone, while each expert retains a small set of private parameters to capture its uniqueness. To avoid redundant 1arXiv:2608.14385v1 [cs.LG] 14 Aug 2026 DeaMoE: Efficient MoE Structure for Fast Small-Batch Decoding SiLU Experts 1-4  
+
+> Router
+> (a) Standard MoE
+> Input Hidden States
+> TopK router
+> Output Hidden States
+> Router
+> Input Hidden States
+> Act
+> Department 1
+> Act SiLU Act
+> Department 2
+> Act SiLU
+> Experts 1-4 Experts 5-8
+> Act Act
+> Output Hidden States
+> (b) DeaMoE
+> TopK router
+
+Figure 1. Architecture of DeaMoE and standard MoE. 
+
+loading during decoding, we further design a customized two-stage routing strategy that first selects departments and then routes tokens to experts within the selected depart-ments, improving weight reuse across tokens within each decoding step. We summarize our main contributions as follows: 
+
+(1) We propose DeaMoE, a decoding-efficient MoE archi-tecture which groups experts into several departments. The experts belonging to the same department share most pa-rameters and each expert only has a small number of private parameters to distinguish it from others. Such a structure greatly reduces the experts’ parameter redundancy. 
+
+(2) We design a customized two stage routing strategy for DeaMoE. We first route all the tokens to their corresponding departments and each department will uniformly process all the collected tokens at once. Then the department will assign the tokens to the corresponding experts for further differentiated processing. Using such a routing strategy, DeaMoE can truly demonstrate its performance advantages during the decoding stage. 
+
+(3) We pre-train a 7.3B DeaMoE model and its budget-matching standard MoE counterpart over 110B tokens. DeaMoE preserves model quality on pre-training loss and a dozen downstream benchmarks. 
+
+(4) We conduct extensive experiments demonstrating that DeaMoE delivers clear advantages in small-batch decoding scenarios under both Ampere and Hopper GPUs. For end-to-end vLLM serving of the 7.3B model on A40, DeaMoE achieves up to 1.33 × speedup in TPOT, and for DeepSeek-V3, it reaches peak microbenchmark speedups of 2.00 × on A40 GPU and 1.97 × on H100 GPU. 
+
+## 2. Background and Motivation 
+
+2.1. Standard MoE Structure 
+
+As shown in Figure 1(a), the MoE layer typically con-sists of a router and multiple individual experts. Each expert i includes three projection functions, which are gate projection gi(x) = SiLU( W i
+
+> gate
+
+x), up projection 
+
+ui(x) = W i
+
+> up
+
+x, and down projection di(x) = ( W i
+
+> down
+
+)T x,where W i
+
+> gate
+
+, W i
+
+> up
+
+, W i 
+
+> down
+
+∈ Rhffn ×h. Given a token x,expert i computes its output by 
+
+MoE i(x) = di(gi(x) ⊙ ui(x)) (1) The MoE router first assigns each token to its best deter-mined top-k experts out of n experts by 
+
+S(x) = TopK ( Wr x, k expert ) , (2) and then computes the output as the linearly weighted com-bination of each expert’s computation on the token 
+
+MoE( x) = X
+
+> i∈S (x)
+
+pi(x) MoE i(x), (3) where the weighted vector pi are routing weights after soft-max normalization and scaling. 
+
+2.2. Expert Loading Issue in Small-batch Decoding 
+
+MoE models have been widely deployed in real-time and interactive applications, where strict responsiveness require-ments impose highly demanding constraints on decoding latency. Representative scenarios include real-time code completion and interactive programming assistants, voice assistants with streaming ASR(Automatic Speech Recogni-tion) and TTS(Text-to-Speech), and real-time audio-video interaction systems such as multimodal agents for video 2DeaMoE: Efficient MoE Structure for Fast Small-Batch Decoding 
+
+conferencing, live translation, and embodied AI. In these settings, users typically expect token-level response laten-cies on the order of tens of milliseconds, making decoding latency a primary optimization target. However, MoE inference exhibits a well-known trade-off among batch size, decoding latency, and decoding through-put (Chitty-Venkata et al., 2025). On the one hand, large batch sizes significantly improve throughput by amortiz-ing computation and memory access costs, but they also introduce prohibitive latency that violates real-time con-straints. On the other hand, reducing the batch size leads to much lower latency but severely degrades throughput due to underutilized compute resources. Consequently, for latency-critical scenarios, both prior work and industrial de-ployments commonly adopt small-batch decoding regimes, typically in the range of 4–128 tokens per step, which strike a practical balance between ultra-low latency and acceptable throughput (Jiang et al., 2025). Unfortunately, small-batch MoE inference poses a severe expert loading bottleneck during autoregressive decoding, where the majority of decoding time is dominated by loading expert parameters rather than computation. This is because during each decoding step, only a small number of tokens are processed, while the router often activates multiple ex-perts per token. The activated experts are scattered across many distinct expert indices, with very limited reuse of ex-pert weights across tokens within the same step. In this regime, MoE decoding is no longer compute-bound by ma-trix multiplications, but instead becomes memory-bound, as expert parameters must be repeatedly fetched from memory, leading to high effective memory traffic and increased la-tency (DeepSeek, 2025; Zhao et al., 2025; Chitty-Venkata et al., 2025). This issue is particularly evident in large-scale MoE models. For example, each expert in DeepSeek-V3 consists of three matrices of shape [7168 , 2048] , amounting to approximately 44 MB of FP8 weights, which is already close to the up-per limit of the H100 GPU’s L2 cache capacity (DeepSeek, 2025). As modern MoE models continue to scale in both the number and size of experts to improve capacity and spe-cialization, the small-batch expert loading problem becomes even more pronounced. Recent models such as Kimi-K2, Longcat-Omni, and Qwen3-Next adopt 384, 512, and 512 routed experts, respectively (Kimi, 2025; Meituan, 2025; Qwen Team, 2025). With hundreds of experts available, the likelihood that different tokens within a small batch select the same expert further diminishes, exacerbating parame-ter loading redundancy and increasing memory bandwidth pressure per decoding step. 
+
+2.3. Existing Methods and Their Limitations 
+
+In this paper, we focus on reducing small-batch decoding 
+
+latency for MoE models, with an emphasis on mitigating the 
+
+expert weight-loading bottleneck. Despite its practical im-portance in interactive serving, most existing MoE optimiza-tions have largely been developed for objectives other than small-batch decoding (e.g., model compactness, training scalability, or large-batch throughput), leaving the decoding-time expert loading issue relatively underexplored. Given this gap, we review prior approaches that are not explicitly designed for small-batch decoding but could, in principle, be related to our target. 
+
+Post-hoc expert compression. This line of work com-presses a trained MoE model by reducing the footprint of expert weights. SVD-style approaches (e.g., MoLAE, D2MoE, and MoE-SVD) factorize expert weight matrices into low-rank components, typically by introducing shared bases and expert-specific coefficients, so that each expert can be represented using a small number of factors (Liu et al., 2025; Gu et al., 2025; Li et al., 2025). MoBE further studies cross-expert redundancy by constructing a shared expert basis and learning expert-specific mixing on top of it, aiming to improve compression-quality trade-offs com-pared with purely low-rank factorization (Chen et al., 2026). While such methods can substantially reduce total param-eters, they may introduce approximation constraints that affect model quality, and the decoding-time benefit can be limited when small batches still activate many distinct ex-perts, resulting in considerable per-step weight movement. 
+
+Pre-training-time structural changes. Another direction modifies the MoE architecture during pre-training to re-duce the per-expert footprint, often with the expectation that, under sufficiently large expert parallelism, each GPU handles fewer expert parameters (NVIDIA, 2025). These approaches typically preserve model quality better than post-hoc compression, but their latency benefit can diminish when the serving-time cluster size and request volume con-strain achievable parallelism, particularly in the small-batch decoding regime. Overall, existing compression methods and pre-training-time structural changes provide useful in-sights, but neither explicitly targets the key bottleneck we study— expert weight loading under small-batch decoding .This motivates our decoding-driven design that directly re-duces per-step expert loading while preserving model qual-ity under comparable parameter and FLOPs budgets. 
+
+2.4. Motivation 
+
+Unlike the above expert compression work, we aim to pro-pose a more loading-efficient parameterization . Rather than making experts smaller, we make expert weights more 
+
+3DeaMoE: Efficient MoE Structure for Fast Small-Batch Decoding 
+
+reusable across tokens and across experts during decod-ing. Our key observation is that modern MoE scaling in-creasingly relies on a large expert pool, yet trained experts often exhibit substantial redundancy. Empirically, multi-ple experts can learn similar transformations (e.g., high cross-expert similarity in representations or weights), in-dicating that a considerable portion of expert parameters corresponds to shared “backbone” knowledge, while true specialization may reside in a smaller set of expert-specific components (Zhang et al., 2025). This suggests an oppor-tunity to factor out and reuse the shared parts, reducing redundant loading without forcing aggressive per-expert compression. At the same time, prior experience indicates that post-hoc modifications on a trained MoE (e.g., compression or re-parameterization) can be brittle and may degrade model quality. To avoid such issues, we take a pre-training-first 
+
+approach: we redesign the MoE structure to explicitly en-code reuse, and pre-train the model from scratch under the new parameterization. This results in DeaMoE, which orga-nizes experts into departments with shared large backbones and lightweight expert-specific transforms. With DeaMoE, small-batch inference can reduce per-step weight movement and thus further lower decoding latency. This brings two practical benefits: (i) better meeting ultra-low latency re-quirements in interactive applications, and (ii) under a fixed latency budget, enabling a larger feasible batch size and hence higher throughput. 
+
+## 3. DeaMoE: New Model Structure 
+
+In this section, we propose DeaMoE to address the above mentioned decoding inefficiency of MoE. 
+
+3.1. Main Structure 
+
+Unlike the standard MoE in which all the experts are to-tally individual (Figure 1(a)), in DeaMoE, the experts are grouped into several departments (Figure 1(b)). The ex-perts from different departments are individual since their areas of responsibility are completely different, while the ex-perts from the same department share most parameters since they are responsible for different sub-disciplines within the same professional field. Specifically, in each department, all the experts share the large gate, up, and down projection matrices, and additionally each expert i introduces three sub-matrices Aig , Aiu, and Aid (all ∈ Rhffn ×hffn ) to distin-guish it from other experts. Under this scheme, the gate projection function of an expert i belonging to department j
+
+is expressed as 
+
+ˆgi(x) = SiLU( Aig σ(W jg x)) ,
+
+where W jg is a common gate projection weight of depart-ment j, and Aig is private gate projection weight of expert i.Similarly, the up and down projection functions become 
+
+ˆui(x) = Aiuσ(W ju x),
+
+and ˆdi(x) = ( W jd )T σ(( Aid)T x).
+
+Here σ(·) is an activation function which is necessary to improve the stability of the training process. We investigate the effect of different activation functions in Section A, in-cluding removing this activation function. Then a DeaMoE expert i from department j computes a given token x by 
+
+DeaMoE i(x) = ˆdi(ˆ gi(x) ⊙ ˆui(x)) (4) 
+
+3.2. DeaMoE Routing 
+
+In DeaMoE, all n experts are first grouped into m depart-ments. We still use the router function (2) to determine the assigned experts for a given token and use function (3) to obtain the final output of the DeaMoE layer. Rather than directly sending the token to its corresponding expert computing its output by (4), we first collect all the tokens be-longing to the experts from the same department j, denoted by Xj , and compute Xjg = σ(W jg Xj ), Xju = σ(W ju Xj ).Then Xjg and Xju will be allocated to the corresponding experts for further computing with their private parameters 
+
+Aig , Aiu, and Aid. Let Xj,i g and Xj,i u denote the data from 
+
+Xjg and Xju belonging to expert i. Then expert i computes 
+
+Y j,i = SiLU( Aig Xj,i g ) ⊙ (AiuXj,i u ),
+
+and 
+
+Zj,i = σ(( Aid)T Y j,i ).
+
+Similarly, we collect all the Zj,i for the same depart-ment j, denote as Zj , and compute the expert output 
+
+Oj = ( W jd )T Zj . Compared with directly using function (4), such a manner greatly reduces repeated loading of the department parameters W jg , W ju , and W jd , which is of great importance in LLM decoding. 
+
+3.3. Comparing DeaMoE vs Standard MoE Counterpart 
+
+In this section, we compare DeaMoE against the standard MoE counterpart in terms of the expert loading amount. As mentioned before, for a fair comparison, we consider the same budgets of both total parameter count and per-token FLOPs. We summarize the selected MoE base-lines and their budget-matched DeaMoE counterparts in Ta-ble 1 (DeepSeek, 2025; Qwen, 2025; Kimi, 2025). Baseline-7B is the model we pre-train and use for a detailed accuracy performance comparison with DeaMoE in Section 4. For each baseline, we search for a DeaMoE configuration that respects the prescribed budget constraints and maximizes 4DeaMoE: Efficient MoE Structure for Fast Small-Batch Decoding 
+
+Table 1. Baseline MoE models and their budget-matched DeaMoE configurations. Baseline Config DeaMoE Config Comparison MoE Models kexpert h hffn nexpert ndept nexpert kdept kexpert FLOPs ( ×) Params ( ×)DeepSeek-V3 8 7168 2048 256 8 864 5 10 0.995 0.996 DeepSeek-V2 6 5120 1536 160 8 512 5 10 1.010 1.010 Qwen3-235B-A22B 8 4096 1536 128 8 320 5 8 1.005 1.000 Kimi-K2 8 7168 2048 384 16 1280 5 10 1.000 0.994 Baseline-7B 8 1024 384 256 8 672 4 10 1.014 1.017 0 100 200 300 400 500 Number of tokens in a batch 0.5 0.6 0.7 0.8 0.9 1.0 Weight loading ratio 
+
+> Baseline-7B DeepSeek-V3 DeepSeek-V2 Kimi-K2 Qwen3-235B-A22B
+
+Figure 2. Comparison of weight loading for various MoE models after their adaptation to the DeaMoE architecture, normalized to their original MoE baselines (horizontal line at 1.0) w.r.t the batch size. 
+
+the reduction in expert weight loading under small-batch decoding. Concretely, we use group top-k routing to cap the activated FLOPs per token associated with department matrices (DeepSeek, 2025). The budget accounting includes both the FFN parameters and computation as well as the MoE router itself. Figure 2 illustrates how the expected amount of expert pa-rameters loaded per decoding step changes with the number of tokens, normalized by the baseline model under the same configuration. The loading ratio exhibits a non-monotonic trend: it decreases at small token counts and then increases as the batch grows. When the batch is very small, cross-token weight sharing is limited and the normalized loading remains relatively high. As the number of tokens increases from this regime, reuse improves and the normalized load-ing decreases. With sufficiently large batches, the union of activated departments/experts expands and covers more dis-tinct experts, so the loaded weights per step approach those of the baseline and the ratio increases toward 1.0. Consistent with this behavior, DeaMoE achieves the largest reduction in weight loading in the practical small-batch regime. For the configuration matched to DeepSeek-V3, the loading ratio stays between 49.1 % and 62.8 % when the number of tokens is between 4 and 64, indicating substantially less expert weight movement per decoding step than the baseline. 
+
+3.4. Recipes for DeaMoE Training 
+
+In this section, we analyze how some decision choices affect the model quality in pre-training. The related ablation study is shown in Section A. 
+
+Non-linear operator between department and expert projections. We insert non-linear operators between the department-level backbones and the expert-specific trans-forms to avoid stacking consecutive linear maps, which can hurt model quality. We consider several choices, in-cluding SiLU, GeLU, and RMSNorm (Elfwing et al., 2017; Hendrycks & Gimpel, 2023; Zhang & Sennrich, 2019). In DeaMoE, we finally adopt SiLU as a smooth activation and apply it consistently at all three interfaces (gate/up/down) to modulate both shared and expert-specific features while preserving signal diversity. Compared to SiLU, replacing it with GeLU or RMSNorm, or removing the non-linear oper-ator altogether, results in higher training loss in Section A. 
+
+Initialization of the expert parameters. In DeaMoE, each expert is implemented as a lightweight transform on top of a shared department backbone. Under this factorized design, the initialization of expert matri-ces is critical. Following common practice in indus-try (Fedus et al., 2022), standard MoE models initial-ize expert weights with a zero-mean Gaussian scheme, e.g., torch.nn.init.normal (mean=0, std= σ).However, in DeaMoE, using such initialization for both 
+
+expert and department matrices introduces arbitrary devia-tions in the backbone representations at the start of training, which can distort the routed features and lead to degraded model quality. To avoid this issue, we initialize the expert-specific matrices with identity mappings using torch.nn.init.eye .This makes each expert behave equivalently to its cor-responding department backbone at initialization, so the model starts from a well-conditioned solution with no arti-ficial specialization. Expert-specific behavior is then grad-ually learned through training rather than being imposed by random noise. Our ablation results in Section A show that identity initialization achieves lower training loss com-pared to random initialization, validating the importance of a near-identity starting point for expert transforms. 5DeaMoE: Efficient MoE Structure for Fast Small-Batch Decoding                                
+
+> Table 2. Accuracy results with downstream tasks for MoE models pre-trained with 110B tokens.
+> Model BoolQ PIQA SIQA HSwag WinoG RaceH AnliR1 AnliR2 AnliR3 OBQA
+> DeaMoE-7B 62.39 73.39 42.07 57.04 58.01 39.62 32.80 34.3 35.25 34.8 Baseline-7B 61.47 74.43 41.97 57.54 55.25 39.71 32.0 31.9 34.17 37.6
+
+Attempt to enforce kdept coverage of departments per token. Under group-limited top-k routing, kdept serves as an upper bound on the number of departments activated by each token, so that the department-side FLOPs remain capped for a budget-matched comparison with the baseline. It is not a requirement that every token must cover exactly 
+
+kdept departments. If the router selects experts from fewer departments, the realized computation is simply below this matched-FLOPs upper bound, which is acceptable as long as model quality is preserved. For completeness, we evaluate a strict variant that enforces exact department coverage. After the router selects the top-k experts, we count the number of distinct departments they span. If fewer than kdept departments are covered, we replace the lowest-ranked selected expert with the highest-probability expert from an uncovered department, until the final selection spans exactly kdept departments. However, this strict enforcement degrades model quality in practice. Our ablation results (Section A) show that forcing tokens to activate experts from additional departments per-turbs the learned routing preferences and harms specializa-tion. These results suggest that exact department coverage is not a desirable objective; the original soft group-limited top-k constraint better preserves the quality–efficiency trade-off. 
+
+## 4. Accuracy Evaluation after Pre-Training 
+
+In this section, we compare DeaMoE against a standard MoE baseline by reporting their performance on down-stream benchmarks and language modeling perplexity after pre-training. 
+
+4.1. Pre-Training 
+
+For a fair comparison, we pre-train both MoE models with an identical size of 7.3B parameters. The baseline adopts a conventional MoE feed-forward structure following the hyper-parameter configuration listed in Table 1, while DeaMoE is configured to match the baseline in terms of total parameter count and per-token FLOPs. Table 1 sum-marizes the MoE-related configurations of both models. We set the hidden size h and feed-forward dimension hffn to preserve a ratio of hhffn = 2 .67 , consistent with Qwen3-235B-A22B. We leverage PyTorch FSDP to train the base-line and DeaMoE (PyTorch, 2025). The code for training will be open-sourced later, which contains both forward and  
+
+> Table 3. Perplexity results for different MoE models pre-trained with 110B tokens. The lower number is better.
+
+Model PTB WikiText-103 WikiText-2 
+
+DeaMoE-7B 61.91 20.31 20.33 
+
+Baseline-7B 64.33 20.18 20.43 backward passes. For both experiments, we use the RedPajama-v1 dataset for pre-training (Weber et al., 2024). The models are pre-trained with the same corpus of 110B tokens with identical software and hardware configurations. In addition, we keep the optimizer settings and training hyper-parameters the same across both models. 
+
+4.2. Downstream Task Performance 
+
+We then evaluate the downstream task performance of DeaMoE and the baseline MoE model after pre-training. Following common practice, we report accuracy results on a suite of reasoning and question answering benchmarks, including commonsense reasoning, natural language infer-ence, and multi-choice QA tasks, as well as perplexity re-sults on standard language modeling datasets. Table 2 summarizes the accuracy results on ten down-stream classification and reasoning tasks. Overall, DeaMoE achieves performance comparable to the Baseline-7B across all evaluated benchmarks, and outperforms the baseline on six tasks, including SIQA, BoolQ, WinoGrande, and all three ANLI subsets (R1, R2, and R3), indicating comparable model quality compared with the standard MoE architecture on commonsense and natural language inference tasks (Sap et al., 2019; Clark et al., 2019; Sakaguchi et al., 2021; Nie et al., 2020). Although the baseline slightly outperforms DeaMoE on PIQA, HellaSwag, RaceH and OpenbookQA, the performance gaps remain small, suggesting no degrada-tion in overall task generalization (Bisk et al., 2019; Zellers et al., 2019; Lai et al., 2017; Mihaylov et al., 2018). Table 3 reports perplexity results on PTB, WikiText-103, and WikiText-2 (Marcus et al., 1993; Merity et al., 2016). DeaMoE achieves lower perplexity on PTB and WikiText-2, and remains comparable to the baseline on WikiText-103, demonstrating that the proposed architecture preserves lan-guage modeling quality under the same pre-training budget and inference FLOPs consumption. 6DeaMoE: Efficient MoE Structure for Fast Small-Batch Decoding 4 8 16 24 32 40 48 64 96 128 Batch Size 010 20 30 40 Latency (ms)        
+
+> 1.02x 1.14x 1.26x 1.32x 1.33x 1.30x 1.26x 1.20x 1.13x 1.03x
+> Baseline-7B DeaMoE-7B
+> Figure 3. Comparison of average TPOT latency between Baseline-7B and DeaMoE across varying request concurrency on an A40 GPU (DeaMoE’s speedups are annotated).
+
+## 5. Evaluation for Inference Speedups 
+
+In this section, we evaluate the decoding efficiency of DeaMoE compared to the standard MoE baseline. We report the performance gains of DeaMoE in end-to-end serving scenarios and per-layer microbenchmarks. 
+
+Implementation. For model serving, we integrate DeaMoE into vLLM v0.13.0 (Kwon et al., 2023), utiliz-ing Triton (Tillet et al., 2019) to implement our customized operators. To ensure a strictly fair comparison, our kernel implementation aligns closely with vLLM’s highly opti-mized native fused moe kernel . Specifically, we reuse the exact Grouped GEMM primitives employed by the base-line, modifying only the token indexing logic to accommo-date the hierarchical department-expert structure. Beyond kernel-level parity, we also enable vLLM’s CUDA Graph execution for DeaMoE and all baselines. Since decoding is inherently latency-sensitive and typically operates in the small-batch regime, adopting CUDA Graph is widely used in industry to reduce kernel launch overhead. By rigorously matching both the arithmetic kernels and the runtime config-urations, we ensure that the observed speedups are attributed solely to the architectural efficiency of DeaMoE. 
+
+5.1. End-to-End Speedup of Pre-Trained Model 
+
+We first evaluate the end-to-end inference performance with Baseline-7B and the DeaMoE counterpart on a sin-gle NVIDIA A40 GPU based on vLLM. To simulate real-istic serving dynamics, we generate a continuous stream of requests and measure the average Time Per Output To-ken (TPOT) across varying concurrency levels, which are reported in Figure 3. 
+
+Latency comparison under same batch sizes. As shown in Figure 3, DeaMoE delivers a latency speedup of 1.02 ×–1.33 × across the evaluated batch sizes. Consistent with Figure 2, the observed weight-loading reduction exhibits a non-monotonic pattern. Accordingly, the speedup increases as the batch size grows from 4 to 32 (peaking at 1.33 ×), and then gradually decreases, approaching 1.03 × at the batch size of 128. 
+
+Throughput comparison under same latency budget. In practical serving, the maximum batch size is often limited to satisfy strict service-level objectives (SLO), particularly on TPOT. Such latency constraints directly limit achievable throughput. As shown in Figure 3, under a TPOT budget of 30 ms, the baseline and DeaMoE sustain batch sizes of 64 and 96, respectively, corresponding to a 1.50 × through-put improvement. Under a stricter 20 ms TPOT budget, the supported batch sizes become 24 and 44, respectively, translating to a 1.83 × throughput improvement. This performance gain confirms that our architecture ef-fectively reduces the memory traffic per decoding step, thereby alleviating the bandwidth bottleneck on the A40 GPU. DeaMoE sustains this latency and throughput advan-tage with small-batch scenarios, validating that the reduc-tion in loaded weights directly translates into measurable decoding speedups. 
+
+5.2. Microbenchmarks 
+
+To demonstrate the scalability and hardware universality of DeaMoE, we conduct microbenchmarks on three mod-els ranging from the 7.3B pre-trained baseline up to the DeepSeek-V3 (671B). To comprehensively assess perfor-mance across different hardware generations, we benchmark on both NVIDIA A40 and H100 GPUs. We measure the per-layer execution time specifically for decoding steps, aiming to capture the pure computation and memory access latency of the MoE layer. We vary the batch size from 4 to 128 to cover the typical workload range of interactive decoding. Figure 4 and Figure 5 report the microbenchmark speedups of DeaMoE over the standard MoE baselines on A40 and H100 GPUs across a wide range of batch sizes. Several consistent trends can be observed. First, on the A40 GPU (Figure 4), DeaMoE achieves clear and stable speedups for all three models. The improve-ment is most pronounced for large-expert models such as DeepSeek-V3 and Qwen3-235B-A22B, with peak speedups approaching 2.00 × and 1.74 ×, respectively. For the smaller Baseline-7B model, DeaMoE still provides noticeable gains. These results indicate that, on bandwidth-limited hardware, reducing expert weight movement directly translates into lower decoding latency, and the benefit scales with the size of activated experts. On the H100 GPU (Figure 5), DeaMoE continues to de-liver substantial speedups for DeepSeek-V3 and Qwen3-235B-A22B, demonstrating that the proposed design re-mains effective on more advanced hardware. However, the 7DeaMoE: Efficient MoE Structure for Fast Small-Batch Decoding 4 8 16 24 32 40 48 64 96 128 Batch Size 0.5 1.0 1.5 2.0 Speedup  
+
+> 1.15x 1.33x 1.48x 1.49x 1.44x 1.42x 1.39x 1.31x 1.17x 1.08x
+> DeaMoE Speedup Original
+
+(a) Baseline-7B 4 8 16 24 32 40 48 64 96 128 Batch Size 0.5 1.0 1.5 2.0  
+
+> 1.58x 1.84x 2.00x 1.97x 1.86x 1.81x 1.75x 1.61x 1.37x 1.26x
+
+(b) DeepSeek-V3 4 8 16 24 32 40 48 64 96 128 Batch Size 0.5 1.0 1.5 2.0  
+
+> 1.44x 1.69x 1.74x 1.61x 1.48x 1.41x 1.34x 1.19x 1.08x 1.03x
+
+(c) Qwen3-235B-A22B 
+
+Figure 4. Speedup comparison for different models on A40. 4 8 16 24 32 40 48 64 96 128 Batch Size 0.5 1.0 1.5 2.0 Speedup  
+
+> 0.85x 0.97x 1.10x 1.16x 1.14x 1.16x 1.14x 1.12x 1.03x 0.96x
+> DeaMoE Speedup Original
+
+(a) Baseline-7B 4 8 16 24 32 40 48 64 96 128 Batch Size 0.5 1.0 1.5 2.0  
+
+> 1.47x 1.75x 1.97x 1.93x 1.82x 1.78x 1.70x 1.57x 1.36x 1.23x
+
+(b) DeepSeek-V3 4 8 16 24 32 40 48 64 96 128 Batch Size 0.5 1.0 1.5 2.0  
+
+> 1.32x 1.52x 1.60x 1.53x 1.43x 1.34x 1.28x 1.18x 1.06x 1.01x
+
+(c) Qwen3-235B-A22B 
+
+Figure 5. Speedup comparison for different models on H100. 
+
+gains for Baseline-7B are noticeably smaller and even show mild regressions at very small and very large batch sizes. This contrast can be attributed to the interaction between model scale and the memory hierarchy of H100: for small-expert models, expert weights are more likely to fit in and be reused from the large L2 cache, which reduces the baseline’s weight-loading cost and limits the headroom for further op-timization. Overall, these results highlight that the effectiveness of DeaMoE is strongly correlated with the dominance of expert weight loading in the decoding pipeline. When expert matri-ces are large and sparsely reused, as in modern large-expert MoE models, DeaMoE yields consistent and significant speedups across both GPU generations. In contrast, for small-expert configurations on high-bandwidth hardware, the bottleneck shifts away from weight movement, and the relative benefit becomes less pronounced. This reinforces our design motivation: DeaMoE is particularly well suited for accelerating small-batch decoding of large-scale MoE models, where expert loading constitutes a primary perfor-mance bottleneck. 
+
+## 6. Conclusion 
+
+In this paper, we proposed an efficient DeaMoE structure to improve the performance of MoE in LLM decoding. It was observed that some experts in a MoE layer show a high degree of similarity, indicating parameter redundancy. DeaMoE groups all the experts into several departments. The experts belonging to the same department share most common parameters because they capture shared knowledge within the same functional category. In addition, we pro-posed a customized two-stage routing strategy. Instead of directly assigning the tokens to experts, the tokens are first allocated to the corresponding departments and then each department uniformly processes all the collected tokens at once and assigns them to the corresponding experts for further differentiated processing. Combining the DeaMoE structure and the routing strategy, DeaMoE delivers con-sistent decoding speedups in both end-to-end serving and microbenchmarks: for vLLM serving of our pre-trained 7B model, we observe up to 1.33 × end-to-end TPOT speedup on A40, and for DeepSeek-V3, the peak microbenchmark speedups reach 2.00 × on A40 and 1.97 × on H100. 
+
+## References 
+
+Bisk, Y., Zellers, R., Bras, R. L., Gao, J., and Choi, Y. PIQA: Reasoning about physical commonsense in natural language, 2019. URL https://arxiv.org/abs/ 1911.11641 .Chen, X., Ha, M., Lan, Z., Zhang, J., and Li, J. MoBE: Mixture-of-basis-experts for compressing MoE-based LLMs. In The Fourteenth International Conference on Learning Representations , 2026. URL https: //openreview.net/forum?id=8RV6H50OSf .Chitty-Venkata, K. T., Howland, S., Azar, G., Soboleva, D., Vassilieva, N., Raskar, S., Emani, M., and Vishwanath, V. 8DeaMoE: Efficient MoE Structure for Fast Small-Batch Decoding 
+
+Moe-inference-bench: Performance evaluation of mixture of expert large language and vision models, 2025. URL 
+
+https://arxiv.org/abs/2508.17467 .Clark, C., Lee, K., Chang, M.-W., Kwiatkowski, T., Collins, M., and Toutanova, K. BoolQ: Exploring the surprising difficulty of natural yes/no questions, 2019. URL https: //arxiv.org/abs/1905.10044 .DeepSeek. DeepSeek-V3 technical report, 2025. URL 
+
+https://arxiv.org/abs/2412.19437 .Elfwing, S., Uchibe, E., and Doya, K. Sigmoid-weighted linear units for neural network function approximation in reinforcement learning, 2017. URL https://arxiv. org/abs/1702.03118 .Fedus, W., Zoph, B., and Shazeer, N. Switch transformers: Scaling to trillion parameter models with simple and effi-cient sparsity, 2022. URL https://arxiv.org/ab s/2101.03961 .Gu, H., Li, W., Li, L., Zhu, Q., Lee, M. G., Sun, S., Xue, W., and Guo, Y. Delta decompression for MoE-based LLMs compression, 2025. URL https://arxiv.org/ab s/2502.17298 .Hendrycks, D. and Gimpel, K. Gaussian error linear units (gelus), 2023. URL https://arxiv.org/abs/16 06.08415 .Jiang, Y., Fu, Y., Huang, Y., Nie, P., Lu, Z., Xue, L., He, C., Sit, M.-K., Xue, J., Dong, L., Miao, Z., Du, D., Xu, T., Zou, K., Ponti, E., and Mai, L. MoE-CAP: Benchmarking cost, accuracy and performance of sparse mixture-of-experts systems, 2025. URL https://arxiv.org/ abs/2412.07067 .Kimi. Kimi K2: Open agentic intelligence, 2025. URL 
+
+https://arxiv.org/abs/2507.20534 .Kwon, W., Li, Z., Zhuang, S., Sheng, Y., Zheng, L., Yu, C. H., Gonzalez, J., Zhang, H., and Stoica, I. Efficient memory management for large language model serving with pagedattention. In Proceedings of the 29th Sym-posium on Operating Systems Principles , SOSP ’23, pp. 611–626, New York, NY, USA, 2023. Association for Computing Machinery. ISBN 9798400702297. doi: 10.1145/3600006.3613165. URL https://doi. org/10.1145/3600006.3613165 .Lai, G., Xie, Q., Liu, H., Yang, Y., and Hovy, E. RACE: Large-scale reading comprehension dataset from exami-nations, 2017. URL https://arxiv.org/abs/17 04.04683 .Li, W., Li, L., Gu, H., Huang, Y.-L., Lee, M. G., Sun, S., Xue, W., and Guo, Y. Moe-SVD: Structured mixture-of-experts LLMs compression via singular value decom-position. In Forty-second International Conference on Machine Learning , 2025. URL https://openrevi ew.net/forum?id=acJ3vdFljk .Liu, Z., Wu, H., She, R., Fu, X., Han, X., Zhong, T., and Yuan, M. MoLAE: Mixture of latent experts for parameter-efficient language models, 2025. URL 
+
+https://arxiv.org/abs/2503.23100 .Marcus, M. P., Santorini, B., and Marcinkiewicz, M. A. Building a large annotated corpus of English: The Penn Treebank. Computational Linguistics , 19(2):313–330, 1993. URL https://aclanthology.org/J93 -2004/ .Meituan. LongCat-Flash-Omni Technical Report, 2025. URL https://github.com/meituan-longc at/LongCat-Flash-Omni .Merity, S., Xiong, C., Bradbury, J., and Socher, R. Pointer sentinel mixture models, 2016. URL https://arxi v.org/abs/1609.07843 .Mihaylov, T., Clark, P., Khot, T., and Sabharwal, A. Can a suit of armor conduct electricity? a new dataset for open book question answering. In Riloff, E., Chiang, D., Hockenmaier, J., and Tsujii, J. (eds.), Proceedings of the 2018 Conference on Empirical Methods in Natural Language Processing , pp. 2381–2391, Brussels, Belgium, October-November 2018. Association for Computational Linguistics. doi: 10.18653/v1/D18-1260. URL https: //aclanthology.org/D18-1260/ .Nie, Y., Williams, A., Dinan, E., Bansal, M., Weston, J., and Kiela, D. Adversarial NLI: A new benchmark for natural language understanding. In Jurafsky, D., Chai, J., Schluter, N., and Tetreault, J. (eds.), Proceed-ings of the 58th Annual Meeting of the Association for Computational Linguistics , pp. 4885–4901, Online, July 2020. Association for Computational Linguistics. doi: 10.18653/v1/2020.acl- main.441. URL https: //aclanthology.org/2020.acl-main.441/ .NVIDIA. NVIDIA Nemotron 3: Efficient and open intelli-gence, 2025. URL https://arxiv.org/abs/25 12.20856 .PyTorch. PyTorch FSDP, 2025. URL https://docs.p ytorch.org/tutorials/intermediate/FS DP_tutorial.html .Qwen. Qwen3 technical report, 2025. URL https://ar xiv.org/abs/2505.09388 .9DeaMoE: Efficient MoE Structure for Fast Small-Batch Decoding 
+
+Qwen Team. Qwen3-Next: Towards ultimate training & inference efficiency. Technical report, 2025. URL http s://qwen.ai/blog?id=e34c4305036ce60d 55a0791b170337c2b70ae51d .Sakaguchi, K., Bras, R. L., Bhagavatula, C., and Choi, Y. WinoGrande: an adversarial winograd schema challenge at scale. Commun. ACM , 64(9):99–106, August 2021. ISSN 0001-0782. doi: 10.1145/3474381. URL https: //doi.org/10.1145/3474381 .Sap, M., Rashkin, H., Chen, D., LeBras, R., and Choi, Y. SocialIQA: Commonsense reasoning about social interactions, 2019. URL https://arxiv.org/ab s/1904.09728 .Tillet, P., Kung, H. T., and Cox, D. Triton: an intermediate language and compiler for tiled neural network compu-tations. In Proceedings of the 3rd ACM SIGPLAN Inter-national Workshop on Machine Learning and Program-ming Languages , MAPL 2019, pp. 10–19, New York, NY, USA, 2019. Association for Computing Machinery. ISBN 9781450367196. doi: 10.1145/3315508.3329973. URL https://doi.org/10.1145/3315508. 3329973 .Weber, M., Fu, D. Y., Anthony, Q., Oren, Y., Adams, S., Alexandrov, A., Lyu, X., Nguyen, H., Yao, X., Adams, V., Athiwaratkun, B., Chalamala, R., Chen, K., Ryabinin, M., Dao, T., Liang, P., R´ e, C., Rish, I., and Zhang, C. Redpajama: an open dataset for training large language models. In Proceedings of the 38th International Confer-ence on Neural Information Processing Systems , NIPS ’24, Red Hook, NY, USA, 2024. Curran Associates Inc. ISBN 9798331314385. Zellers, R., Holtzman, A., Bisk, Y., Farhadi, A., and Choi, Y. HellaSwag: Can a machine really finish your sen-tence? In Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics , pp. 4791–4800. Association for Computational Linguistics, 2019. doi: 10.18653/v1/P19-1472. URL https: //aclanthology.org/P19-1472/ .Zhang, B. and Sennrich, R. Root mean square layer normal-ization, 2019. URL https://arxiv.org/abs/19 10.07467 .Zhang, Z., Liu, X., Cheng, H., Xu, C., and Gao, J. Diver-sifying the expert knowledge for task-agnostic pruning in sparse mixture-of-experts. In Che, W., Nabende, J., Shutova, E., and Pilehvar, M. T. (eds.), Findings of the As-sociation for Computational Linguistics: ACL 2025 , pp. 86–102, Vienna, Austria, July 2025. Association for Com-putational Linguistics. ISBN 979-8-89176-256-5. doi: 10.18653/v1/2025.findings-acl.4. URL https://ac lanthology.org/2025.findings-acl.4/ .Zhao, C., Deng, C., Ruan, C., Dai, D., Gao, H., Li, J., Zhang, L., Huang, P., Zhou, S., Ma, S., Liang, W., He, Y., Wang, Y., Liu, Y., and Wei, Y. Insights into DeepSeek-V3: Scaling challenges and reflections on hardware for ai architectures. In Proceedings of the 52nd Annual International Symposium on Computer Ar-chitecture , SIGARCH ’25, pp. 1731–1745. ACM, June 2025. doi: 10.1145/3695053.3731412. URL http: //dx.doi.org/10.1145/3695053.3731412 .10 DeaMoE: Efficient MoE Structure for Fast Small-Batch Decoding 
+
+## A. Ablation Study 
+
+To validate the design choices discussed in Section 3.4, we conduct a controlled ablation study. Considering the limited resource budget for training, we train a smaller 5B-scale model with 12.4B tokens of RedPajama-V1. We implement multiple variants that differ only in the corresponding design choice, while keeping the remaining architecture and training recipe unchanged. The results are summarized in Table 4, where Loss reports the average training loss over the last 200 optimization steps (corresponding to 210M tokens). Variant No.1 is used in Section 4.                              
+
+> Table 4. Training loss with different design choices regarding non-linear operators, expert weight initialization, and department Top-k.
+> Variant Operator Init. Dep. Top-kLoss
+> No.1* SiLU Identity Soft 2.504 No.2 RMSNorm Identity Soft 2.510 No.3 GeLU Identity Soft 2.536 No.4 None Identity Soft 2.508 No.5 SiLU Random Soft 2.530 No.6 SiLU Identity Strict 2.519
+
+Non-linear operator between department and expert projections. As shown with variants from No.1 to No.4, under the same training setup, the last-200-step average loss ranks SiLU as the best-performing operator among the evaluated variants, with GeLU, RMSNorm, and no-operator yielding slightly higher loss. This supports our choice of using SiLU at the department–expert interface, which preserves feature diversity for specialization. 
+
+Initialization of expert matrices. No.1 and No.5 in Table 4 compare different initialization schemes for the expert-specific matrices under the same training setup. As mentioned in Section 3.4, we replace the expert weight initialization with identity initialization ( torch.nn.init.eye ), which reduces the reported loss (averaged over the last 200 steps) from 2.530 to 2.504. This result indicates that, for our factorized parameterization, initializing expert transforms with a near-identity mapping leads to a lower loss than random initialization. 
+
+Unsuccessful attempt of strict group top-k. We then evaluate a stricter routing variant that enforces the coverage of exactly kdept departments per token. Enforcing strict department coverage ensures that each token activates exactly kdept 
+
+departments. This avoids cases where routing concentrates on only a few departments. However, Table 4 shows that this variant (No.6) yields a higher training loss than the default soft constraint (No.1), increasing from 2.504 to 2.519. Moreover, we observe that during training, Variant No.1 activates 3.95 distinct departments on average per token, close to the configured 
+
+kdept = 4 , suggesting that most tokens already span multiple departments even without explicit enforcement. This indicates that the soft group-limited top-k constraint already achieves a favorable balance between efficiency and model quality, making additional hard enforcement unnecessary. Overall, the ablation results consistently support the design choices adopted in DeaMoE: using SiLU activation, identity initialization for expert transforms, and soft group-limited routing. These components jointly contribute to preserving model quality while enabling the decoding-time efficiency gains analyzed in previous sections. 11
