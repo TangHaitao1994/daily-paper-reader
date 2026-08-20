@@ -6,38 +6,43 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-19
-- 运行时间：2026-08-19 21:00:39 UTC
+- 最新运行日期：2026-08-20
+- 运行时间：2026-08-20 21:06:36 UTC
 - 运行状态：成功
-- 本次总论文数：5
-- 精读区：2
+- 本次总论文数：7
+- 精读区：4
 - 速读区：3
 
 ### 今日简报（AI）
-- 今日共生成 5 篇推荐（精读 2 篇，速读 3 篇）
-- 精读：《FireRedTTS3: Unified Speech Generation and Editing with Semantically Enriched Speech Representations》（9.0/10）, 《Evaluating Pre-trained Speech Encoders for Spontaneous Speech Detection and Out of Domain Synthetic Speech Generalisation in Indic Languages》（8.0/10）
-- 速读：《MDwAIstScheduler: Bringing On-Device Voice Documentation into Clinical Practice》（7.0/10）, 《ARENA: Automated Red-Teaming for Large Audio Language Models》（7.0/10）, 《A Multiplication-Free Feature Extractor for Signal Classification: Keyword Spotting Case Study》（6.0/10）
-- 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
-- 详情：[/202608/19/README](/202608/19/README)
+今日精读4篇、速读3篇，聚焦流式语音合成与低资源口语理解两条主线。  
+最值得看：X2Streaming-TTS 用“语音状态继承”实现因果token级流式TTS，Aslema 用少样本增强提升SLU。  
+建议跟进流式TTS的实时落地效果，以及少样本口语理解在方言/小语种上的表现。
+- 详情：[/202608/20/README](/202608/20/README)
 
 ### 精读区论文标签
-1. [FireRedTTS3: Unified Speech Generation and Editing with Semantically Enriched Speech Representations](/202608/19/2608.17492v1-fireredtts3-unified-speech-generation-and-editing-with-semantically-enriched-speech-representations)  
+1. [X2Streaming-TTS: Causal Token-Level Text-to-Speech from Streaming Text with Speech-State Inheritance](/202608/20/2608.18661v1-x2streaming-tts-causal-token-level-text-to-speech-from-streaming-text-with-speech-state-inheritance)  
    标签：评分：9.0/10、query:speech-model
-   evidence：统一语音生成与编辑框架，减少TTS中的误差累积
-2. [Evaluating Pre-trained Speech Encoders for Spontaneous Speech Detection and Out of Domain Synthetic Speech Generalisation in Indic Languages](/202608/19/2608.12536v1-evaluating-pre-trained-speech-encoders-for-spontaneous-speech-detection-and-out-of-domain-synthetic-speech-generalisation-in-indic-languages)  
+   evidence：因果词级流式文语转换与语音状态继承
+2. [Aslema at NADI 2026: Augmentation through Fewshot for SLU](/202608/20/2608.18689v1-aslema-at-nadi-2026-augmentation-through-fewshot-for-slu)  
    标签：评分：8.0/10、query:speech-model
-   evidence：预训练语音编码器在检测任务上的评估
+   evidence：利用LLM和语音克隆对口语理解任务进行合成数据增强
+3. [Understanding Multilingual Medical ASR Adaptation Through Layer-Wise Analysis](/202608/20/2608.18825v1-understanding-multilingual-medical-asr-adaptation-through-layer-wise-analysis)  
+   标签：评分：8.0/10、query:speech-model
+   evidence：分析多语言医学适配后Whisper ASR模型逐层表征变化
+4. [Geometric Iterative Retrieval for Neural Audio Codec Resynthesis](/202608/20/2608.19141v1-geometric-iterative-retrieval-for-neural-audio-codec-resynthesis)  
+   标签：评分：8.0/10、query:speech-model
+   evidence：改进神经音频编解码器重合成质量，影响 TTS 和音频生成保真度
 
 ### 速读区论文标签
-1. [MDwAIstScheduler: Bringing On-Device Voice Documentation into Clinical Practice](/202608/19/2608.15252v1-mdwaistscheduler-bringing-on-device-voice-documentation-into-clinical-practice)  
+1. [ArborMem: Navigating Interaction States with Memory Forests](/202608/20/2608.17534v1-arbormem-navigating-interaction-states-with-memory-forests)  
    标签：评分：7.0/10、query:speech-model
-   evidence：使用医学ASR与微调LLM的设备端临床语音记录流程生成EHR草稿
-2. [ARENA: Automated Red-Teaming for Large Audio Language Models](/202608/19/2608.15578v1-arena-automated-red-teaming-for-large-audio-language-models)  
+   evidence：面向对话助手的记忆框架，管理交织的交互状态
+2. [TTSD-FAR: Test-Time Self-Distillation with Fisher-Anchored Restoration for Missing-Modality Emotion Recognition in LVLMs](/202608/20/2608.18386v1-ttsd-far-test-time-self-distillation-with-fisher-anchored-restoration-for-missing-modality-emotion-recognition-in-lvlms)  
    标签：评分：7.0/10、query:speech-model
-   evidence：音频语言模型的安全红队测试
-3. [A Multiplication-Free Feature Extractor for Signal Classification: Keyword Spotting Case Study](/202608/19/2608.17108v1-a-multiplication-free-feature-extractor-for-signal-classification-keyword-spotting-case-study)  
+   evidence：包含语音的多模态情感识别，缺失模态LVLM自适应
+3. [Measuring Fairness in Large Audio Language Models via Semantic-Aware Bias Estimation](/202608/20/2608.13624v1-measuring-fairness-in-large-audio-language-models-via-semantic-aware-bias-estimation)  
    标签：评分：6.0/10、query:speech-model
-   evidence：面向关键词识别的无乘法特征提取器，可作为语音模型的低复杂度预处理。
+   evidence：大型音频语言模型在语音识别中的公平性评估
 
 
 <div class="dpr-home-promo-card">
