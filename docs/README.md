@@ -6,27 +6,29 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-22
-- 运行时间：2026-08-22 20:26:15 UTC
+- 最新运行日期：2026-08-23
+- 运行时间：2026-08-23 19:48:11 UTC
 - 运行状态：成功
 - 本次总论文数：2
-- 精读区：1
-- 速读区：1
+- 精读区：2
+- 速读区：0
 
 ### 今日简报（AI）
-今日精读《S2Dialog》探索语义与声学风格融合的多模态对话检索，速读《CForce》关注一致性强制加速 dLLMs 并行解码。  
-最值得看：S2Dialog 把
-- 详情：[/202608/22/README](/202608/22/README)
+- 今日共生成 2 篇推荐（精读 2 篇，速读 0 篇）
+- 精读：《Multi-turn Conversational AI from Text to Multimodal Interaction: Data, Models, Evaluation, and Open Challenges》（9.0/10）, 《DAVSS: Distilled Audio-Visual State Space Models》（9.0/10）
+- 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
+- 详情：[/202608/23/README](/202608/23/README)
 
 ### 精读区论文标签
-1. [S2Dialog: Multimodal Dialogue Retrieval with Semantic and Acoustic-Style Modeling](/202608/22/2608.14029v1-s2dialog-multimodal-dialogue-retrieval-with-semantic-and-acoustic-style-modeling)  
-   标签：评分：8.0/10、query:speech-model
-   evidence：用于口语对话系统和会话语音合成的多模态对话检索
+1. [Multi-turn Conversational AI from Text to Multimodal Interaction: Data, Models, Evaluation, and Open Challenges](/202608/23/2608.17605v1-multi-turn-conversational-ai-from-text-to-multimodal-interaction-data-models-evaluation-and-open-challenges)  
+   标签：评分：9.0/10、query:speech-model
+   evidence：综述多轮对话式AI，涵盖音频大语言模型、语音原生与多模态系统。
+2. [DAVSS: Distilled Audio-Visual State Space Models](/202608/23/2608.19523v1-davss-distilled-audio-visual-state-space-models)  
+   标签：评分：9.0/10、query:speech-model
+   evidence：蒸馏音视频状态空间模型，用于高效多模态学习
 
 ### 速读区论文标签
-1. [CForce: Boosting Parallel Decoding for dLLMs via Consistency Forcing](/202608/22/2608.13925v1-cforce-boosting-parallel-decoding-for-dllms-via-consistency-forcing)  
-   标签：评分：6.0/10、query:speech-model
-   evidence：适用于语音合成的扩散语言模型并行解码加速
+- 本次无速读推荐。
 
 
 <div class="dpr-home-promo-card">
