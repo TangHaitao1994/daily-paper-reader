@@ -6,29 +6,31 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-23
-- 运行时间：2026-08-23 19:48:11 UTC
+- 最新运行日期：2026-08-24
+- 运行时间：2026-08-24 20:12:08 UTC
 - 运行状态：成功
-- 本次总论文数：2
-- 精读区：2
-- 速读区：0
+- 本次总论文数：3
+- 精读区：1
+- 速读区：2
 
 ### 今日简报（AI）
-- 今日共生成 2 篇推荐（精读 2 篇，速读 0 篇）
-- 精读：《Multi-turn Conversational AI from Text to Multimodal Interaction: Data, Models, Evaluation, and Open Challenges》（9.0/10）, 《DAVSS: Distilled Audio-Visual State Space Models》（9.0/10）
-- 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
-- 详情：[/202608/23/README](/202608/23/README)
+今日精读 1 篇、速读 2 篇，聚焦语音识别与语音增强的生产级优化方案。  
+最值得看：TurboBias 2.0 用流式上下文偏置兼顾 ASR 效果与生产效率；精确房间声学模拟训练也让单通道语音增强明显受益。  
+建议优先跟进 TurboBias 2.0 的实现思路，并关注低内存、低复杂度的嵌入式语音增强落地可能。
+- 详情：[/202608/24/README](/202608/24/README)
 
 ### 精读区论文标签
-1. [Multi-turn Conversational AI from Text to Multimodal Interaction: Data, Models, Evaluation, and Open Challenges](/202608/23/2608.17605v1-multi-turn-conversational-ai-from-text-to-multimodal-interaction-data-models-evaluation-and-open-challenges)  
+1. [TurboBias 2.0: Streaming Context-Biasing for Production-Efficient ASR Systems](/202608/24/2608.21343v1-turbobias-20-streaming-context-biasing-for-production-efficient-asr-systems)  
    标签：评分：9.0/10、query:speech-model
-   evidence：综述多轮对话式AI，涵盖音频大语言模型、语音原生与多模态系统。
-2. [DAVSS: Distilled Audio-Visual State Space Models](/202608/23/2608.19523v1-davss-distilled-audio-visual-state-space-models)  
-   标签：评分：9.0/10、query:speech-model
-   evidence：蒸馏音视频状态空间模型，用于高效多模态学习
+   evidence：生产ASR流式上下文偏置框架在延迟约束下提升短语识别准确率
 
 ### 速读区论文标签
-- 本次无速读推荐。
+1. [Training DeepFilterNet with Accurate Room Acoustic Simulations Improves Single-Channel Speech Enhancement](/202608/24/2608.20971v1-training-deepfilternet-with-accurate-room-acoustic-simulations-improves-single-channel-speech-enhancement)  
+   标签：评分：7.0/10、query:speech-model
+   evidence：精确房间声学模拟数据集改善语音增强训练和下游ASR。
+2. [μNet: Ultra-Low-Memory and Low-Complexity Speech Enhancement for Embedded Digital Signal Processors](/202608/24/2608.21155v1-net-ultra-low-memory-and-low-complexity-speech-enhancement-for-embedded-digital-signal-processors)  
+   标签：评分：6.0/10、query:speech-model
+   evidence：面向嵌入式 DSP 的超低内存语音增强，可提升噪声环境下的 ASR 准确性
 
 
 <div class="dpr-home-promo-card">
