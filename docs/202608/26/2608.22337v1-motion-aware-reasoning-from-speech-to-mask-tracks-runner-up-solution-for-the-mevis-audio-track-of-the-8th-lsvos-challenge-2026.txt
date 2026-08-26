@@ -1,0 +1,206 @@
+Title: Motion-Aware Reasoning from Speech to Mask Tracks: Runner-up Solution for the MeViS-Audio Track of the 8th LSVOS Challenge 2026
+
+URL Source: https://arxiv.org/pdf/2608.22337v1
+
+Published Time: Tue, 25 Aug 2026 01:05:34 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# Motion-Aware Reasoning from Speech to Mask Tracks: Runner-up Solution for the MeViS-Audio Track of the 8th LSVOS Challenge 2026 
+
+Jinxing Zhou 1 , Suiyi Zhao 2, Yanghao Zhou 3, and Ruohao Guo 4 
+
+> 1
+
+Mohamed bin Zayed University of Artificial Intelligence  
+
+> 2
+
+Anhui University of Science and Technology  
+
+> 3
+
+National University of Singapore  
+
+> 4
+
+China Agricultural University 
+
+Abstract. Speech-guided referring video object segmentation aims to re-cover the mask tracks of objects specified by a spoken motion description. Here, speech carries a linguistic instruction rather than acoustic evidence from a sounding object, so a solution must connect speech recognition, motion-centric temporal grounding, mask tracking, and explicit no-target handling. We introduce Speech2MaskTrack , our approach for the MeViS-Audio track of the 8th LSVOS Challenge. Speech2MaskTrack 
+
+transcribes the spoken query and compiles it into structured constraints over category, count, direction, interaction role, and temporal phase. SAM3.1 enumerates multiple instance tracks, which TRACE ranks us-ing complete-trajectory motion and relation evidence. A frozen lexical presence gate may suppress the ranked SAM3.1 base prediction. When the gate predicts that a target is present, an available full-expression-conditioned SaSaSa2VA track replaces the SAM3.1 mask. Only outputs that remain empty enter GPT-assisted recovery, which invokes SaSaSa2VA again under query- and mask-level verification. Speech2MaskTrack 
+
+achieved second place in the official challenge ranking. 
+
+Keywords: Referring video object segmentation · Speech-guided seg-mentation · Motion reasoning · Video object segmentation 
+
+## 1 Introduction 
+
+The Large-scale Video Object Segmentation (LSVOS) Challenge is a long-running international benchmark series for video object segmentation (VOS) [4,6]. Since its origin in the large-scale YouTube-VOS benchmark [20], LSVOS has progressively moved from relatively controlled videos toward long-term, crowded, occluded, and motion-intensive real-world scenes [3, 7]. Its sixth edition attracted 129 registered teams from more than 20 institutions across over eight countries [2], and the seventh introduced MOSEv2 to further emphasize robust segmentation under realistic conditions [7, 15]. LSVOS therefore provides a widely used community testbed for measuring progress and exposing failure modes hidden by easier VOS benchmarks. arXiv:2608.22337v1 [cs.MM] 23 Aug 2026 2 J. Zhou et al. 
+
+Track 1: MOSEv2 Track 2: MeViSv2-Text Track 3: MeViSv2-Audio OUR FOCUS 
+
+> Video frames First-frame target mask(s) Video frames Text motion expression Video frames Spoken motion expression Semi-supervised VOS propagate initialized targets Referring VOS resolve a textual motion query Speech-guided referring VOS resolve a spoken motion query
+> Target mask tracks Referred mask tracks Referred mask tracks
+
+Fig. 1: The three tracks of the 8th LSVOS Challenge. Each track combines a video with a different target specification and produces temporally consistent mask tracks. MOSEv2 initializes targets with first-frame masks, whereas MeViSv2-Text and MeViSv2-Audio identify targets from textual and spoken motion expressions, respectively. Our work focuses on MeViSv2-Audio; its audio is a spoken query rather than sound emitted by the target. 
+
+The 8th LSVOS Challenge, held in conjunction with ECCV 2026, contains three complementary tracks, summarized in Fig. 1. They differ primarily in how target objects are specified. The MOSEv2 track adopts semi-supervised, or one-shot, VOS: pixel-level masks in the first frame identify the target instances, and a system must preserve their identities and predict their masks throughout the remaining video. MOSEv2 stresses this propagation under severe occlusion, disap-pearance and reappearance, crowded scenes, small objects, adverse environments, and multi-shot transitions [7]. In contrast, MeViSv2-Text and MeViSv2-Audio provide no first-frame target masks. A system must identify the referred objects from textual or spoken motion expressions, respectively, before segmenting them over time [11]. The latter two tracks are based on MeViSv2 [5], a multi-modal benchmark containing 33,072 human-annotated text and audio motion expres-sions for 8,171 objects in 2,006 videos. Static appearance is often insufficient: a target may be defined by its direction, interaction role, temporal order, or behavior relative to visually similar instances. We focus on the MeViS-Audio 
+
+track, where these motion-centric referring expressions are delivered as speech. Despite the word audio , MeViS-Audio differs fundamentally from conventional audio-visual segmentation (AVS) [8, 10, 27–29, 31, 32], a widely studied task in the audio-visual community [9, 12–14, 16, 19, 22–26, 30, 33–35]. AVS uses sounds captured in the scene to segment the objects producing those sounds [29]; it does not involve a spoken referring query. In MeViS-Audio, by contrast, the audio conveys a spoken motion description, while the referred object need not emit any sound. The task does not prescribe how speech should be encoded: a Motion-Aware Reasoning from Speech to Mask Tracks 3
+
+system may ground the query directly from speech features or first transcribe it into text. In practice, a common design first applies ASR and then reuses text-conditioned grounding models. Speech2MaskTrack follows this route, recovering the linguistic instruction before grounding its motion semantics over time. However, a transcription-based solution must handle three coupled sources of uncertainty. First, pronunciation variation, rapid or indistinct speech, background noise, and confusions between acoustically similar phonemes can cause an ASR system to substitute or omit a word. The transcript may remain fluent even when a high-value semantic slot—such as the target category, count, direction, negation, temporal order, or interaction role—has been corrupted. The resulting semantic error then propagates into prompt generation and may change which object or trajectory is considered valid. Second, multiple same-class objects can be visually indistinguishable in an individual frame, while the decisive behavior occurs only briefly, before or after an interaction, or under camera motion and occlusion. Correct grounding therefore requires evidence from complete trajecto-ries, including motion phase and target–reference roles, rather than appearance alone. Third, some expressions deliberately have no matching target. Forcing a prediction in such cases selects a plausible but semantically invalid trajectory, whereas an overly aggressive absence decision can suppress a genuine target. The system must therefore support an empty mask sequence while retaining a conservative way to reconsider uncertain absence decisions. To manage these uncertainties, we introduce Speech2MaskTrack . This candidate-first framework separates query interpretation, SAM3.1 trajectory pro-posal, motion-aware ranking, presence gating, mask replacement, and empty-only recovery. A confidence-aware compiler maps the ASR transcript to a structured motion program while retaining the original transcription evidence and uncertain hypotheses. SAM3.1 [1] then produces an over-complete trajectory pool, from which camera-compensated motion features and our TRACE ranker construct a ranked SAM3.1 base prediction and fallbacks. A frozen lexical presence gate either retains this result as control-positive (target-present) or provisionally suppresses it. For a control-positive case, an available full-expression-conditioned SaSaSa2VA (SaSa) track [17] replaces the SAM3.1 mask; TRACE does not compare scores across the two backends, and their masks are not averaged. Only outputs that remain empty enter GPT-assisted recovery, where query adjudication, SaSaSa2VA regeneration, and mask arbitration may conservatively fill the empty result. To-gether, these stages preserve uncertainty, exploit temporal evidence, and allow abstention without assuming that transcription or instance-grounding errors are fully eliminated. Our main contributions are: 
+
+– a confidence-aware structured query compiler that retains raw ASR evi-dence and represents target identity, count, direction, temporal order, and interaction roles as explicit motion constraints; 
+
+– TRACE, a complete-trajectory ranker that combines learned compatibility with camera-compensated, phase-aware, and target–reference evidence while retaining fallback hypotheses; 4 J. Zhou et al. 
+
+– an asymmetric output policy that couples a frozen lexical presence gate with control-positive SaSaSa2VA replacement and GPT-verified, empty-only recovery, without allowing recovery to overwrite a nonempty prediction. 
+
+## 2 Task Formulation 
+
+Given a video  V = {It}Tt=1  and a spoken motion query  A, the goal is to predict a binary mask for every frame, 
+
+M = {mt}Tt=1 , mt ∈ { 0, 1}Ht×Wt . (1) The output may contain one or multiple referred objects. If the spoken query has no valid referent, the correct prediction is an all-zero sequence,  mt = 0 for every  t.For target-present expressions, the challenge reports the region similarity  J ,boundary accuracy  F, and their mean  J &F = ( J + F)/2. No-target accuracy 
+
+N-acc . measures how often an absent query produces an empty prediction, while target accuracy  T-acc . measures how often a present query produces a nonempty prediction. The final challenge score is [11] 
+
+Final = J &F + N -acc . + T -acc .
+
+3 . (2) This metric discourages both forced grounding of absent queries and overly aggressive suppression of valid targets. 
+
+## 3 Method 
+
+3.1 Overview 
+
+Figure 2 summarizes Speech2MaskTrack . The framework delays commitment to a single mask track until it has accumulated evidence over the complete video. After ASR and structured query compilation, SAM3.1 enumerates entity-prompted trajectories. TRACE ranks this SAM3.1 candidate pool using motion, relation, and role evidence, after which a frozen lexical presence gate either retains the ranked base prediction as control-positive or converts it into a provisional empty output. The ranked SAM3.1 base prediction and its fallbacks are fixed before the downstream SaSa stages; frozen describes this decision boundary rather than model training. For a control-positive result, an available full-expression-conditioned SaSaSa2VA track replaces the SAM3.1 mask without cross-backend score comparison. Only outputs that remain empty enter a separate GPT-assisted path for query adjudication, SaSaSa2VA regeneration, and mask arbitration. Recovery can fill an empty output but cannot modify a nonempty prediction. Motion-Aware Reasoning from Speech to Mask Tracks 5∿ ∿ ∿ 
+
+> Spoken query
+> Speech input
+> ASR + Qwen3
+> Transcript → motion program
+> SAM3.1 candidates
+> Multi-instance tracks
+> Motion-aware TRACE
+> Track ranking + fallbacks
+> Frozen presence gate
+> Positive or provisional empty
+> Control-positive replacement
+> SaSa full-refer track SAM fallback if unavailable
+> GPT-assisted empty recovery
+> Refer check → SaSa regeneration Empty-only mask arbitration
+> Final prediction
+> mask track(s) or empty
+> PROVISIONAL EMPTY
+> CONTROL POSITIVE
+
+Fig. 2: Overview of Speech2MaskTrack . A spoken motion query is transcribed and compiled into a structured motion program. SAM3.1 produces multi-instance tracks, which TRACE ranks using complete-trajectory evidence before a frozen lexical presence gate. For a control-positive result, an available full-expression-conditioned SaSaSa2VA track replaces the SAM3.1 mask; if that track is unavailable, the ranked SAM3.1 prediction is retained. Control-absent outputs bypass replacement. Any output that remains empty then enters GPT-assisted query adjudication, SaSaSa2VA regeneration, and mask arbitration. Recovery never overwrites a nonempty prediction. 
+
+3.2 Speech Transcription and Structured Query 
+
+We first transcribe each spoken motion query  A with the faster-whisper im-plementation of Whisper large-v3 [18]. The raw transcript, word-level timing, and confidence evidence are retained so that later interpretation cannot silently overwrite the original query. A frozen Qwen3 instruction model [21] then compiles the transcript  qasr  into a structured motion program 
+
+z = fparse (qasr ), (3) where  z contains a target category and count, segmentation prompts, reference entities, spatial constraints, and a sequence of motion atoms. Each motion atom records an action, direction, interaction reference, temporal phase, and role of the target. Separating the target from reference entities prevents an interacting object from being accidentally returned as the final mask. The compiler records candidate ASR repairs and unresolved ambiguities, but does not treat an uncertain repair as verified fact. This representation therefore limits semantic error propagation without assuming that ASR errors are fully corrected. 
+
+3.3 Candidate Generation and Propagation 
+
+The structured program is converted into separate target and reference prompts for SAM3.1 [1]. A candidate track is a complete sequence  ck = {mk,t }Tt=1 , where an empty mask is used when object  k is not visible in frame  t. For each prompt, SAM3.1 grounds one or more seed objects and propagates their object states across the video, producing identity-consistent mask tracks. We retain each track independently together with its per-frame mask, bounding box, centroid, area, visibility, generator confidence, and prompt role. These tracks form the candidate pool used to construct the ranked SAM3.1 base prediction. 6 J. Zhou et al. 
+
+3.4 Motion-Aware Candidate Ranking and Base Prediction 
+
+Camera-compensated trajectory features. Motion expressions are evaluated on complete trajectories rather than isolated frames. Global camera motion is estimated between neighboring frames with sparse optical flow and robust affine fitting; phase correlation is used when the affine estimate is unavailable. Let 
+
+pt ∈ R2 be the observed centroid of a candidate track in frame  t. Applying the estimated global camera transform between frames  t and  t+1  to  pt gives  bpcam  
+
+> t+1
+
+, the position predicted under camera motion alone. We define the camera-compensated residual as 
+
+∆p res  
+
+> t
+
+= pt+1 − bpcam  
+
+> t+1
+
+. (4) The residual  ∆p res  
+
+> t
+
+isolates candidate motion that cannot be explained by global camera movement. Its direction and magnitude therefore describe how the object itself moves. Over the complete track, we summarize the residual sequence into candidate-level descriptors of motion direction, strength, trajectory change, and early/middle/late activity. These descriptors connect the structured motion program  z to each candidate track  c: for example, a rightward query is matched against horizontal residual motion, while a late action is matched against the late-phase motion summary. Together with visibility, area and shape variation, target–reference geometry, and actor/patient role compatibility, these descriptors form the candidate evidence used by the two scoring branches described next. 
+
+TRACE ranking and base prediction. We then introduce Trajectory Ranking with Action-Conditioned Evidence (TRACE) , a compact learned scoring function that maps each query-conditioned candidate feature vector to a scalar score. TRACE is learned from candidate-level overlap supervision with video-grouped training. For a SAM3.1 candidate track  c and the structured motion program  z, let  STRACE (c | z) denote the learned compatibility score. We also aggregate the interpretable motion, direction, temporal-phase, spatial, relation, role, visibility, and segmentation-confidence evidence into an expert compatibility score  Sexpert (c | z). The camera-compensated descriptors above are included in the query-conditioned TRACE input and also instantiate the motion, direction, and temporal-phase components of the expert score. The two branches are combined as 
+
+S(c | z) = λS TRACE (c | z) + (1 − λ)Sexpert (c | z). (5) where  λ ∈ [0 , 1]  is the fixed coefficient that balances the learned ranker and expert evidence. A larger  S(c | z) indicates that candidate  c is more compatible with the referred motion program. Candidates are ranked in descending order of this score, and a count-aware rule may retain multiple nonduplicate tracks for plural queries. 
+
+Frozen lexical presence gate. After candidate ranking, a frozen lexical presence gate decides whether the ranked SAM3.1 base prediction should be emitted. The gate maps lexical evidence in the compiled query to a presence score. A score Motion-Aware Reasoning from Speech to Mask Tracks 7
+
+below the fixed threshold converts the result into a provisional empty output, denoted control-absent ; a score at or above the threshold retains the selected track and ranked fallbacks as control-positive . The gate therefore suppresses plausible-looking masks for likely no-target queries. A control-absent result bypasses the main SaSa replacement, but the later GPT-assisted recovery path may reconsider its provisional empty output. 
+
+3.5 Control-Positive Replacement and Empty-Prediction Recovery 
+
+Control-positive replacement. SaSaSa2VA [17], abbreviated as SaSa, jointly processes the complete referring expression and temporally sampled video frames to decode one or more dense mask tracks. This branch runs only after SAM3.1 ranking and the frozen lexical presence gate. When the gate is control-positive and both the ranked SAM3.1 base prediction and expression-conditioned SaSa track are nonempty, the SaSa track directly replaces the SAM3.1 mask. TRACE does not compare scores across the two backends, and their masks are not averaged. If SaSa produces no usable track, the highest-ranked SAM3.1 track is retained. A control-absent decision remains empty even if SaSa has produced a mask. 
+
+GPT query adjudication and SaSa regeneration. Only outputs that remain empty after presence gating and replacement enter recovery. Here, GPT is first used as a query adjudicator rather than a mask generator. It receives the ASR transcript and a chronological raw-video storyboard, repairs an ASR interpretation only when supported by visual evidence, and returns a normalized query, target-presence decision, constraint match, answer entity, evidence frames, and confidence. SaSa is invoked a second time to generate a recovery track only when GPT predicts 
+
+present , reports a full constraint match, provides a nonempty answer entity, and reaches the fixed confidence threshold. 
+
+GPT mask arbitration. GPT is used again after SaSa regeneration, now as a mask arbiter. It compares the unmodified storyboard with a second storyboard containing the candidate mask overlay, and checks referent identity, class, count, attributes, action, actor/patient role, relation, temporal evidence, and mask geometry. GPT never produces mask pixels in either role. The recovery track is accepted only when the arbiter verifies its identity and semantic constraints above the fixed confidence threshold. Failure, insufficient evidence, or disagreement preserves the empty prediction. Let  Pi, Si, and  Ri denote the gated SAM3.1 base prediction, the main-branch SaSa replacement, and the recovery candidate for expression  i, respectively. The final decision is 
+
+Bi =
+
+(
+
+Si, Pi̸ = ∅ ∧ Si̸ = ∅,Pi, otherwise , Mi =
+
+(
+
+Ri, Bi = ∅ ∧ accept( Ri),Bi, otherwise . (6) Here,  accept( Ri) denotes successful GPT mask arbitration. Thus, recovery can fill an empty prediction but can never overwrite a nonempty mask track. This asymmetry balances target recall against no-target suppression. 8 J. Zhou et al. 
+
+## 4 Experiments 
+
+4.1 Implementation Details 
+
+We use faster-whisper large-v3 [18] with English decoding, beam size 5, tempera-ture 0, word timestamps, and no cross-segment text conditioning. The structured query compiler uses Qwen3-30B-A3B-Instruct [21] with deterministic decoding. SAM3.1 [1] retains up to 16 objects per prompt at a proposal threshold of 0.25. SaSaSa2VA [17] uses the fixed 4B checkpoint and 100 uniformly distributed temporal samples in both control-positive replacement and empty-prediction recovery. TRACE ensembles five video-grouped models with a learned-score weight of 0.65. The frozen lexical presence threshold is 0.5, and recovery uses chronological 16-tile storyboards. We use gpt-5.6-terra with low reasoning effort for query adjudication and gpt-5.6-sol with medium reasoning effort for mask arbitration; both recovery gates use a minimum confidence of 0.85. No test annotation or reference mask is accessed during inference or selection. 
+
+4.2 Official Leaderboard 
+
+Table 1 follows the official organizer notification. Entries that appeared on the live Codabench page but were not part of the official final ranking are omitted. The StopTheRoll entry, implemented with Speech2MaskTrack , ranked second in the official final ranking.                             
+
+> Table 1: Official final ranking on the MeViS-Audio test set, as confirmed by the challenge organizers. Higher is better for all metrics. Rank Team J&FJFN-acc ./T-acc .Final 1zzjrr 0.5952 0.5698 0.6205 0.7931 / 0.9205 0.7696 2StopTheRoll 0.5374 0.5123 0.5626 0.7241 / 0.8554 0.7057 3rrrrty 0.4587 0.4271 0.4903 0.6552 / 0.9518 0.6886
+
+Speech2MaskTrack achieves a final score of  0.705662  and a  J &F score of 
+
+0.5374 . Relative to the third-ranked entry, Speech2MaskTrack improves  J &F
+
+by  0.0787  and  N-acc . by  0.0689 , while its  T-acc . is  0.0964  lower. The nonuniform metric profile is informative: Speech2MaskTrack combines stronger mask quality and no-target handling than the third-ranked entry, but target-present accuracy remains a clear source of error. The  0.0578  J &F gap to the first-ranked method also leaves room to improve both region overlap and boundary quality. 
+
+4.3 Qualitative Results 
+
+Figure 3 presents four complementary cases from the valid_u split, chosen to span distinct grounding challenges. In (a), Speech2MaskTrack follows the rabbit that performs a brief late leap over the other rabbit, maintaining Motion-Aware Reasoning from Speech to Mask Tracks 9   
+
+> Fig. 3: Qualitative results on the MeViS-Audio validation set. Teal fills and dark-teal contours denote our predictions, while yellow contours denote validation ground truth. The cases cover (a) a temporally sparse action relation, (b) passive-role disambiguation between same-category instances, (c) temporal-order grounding under partial occlusion, and (d) relative-attribute tracking through close interaction. The normalized timestamp tlocates each frame in the complete video.
+
+identity before, during, and after the interaction  (J &F = 0 .9561) . Case (b) requires selecting the patient of an event rather than its most visibly active participant: the prediction consistently follows the horse receiving the tail strike and obtains both region and contour scores above  0.96 . These examples support the use of temporally localized relation and role evidence beyond static category matching, although they do not establish robustness to every action or syntactic construction. Case (c) exposes both a success and a residual failure mode. The target is the cow that steps forward first, but it is heavily occluded early in the clip. The displayed-frame overlap rises from  0.7908  in the early frame to above  0.92 
+
+thereafter, while the sequence-level scores are  J = 0 .8843  and  F = 0 .9833 .Thus, the track preserves identity as the cow emerges, but early occlusion still reduces region overlap. In (d), Speech2MaskTrack follows the darker dog while two dogs overlap and exchange relative position  (J &F = 0 .9453) , illustrating 10 J. Zhou et al. 
+
+attribute-aware identity continuity during interaction. Taken together, these examples illustrate that Speech2MaskTrack can handle temporally sparse actions, role ambiguity among same-category instances, temporal-order grounding under partial occlusion, and attribute-guided identity tracking during close interactions. They characterize representative behavior but do not isolate the contribution of any individual pipeline stage. 
+
+## 5 Limitations 
+
+The multi-stage design of Speech2MaskTrack remains vulnerable to error propagation. Incorrect ASR or structured-query parsing can misdirect every downstream module, and TRACE cannot recover an object that is absent from the SAM3.1 candidate pool. The frozen lexical presence gate may also be brittle to unusual paraphrases or ASR corruption. Although GPT-assisted recovery can reconsider an empty prediction, its 16-frame storyboard may miss a brief discriminative event, and the non-destructive policy cannot repair an incorrect but nonempty track. The cow example in Figure 3 further shows that severe early occlusion can reduce region overlap even when later identity and boundary tracking are accurate. Speech2MaskTrack also requires several large models and multiple passes over each video, increasing inference latency and implemen-tation complexity. Moreover, component-level ablations are unavailable for the final configuration, so the individual gains from TRACE, SaSa replacement, and GPT-assisted recovery remain unquantified. 
+
+## 6 Conclusion 
+
+We presented Speech2MaskTrack , a candidate-first framework for speech-guided referring video object segmentation and the runner-up approach in the MeViS-Audio track of the 8th LSVOS Challenge. Speech2MaskTrack con-verts speech into structured semantic and temporal constraints, ranks SAM3.1 trajectories with camera-compensated motion and relation evidence, replaces control-positive masks with full-expression-conditioned SaSaSa2VA tracks, and invokes GPT-verified SaSaSa2VA regeneration only for outputs that remain empty. The resulting entry achieved an official final score of  0.705662 . Qualitative cases illustrate late-event grounding, passive-role disambiguation, temporal-order reasoning, and attribute-aware identity preservation, while also exposing sensitiv-ity to early occlusion. These results suggest that delayed commitment is useful for this task: query interpretation, trajectory ranking, presence gating, mask replacement, and conservative recovery remain separate until the final decision. Future work should retain this non-destructive structure while reducing staged inference and improving robustness to noisy speech and missing candidates. 
+
+## References 
+
+> 1. Carion, N., Gustafson, L., Hu, Y.T., Debnath, S., Hu, R., Surís, D., Ryali, C.K., Alwala, K.V., Khedr, H., Huang, A., Lei, J., Ma, T., Guo, B., Kalla, A., Marks,
+
+Motion-Aware Reasoning from Speech to Mask Tracks 11 M., Greer, J., Wang, M., Sun, P., Radle, R., Afouras, T., Mavroudi, E., Xu, K., Wu, T.H., Zhou, Y., Momeni, L., Hazra, R., Ding, S., Vaze, S., Porcher, F., Li, F., Li, S., Kamath, A., Cheng, H.K., Doll’ar, P., Ravi, N., Saenko, K., Zhang, P., Feichtenhofer, C.: Sam 3: Segment anything with concepts. arXiv preprint arXiv:2511.16719 (2025) 2. Ding, H., Hong, L., Liu, C., Xu, N., Yang, L., Fan, Y., et al.: Lsvos challenge report: Large-scale complex and long video object segmentation. arXiv preprint arXiv:2409.05847 (2024) 3. Ding, H., Liu, C., He, S., Jiang, X., Loy, C.C.: Mevis: A large-scale benchmark for video segmentation with motion expressions. In: ICCV. pp. 2694–2703 (2023) 4. Ding, H., Liu, C., He, S., Jiang, X., Torr, P.H., Bai, S.: MOSE: A new dataset for video object segmentation in complex scenes. In: ICCV (2023) 5. Ding, H., Liu, C., He, S., Ying, K., Jiang, X., Loy, C.C., Jiang, Y.G.: MeViS: A multi-modal dataset for referring motion expression video segmentation. IEEE Transactions on Pattern Analysis and Machine Intelligence (TPAMI) 47 (12), 11400– 11416 (2025) 6. Ding, H., Tang, S., He, S., Liu, C., Wu, Z., Jiang, Y.G.: Multimodal referring segmentation: A survey. International Journal of Computer Vision (IJCV) (2026) 7. Ding, H., Ying, K., Liu, C., He, S., Jiang, X., Jiang, Y.G., Torr, P.H., Bai, S.: MOSEv2: A more challenging dataset for video object segmentation in complex scenes. arXiv preprint arXiv:2508.05630 (2025) 8. Guo, R., Ying, X., Chen, Y., Niu, D., Li, G., Qu, L., Qi, Y., Zhou, J., Xing, B., Yue, W., et al.: Audio-visual instance segmentation. In: CVPR. pp. 13550–13560 (2025) 9. Han, C., Li, Z., Zhou, J., Qian, W., Hu, J., Zhou, Y., Duan, Z., Guo, D.: Face-guided sentiment boundary enhancement for weakly-supervised temporal sentiment localization. arXiv preprint arXiv:2603.14750 (2026) 10. Jin, D., Zhou, Y., Zhou, J., Ma, J., Guo, R., Guo, D.: Simtoken: A simple baseline for referring audio-visual segmentation. In: ICASSP. pp. 22702–22706. IEEE (2026) 11. Large-scale Video Object Segmentation Workshop: The 8th LSVOS challenge tracks and submission (2026), https://lsvos.github.io/ 
+
+12. Li, H., Zhou, Y., Huang, H., Chen, L., Cheng, Y., Liu, X., Jin, D., Xu, J., Liao, J., Lan, T., et al.: Mtavg-bench 2.0: Diagnosing failure modes of cinematic expres-siveness in multi-talker audio-video generation. arXiv preprint arXiv:2605.28035 (2026) 13. Li, Z., Guo, D., Zhou, J., Zhang, J., Wang, M.: Object-aware adaptive-positivity learning for audio-visual question answering. In: AAAI. pp. 3306–3314 (2024) 14. Li, Z., Zhou, J., Zhang, J., Tang, S., Li, K., Guo, D.: Patch-level sounding object tracking for audio-visual question answering. In: AAAI. pp. 5075–5083 (2025) 15. Liu, C., Ding, H., Ying, K., Hong, L., Xu, N., Yang, L., Fan, Y., et al.: LSVOS 2025 challenge report: Recent advances in complex video object segmentation. arXiv preprint arXiv:2510.11063 (2025) 16. Mao, Y., Shen, X., Zhang, J., Qin, Z., Zhou, J., Xiang, M., Zhong, Y., Dai, Y.: Tavgbench: Benchmarking text to audible-video generation. In: ACM MM. pp. 6607–6616 (2024) 17. Niu, Q., Gong, D., Chen, S., Zhang, T., Zhou, Y., Yuan, H., Qi, L., Li, X., Ji, S.: The 1st solution for 7th LSVOS RVOS track: SaSaSa2VA. arXiv preprint arXiv:2509.16972 (2025) 18. Radford, A., Kim, J.W., Xu, T., Brockman, G., McLeavey, C., Sutskever, I.: Robust speech recognition via large-scale weak supervision. In: ICML. pp. 28492–28518. PMLR (2023) 12 J. Zhou et al. 19. Shen, X., Li, D., Zhou, J., Qin, Z., He, B., Han, X., Li, A., Dai, Y., Kong, L., Wang, M., et al.: Fine-grained audible video description. In: CVPR. pp. 10585–10596 (2023) 20. Xu, N., Yang, L., Fan, Y., Yue, D., Liang, Y., Yang, J., Huang, T.: Youtube-vos: A large-scale video object segmentation benchmark. arXiv preprint arXiv:1809.03327 (2018) 21. Yang, A., et al.: Qwen3 technical report. arXiv preprint arXiv:2505.09388 (2025) 22. Zhao, P., Zhou, J., Zhao, Y., Guo, D., Chen, Y.: Multimodal class-aware semantic enhancement network for audio-visual video parsing. In: AAAI. pp. 10448–10456 (2025) 23. Zhou, J., Guo, D., Guo, R., Mao, Y., Hu, J., Zhong, Y., Chang, X., Wang, M.: Towards open-vocabulary audio-visual event localization. In: CVPR. pp. 8362–8371 (2025) 24. Zhou, J., Guo, D., Mao, Y., Zhong, Y., Chang, X., Wang, M.: Label-anticipated event disentanglement for audio-visual video parsing. In: ECCV. pp. 35–51 (2024) 25. Zhou, J., Guo, D., Wang, M.: Contrastive positive sample propagation along the audio-visual event line. IEEE TPAMI pp. 7239–7257 (2022) 26. Zhou, J., Guo, D., Zhong, Y., Wang, M.: Advancing weakly-supervised audio-visual video parsing via segment-wise pseudo labeling. International Journal of Computer Vision pp. 5308–5329 (2024) 27. Zhou, J., Li, Z., Yu, Y., Zhou, Y., Guo, R., Li, G., Mao, Y., Han, M., Chang, X., Wang, M.: Mettle: Meta-token learning for memory-efficient audio-visual adaptation. arXiv preprint arXiv:2506.23271 (2025) 28. Zhou, J., Shen, X., Wang, J., Zhang, J., Sun, W., Zhang, J., Birchfield, S., Guo, D., Kong, L., Wang, M., et al.: Audio-visual segmentation with semantics. arXiv preprint arXiv:2301.13190 (2023) 29. Zhou, J., Wang, J., Zhang, J., Sun, W., Zhang, J., Birchfield, S., Guo, D., Kong, L., Wang, M., Zhong, Y.: Audio–visual segmentation. In: ECCV. pp. 386–403 (2022) 30. Zhou, J., Zheng, L., Zhong, Y., Hao, S., Wang, M.: Positive sample propagation along the audio-visual event line. In: CVPR. pp. 8436–8444 (2021) 31. Zhou, J., Zhou, Y., Han, M., Wang, T., Chang, X., Cholakkal, H., Anwer, R.M.: Think before you segment: An object-aware reasoning agent for referring audio-visual segmentation. arXiv preprint arXiv:2508.04418 (2025) 32. Zhou, J., Zhou, Y., Wang, Y., Han, Z., Ma, J., Ding, H., Anwer, R.M., Cholakkal, H.: Audit after segmentation: Reference-free mask quality assessment for language-referred audio-visual segmentation. arXiv preprint arXiv:2602.03892 (2026) 33. Zhou, J., Zhou, Z., Zhou, Y., Mao, Y., Duan, Z., Guo, D.: Clasp: Cross-modal salient anchor-based semantic propagation for weakly-supervised dense audio-visual event localization. arXiv preprint arXiv:2508.04566 (2025) 34. Zhou, Y.H., Li, H., Lin, R., Huang, H., Zhou, J., Yuan, C., Lan, T., Zhou, Z., Li, Y., Xu, J., et al.: Mtavg-bench: A comprehensive benchmark for evaluating multi-talker dialogue-centric audio-video generation. arXiv preprint arXiv:2602.00607 (2026) 35. Zhou, Z., Zhou, J., Qian, W., Tang, S., Chang, X., Guo, D.: Dense audio-visual event localization under cross-modal consistency and multi-temporal granularity collaboration. In: AAAI. pp. 10905–10913 (2025)
