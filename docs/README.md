@@ -7,46 +7,40 @@
 
 ## 每次日报
 - 最新运行日期：2026-08-29
-- 运行时间：2026-08-29 03:19:31 UTC
+- 运行时间：2026-08-29 22:04:09 UTC
 - 运行状态：成功
-- 本次总论文数：8
-- 精读区：1
-- 速读区：7
+- 本次总论文数：6
+- 精读区：3
+- 速读区：3
 
 ### 今日简报（AI）
-- 今日共生成 8 篇推荐（精读 1 篇，速读 7 篇）
-- 精读：《Fine-Tuning Whisper for Automatic Speech Recognition in Baniwa: A Preliminary Study》（9.0/10）
-- 速读：《CSAVocoder: A Causal Spatial Audio Vocoder Towards Real-Time Spatial Audio Generation》（7.0/10）, 《InteractGesture: Progressive Chunk Guidance for Continuous Streaming Co-Speech Gesture Control》（7.0/10）, 《Dual-Scale State-Space Modeling with Speaker-Wise Dynamic CRF for Speech Emotion Recognition in Conversation》（6.0/10）
+- 今日共生成 6 篇推荐（精读 3 篇，速读 3 篇）
+- 精读：《Adaptive Hierarchical Representation Alliance for Multimodal Learning》（9.0/10）, 《Fine-Tuning Whisper for Automatic Speech Recognition in Baniwa: A Preliminary Study》（9.0/10）
+- 速读：《CoSTALA: Compositional Spatio-Temporal Audio-Language Alignment via Multi-Grain Hierarchical Contrastive Learning》（7.0/10）, 《REDnet: Recursive Encoder and Decoder for Speech Separation under Unknown Number of Speakers and Variable Number of Microphones》（6.0/10）, 《Generative vs. Encoder Large Language Models for ASR Evaluation: A Comparative Study》（6.0/10）
 - 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
 - 详情：[/202608/29/README](/202608/29/README)
 
 ### 精读区论文标签
-1. [Fine-Tuning Whisper for Automatic Speech Recognition in Baniwa: A Preliminary Study](/202608/29/2608.26060v1-fine-tuning-whisper-for-automatic-speech-recognition-in-baniwa-a-preliminary-study)  
+1. [Adaptive Hierarchical Representation Alliance for Multimodal Learning](/202608/29/2608.22863v2-adaptive-hierarchical-representation-alliance-for-multimodal-learning)  
    标签：评分：9.0/10、query:speech-model
-   evidence：为低资源土著语言微调Whisper提升识别准确率
+   evidence：层级共享-私有专家框架对齐语言、视觉和音频
+2. [Fine-Tuning Whisper for Automatic Speech Recognition in Baniwa: A Preliminary Study](/202608/29/2608.26060v1-fine-tuning-whisper-for-automatic-speech-recognition-in-baniwa-a-preliminary-study)  
+   标签：评分：9.0/10、query:speech-model
+   evidence：微调Whisper用于低资源语言ASR直接提升识别准确率
+3. [CSAVocoder: A Causal Spatial Audio Vocoder Towards Real-Time Spatial Audio Generation](/202608/29/2608.25404v1-csavocoder-a-causal-spatial-audio-vocoder-towards-real-time-spatial-audio-generation)  
+   标签：评分：8.0/10、query:speech-model
+   evidence：因果GAN空间音频声码器，支持流式推理用于实时生成
 
 ### 速读区论文标签
-1. [CSAVocoder: A Causal Spatial Audio Vocoder Towards Real-Time Spatial Audio Generation](/202608/29/2608.25404v1-csavocoder-a-causal-spatial-audio-vocoder-towards-real-time-spatial-audio-generation)  
+1. [CoSTALA: Compositional Spatio-Temporal Audio-Language Alignment via Multi-Grain Hierarchical Contrastive Learning](/202608/29/2608.24374v1-costala-compositional-spatio-temporal-audio-language-alignment-via-multi-grain-hierarchical-contrastive-learning)  
    标签：评分：7.0/10、query:speech-model
-   evidence：面向实时流式合成的因果GAN空间音频声码器
-2. [InteractGesture: Progressive Chunk Guidance for Continuous Streaming Co-Speech Gesture Control](/202608/29/2608.25734v1-interactgesture-progressive-chunk-guidance-for-continuous-streaming-co-speech-gesture-control)  
-   标签：评分：7.0/10、query:speech-model
-   evidence：从音频控制共语音手势生成
-3. [Dual-Scale State-Space Modeling with Speaker-Wise Dynamic CRF for Speech Emotion Recognition in Conversation](/202608/29/2608.22399v1-dual-scale-state-space-modeling-with-speaker-wise-dynamic-crf-for-speech-emotion-recognition-in-conversation)  
+   evidence：多粒度层次对比学习用于音频-语言对齐
+2. [REDnet: Recursive Encoder and Decoder for Speech Separation under Unknown Number of Speakers and Variable Number of Microphones](/202608/29/2608.24659v1-rednet-recursive-encoder-and-decoder-for-speech-separation-under-unknown-number-of-speakers-and-variable-number-of-microphones)  
    标签：评分：6.0/10、query:speech-model
-   evidence：状态空间建模与动态CRF用于对话语音情感识别
-4. [CoSTALA: Compositional Spatio-Temporal Audio-Language Alignment via Multi-Grain Hierarchical Contrastive Learning](/202608/29/2608.24374v1-costala-compositional-spatio-temporal-audio-language-alignment-via-multi-grain-hierarchical-contrastive-learning)  
+   evidence：递归编解码器语音分离方法，可作为多说话人场景下ASR的前端
+3. [Generative vs. Encoder Large Language Models for ASR Evaluation: A Comparative Study](/202608/29/2608.25574v1-generative-vs-encoder-large-language-models-for-asr-evaluation-a-comparative-study)  
    标签：评分：6.0/10、query:speech-model
-   evidence：多粒度分层对比学习用于音频-语言对齐
-5. [REDnet: Recursive Encoder and Decoder for Speech Separation under Unknown Number of Speakers and Variable Number of Microphones](/202608/29/2608.24659v1-rednet-recursive-encoder-and-decoder-for-speech-separation-under-unknown-number-of-speakers-and-variable-number-of-microphones)  
-   标签：评分：6.0/10、query:speech-model
-   evidence：递归编解码器用于语音分离，有利于多说话人ASR
-6. [AudioLens: Multi-Perspective Speech Clustering with Reasoning Audio-Language Models](/202608/29/2608.25177v1-audiolens-multi-perspective-speech-clustering-with-reasoning-audio-language-models)  
-   标签：评分：6.0/10、query:speech-model
-   evidence：利用推理音频语言模型进行多视角语音聚类
-7. [Soft Active Electromyography Interface for Machine Learning-Enabled Silent Speech Recognition](/202608/29/2608.27048v1-soft-active-electromyography-interface-for-machine-learning-enabled-silent-speech-recognition)  
-   标签：评分：6.0/10、query:speech-model
-   evidence：可穿戴肌电接口实现词级无声语音识别，作为语音识别替代途径
+   evidence：比较编码器与解码器大模型用于ASR评估指标
 
 
 <div class="dpr-home-promo-card">

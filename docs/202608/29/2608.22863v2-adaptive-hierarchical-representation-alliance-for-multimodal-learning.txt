@@ -1,0 +1,882 @@
+Title: Adaptive Hierarchical Representation Alliance for Multimodal Learning
+
+URL Source: https://arxiv.org/pdf/2608.22863v2
+
+Published Time: Fri, 28 Aug 2026 00:29:53 GMT
+
+Number of Pages: 17
+
+Markdown Content:
+# Adaptive Hierarchical Representation Alliance for Multimodal Learning 
+
+Chunlei Meng 1, Pengbin Feng 2, Jacqueline J. Pang 3
+
+Chih-Ting Liao 4, Rong Fu 5, Zhaolu Kang 6, Zhongxue Gan 1, Chun Ouyang* 1
+
+> 1
+
+College of Intelligent Robotics and Advanced Manufacturing, Fudan University 
+
+> 2
+
+University of Southern California, 3Cornell University 
+
+> 4
+
+University of New South Wales, 5Independent Researcher, 6Peking University  
+
+> *Correspondence: oy_c@fudan.edu.cn. clmeng23@m.fudan.edu.cn
+> This study has been accepted by EMNLP 2026 (Findings)
+
+Abstract 
+
+Multimodal models often align language, vi-sion, and audio in a single final-layer latent space, implicitly assuming that task-relevant evidence emerges at the same semantic depth across modalities. Using layer-wise CKA anal-ysis, we observe that this assumption leads to semantic granularity mismatch: textual cues usually require deeper contextual abstraction, whereas visual and acoustic cues often provide discriminative perceptual evidence in shallow or middle layers. This mismatch can flatten fine-grained modality-private cues and reduce reliability under noisy, imbalanced, or missing inputs. To address this, we proposed Adaptive Hierarchical Representation Alliance (AHRA), a hierarchical shared–private expert framework. AHRA factorizes each modality into shared and private streams across semantic levels, reg-ularizes them with shared alignment and pri-vate decorrelation, routes shared information through a cross-modal expert, and enhances task-relevant private tokens with modality-specific experts guided by a sparsity-controlled soft-gating mechanism (foreground exam). A hierarchical co-fusion module then performs intra-level expert coordination and inter-level semantic selection. Experiments on six bench-marks across image-text classification, multi-modal intent recognition, and trimodal senti-ment analysis show that AHRA consistently improves over strong baselines and remains ro-bust under noisy and missing-modality settings. 
+
+1 Introduction 
+
+Multimodal Learning (MML) integrates heteroge-neous signals such as language, vision, and au-dio into unified representations for tasks including sentiment analysis, intent recognition, and multi-modal classification (Meng et al., 2026d,f). The central challenge is modality heterogeneity: differ-ent signals vary in temporal scale, statistical distri-bution, and abstraction level (Fang et al., 2025; Li et al., 2026; Meng et al., 2026c). Existing 
+
+Figure 1: Layer-wise CKA similarity with labels. Text peaks in deep layers, while vision and audio peak in shallow or middle layers, revealing Semantic Granular-ity Mismatch (SGM) and motivating hierarchical fusion. 
+
+methods mainly address this challenge through two directions. Representation disentanglement separates modality-invariant and modality-specific factors (Hazarika et al., 2020; Wang et al., 2025; Meng et al., 2026b,e; Yang et al., 2023; Meng et al., 2025), while dynamic or robust fusion calibrates modality contributions under noise, imbalance, or missing inputs (Zhang et al., 2024, 2023; Gao et al., 2024; Wu et al., 2025; Li et al., 2026; Kim and Kim, 2024; Meng et al., 2026a). Although effec-tive, most methods still perform alignment, cali-bration, and prediction in a single terminal latent space. This flat protocol implicitly assumes that task-relevant evidence from all modalities emerges at the same semantic depth. We argue that this assumption overlooks Seman-tic Granularity Mismatch (SGM) . Language is symbolic and compositional, so its discriminative semantics often require deep contextual abstraction. In contrast, visual and acoustic signals are percep-tual: cues such as facial movements, objects, tone, or prosody may already be informative in shallow or middle layers. To examine this divergence, we conduct a layer-wise semantic analysis using Cen-tered Kernel Alignment (CKA) (Kornblith et al., 2019) between hidden representations and task la-arXiv:2608.22863v2 [cs.MM] 27 Aug 2026 bels: 
+
+CKA( K, L ) = HSIC( K, L )
+
+pHSIC( K, K )HSIC( L, L ) ,
+
+(1) where K and L denote kernel matrices constructed from layer-wise representations and labels, respec-tively, and HSIC denotes the Hilbert–Schmidt In-dependence Criterion. As shown in Fig. 1, text reaches its strongest label correlation in deep layers, whereas vision and audio peak earlier. Final-layer alignment can force low-granularity perceptual evi-dence into an overly abstract space, causing useful modality-private details to be diluted. SGM leads to two practical failures. First, fea-ture flattening suppresses fine-grained perceptual cues as background variation when they are pro-jected into deep semantic spaces. Second, infer-ence rigidity makes the model less able to rely on trustworthy unimodal evidence when modali-ties conflict, are corrupted, or are partially miss-ing. These failures suggest that multimodal fusion should not only align modalities globally, but pre-serve and select evidence across different semantic levels. To address this problem, we propose Adaptive Hierarchical Representation Alliance (AHRA) .As illustrated in Fig. 2, AHRA extracts multi-level features from each modality and factorizes them into shared and private streams at every se-mantic level. The shared streams capture cross-modal agreement, while the private streams re-tain modality-specific cues that may be lost under single-space fusion. This decomposition is reg-ularized by shared alignment and private decor-relation, preventing the model from collapsing back into a single latent space. On top of these streams, an Adaptive Expert Alliance (AEA) ap-plies a cross-modal expert to shared representa-tions and modality-specific experts to private repre-sentations, with a sparsity-regularized foreground exam softly emphasizing task-relevant private to-kens. A Hierarchical Multi-Expert Co-Fusion mod-ule (HMEC) then performs intra-level expert coor-dination and inter-level semantic selection to pro-duce the final multimodal representation. More related works see Appendix A. Our contributions are as follows: • We identify Semantic Granularity Mis-match (SGM) as a structural limitation of single-space multimodal fusion, and provide layer-wise CKA evidence showing that lan-guage, vision, and audio reach peak label cor-relation at different semantic depths. • We propose Adaptive Hierarchical Rep-resentation Alliance (AHRA) , a hierarchi-cal shared-private expert framework that pre-serves modality-private cues across multi-ple semantic levels while maintaining cross-modal agreement. • We design Adaptive Expert Alliance (AEA) 
+
+and Hierarchical Multi-Expert Co-Fusion (HMEC) to perform adaptive private-token enhancement, intra-level expert coordination, and inter-level semantic selection, leading to strong performance on six multimodal bench-marks across image-text classification, multi-modal intent recognition, and trimodal senti-ment analysis, including noisy and missing-modality settings. 
+
+2 Methodology 
+
+2.1 Model Overview 
+
+We consider supervised multimodal learning over a set of dataset-level modalities M ⊆ { L, V, A },where L, V , and A denote language, vision, and audio. For trimodal datasets, M = {L, V, A };for image–text datasets, M = {L, V }. Let 
+
+(m1, . . . , m |M| ) be a fixed modality ordering and define 
+
+P = {(ma, m b) : 1 ≤ a < b ≤ |M|} . (2) Here M refers to dataset-level modalities; sample-level missing or imbalanced modalities are evalu-ated in the robustness experiments. Adaptive Hierarchical Representation Alliance (AHRA) addresses semantic granularity mismatch by combining multi-level shared–private factoriza-tion with adaptive expert routing. At each semantic level, AHRA projects each modality into a shared stream and a private stream. The shared streams are regularized for cross-modal coordinate compatibil-ity, while the private streams are regularized only through linear decorrelation rather than a hard inde-pendence constraint. An Adaptive Expert Alliance (AEA) routes shared streams to a cross-modal ex-pert and foreground-weighted private streams to modality-specific experts. A Hierarchical Multi-Expert Co-Fusion module (HMEC) then performs intra-level expert coordination and inter-level se-mantic aggregation. Figure 2: Overview of AHRA. The trimodal case is shown for illustration. For each modality m ∈ M and semantic level ℓ, AHRA factorizes encoder features into shared streams S(m) 
+
+> ℓ
+
+and private streams R(m) 
+
+> ℓ
+
+, routes them through a shared-space cross-modal expert and foreground-controlled modality-specific experts, and obtains zfinal via intra-level expert co-fusion and inter-level semantic aggregation. 
+
+2.2 Semantic Granularity Diagnostic 
+
+AHRA is motivated by semantic granularity mis-match: different modalities may reach their strongest task-dependent representations at differ-ent encoder depths. For diagnostic CKA, ℓ indexes evaluated encoder depths; for AHRA training, se-lected depths are grouped into L semantic levels, e.g., shallow, middle, and deep. For modality m,depth/level ℓ, and sample i, we define h(m) 
+
+> ℓ,i
+
+=Pool( H(m) 
+
+> ℓ,i
+
+), Dm,ℓ = Dep( {h(m) 
+
+> ℓ,i
+
+}ni=1 , {yi}ni=1 ),
+
+ℓ⋆m = arg max ℓ Dm,ℓ . In our diagnostic analysis, 
+
+Dep( ·, ·) is estimated by Centered Kernel Align-ment (CKA) between representation and label ker-nels. The semantic granularity mismatch score is 
+
+SGM = 1
+
+|P| 
+
+X
+
+> (m,m ′)∈P
+
+ℓ∗
+
+> m
+
+Lm
+
+− ℓ∗
+
+> m′
+
+Lm′
+
+. (3) The CKA analysis is used as an empirical diagnos-tic rather than a formal proof; it motivates retaining multiple semantic levels instead of relying only on final-layer fusion. 
+
+2.3 Multi-Level Shared–Private Factorization Semantic levels and projections. For each modality m ∈ M , a unimodal encoder extracts 
+
+L semantic levels, 
+
+{H(m) 
+
+> ℓ
+
+}Lℓ=1 = Enc m(x(m)), H(m) 
+
+> ℓ
+
+∈ RT (m) 
+
+> ℓ×d
+
+.
+
+(4) If raw backbone widths differ, the corresponding width-matching adapter is absorbed into Enc m(·),so all H(m) 
+
+> ℓ
+
+have the common width d. At level ℓ,AHRA applies a modality-agnostic shared projec-tor and modality-specific private projectors: 
+
+S(m) 
+
+> ℓ
+
+= H(m) 
+
+> ℓ
+
+Psh ,ℓ , R(m) 
+
+> ℓ
+
+= H(m) 
+
+> ℓ
+
+P (m)pr ,ℓ , (5) where Psh ,ℓ ∈ Rd×dsh and P (m)pr ,ℓ ∈ Rd×dpr . The shared stream captures cross-modal common fac-tors, while the private stream preserves modality-specific residual factors. These losses encourage separation but do not assume statistically identifi-able disentanglement. 
+
+Shared alignment. For each sample, we mean-pool the shared tokens and standardize each coor-dinate over the mini-batch: 
+
+s(m) 
+
+> ℓ,i
+
+= 1
+
+T (m) 
+
+> ℓT(m)
+> ℓ
+
+X
+
+> t=1
+
+S(m) 
+
+> ℓ,i
+
+[t, :] , ˆs(m) 
+
+> ℓ,i,j
+
+= s(m) 
+
+> ℓ,i,j
+
+− μ(m)
+
+> ℓ,j
+
+σ(m) 
+
+> ℓ,j
+
++ ϵ .
+
+(6) This is dimension-wise standardization and does not whiten the full covariance matrix. The empiri-cal cross-modal correlation matrix is 
+
+C(m,m ′)sh ,ℓ = 1
+
+B
+
+> B
+
+X
+
+> i=1
+
+ˆs(m) 
+
+> ℓ,i
+
+ˆs(m′)⊤ 
+
+> ℓ,i
+
+∈ Rdsh ×dsh . (7) AHRA uses the identity-shaped correlation loss 
+
+Lsh = 1
+
+L|P| 
+
+> L
+
+X
+
+> ℓ=1
+
+X
+
+> (m,m ′)∈P
+
+C(m,m ′)sh ,ℓ − I 2 
+
+> F
+
+. (8) The diagonal terms encourage coordinate-wise cross-modal agreement, and the off-diagonal terms reduce cross-coordinate redundancy. Since 
+
+C(m,m ′)sh ,ℓ is estimated from finite mini-batches, this loss is used as a stochastic correlation-shaping reg-ularizer rather than an exactly attainable hard con-straint in every batch. 
+
+Private linear decorrelation. Applying the same pooling and standardization to private streams gives ˆr(m) 
+
+> ℓ,i
+
+. The private regularizer contains intra-modality shared–private decorrelation and cross-modality private–private decorrelation:        
+
+> Lintra pr =1
+> L|M|
+> LX
+> ℓ=1
+> X
+> m∈M
+> 1
+> B
+> BX
+> i=1
+> ˆs(m)
+> ℓ,i ˆr(m)⊤
+> ℓ,i
+> 2
+> F
+> ,(9)
+> Lcross pr =1
+> L|P|
+> LX
+> ℓ=1
+> X
+> (m,m ′)∈P
+> 1
+> B
+> BX
+> i=1
+> ˆr(m)
+> ℓ,i ˆr(m′)⊤
+> ℓ,i
+> 2
+> F
+> .
+> (10)
+
+Then 
+
+Ldec = λsh Lsh + λpr 
+
+ Lintra pr + Lcross pr 
+
+ . (11) The private loss penalizes linear cross-correlation and reduces duplicated linear factors, but it is not claimed to guarantee full statistical independence. Private streams remain task-grounded through the downstream task loss and private experts. 
+
+2.4 Adaptive Expert Alliance 
+
+AEA separates cross-modal reasoning from modality-private enhancement. For each semantic level, it constructs one shared-space cross-modal expert and one private expert for each available modality. 
+
+Shared-space cross-modal expert. At level ℓ,shared tokens are concatenated and passed to a cross-modal expert: 
+
+Hsh ,ℓ = Esh ,ℓ 
+
+
+
+Concat m∈M S(m)
+
+> ℓ
+
+
+
+. (12) The expert is implemented as a lightweight atten-tion block, so cross-modal interactions are input-dependent but restricted to the shared subspace. 
+
+Private-space foreground exam. For modality 
+
+m at level ℓ, each private token receives a soft foreground score: 
+
+β(m) 
+
+> ℓ,i,t
+
+= σ
+
+
+
+(w(m) 
+
+> ℓ
+
+)⊤r(m) 
+
+> ℓ,i,t
+
++ b(m)
+
+> ℓ
+
+
+
+. (13) 
+
+R(m) 
+
+> ℓ, FG
+
+=
+
+n
+
+β(m) 
+
+> ℓ,i,t
+
+r(m)
+
+> ℓ,i,t
+
+oT (m) 
+
+> ℓ
+> t=1
+
+. (14) A modality-specific expert enhances the foreground-weighted private stream under same-level shared context: 
+
+c(m) 
+
+> ℓ
+
+= Ctx( S(m) 
+
+> ℓ
+
+), H (m)pr ,ℓ = E(m)pr ,ℓ 
+
+
+
+R(m)
+
+> ℓ, FG
+
+; c(m)
+
+> ℓ
+
+
+
+.
+
+(15) Here Ctx( ·) denotes the shared-context represen-tation used by the implementation, and the semi-colon indicates conditioning rather than a separate prediction branch. This keeps the private expert anchored in foreground-weighted private tokens while allowing shared context to calibrate private-token enhancement. 
+
+Foreground budget and confidence. To avoid notation conflict with inter-level weights, we de-note the target foreground ratio by πm,ℓ . The av-erage foreground rate is ¯βm,ℓ = Ei,t [β(m) 
+
+> ℓ,i,t
+
+]. The exam regularizer is 
+
+Lexam =
+
+> L
+
+X
+
+> ℓ=1
+
+X
+
+> m∈M
+
+"
+
+λrate ( ¯βm,ℓ − πm,ℓ )2
+
++ λconf Ei,t 
+
+β(m) 
+
+> ℓ,i,t
+
+(1 − β(m) 
+
+> ℓ,i,t
+
+)# (16) The rate term controls the soft token budget, and the confidence term discourages ambiguous gates near 0.5.
+
+2.5 Hierarchical Multi-Expert Co-Fusion 
+
+HMEC factorizes routing into intra-level expert coordination and inter-level semantic aggregation. For compactness, we omit the sample index in the following routing equations; all expert and level weights are computed per sample. 
+
+Intra-level expert co-fusion. At level ℓ, the shared expert output and private expert outputs are pooled into descriptors zsh ,ℓ and {zm,ℓ }m∈M . Let 
+
+E = {sh } ∪ M denote the expert index set. The intra-level gate is 
+
+αℓ = softmax 
+
+ gintra ,ℓ ([ zsh ,ℓ ; {zm,ℓ }m∈M ]) 
+
+τintra 
+
+
+
+(17) and ¯zℓ = P 
+
+> e∈E
+
+αe,ℓ ze,ℓ .
+
+Inter-level semantic aggregation. The inter-level gate assigns semantic-level weights and pro-duces the final representation: 
+
+ρ = softmax 
+
+ ψinter ([¯ z1; . . . ; ¯ zL]) 
+
+τinter 
+
+
+
+(18) and zfinal = PLℓ=1 ρℓ ¯zℓ. Equivalently, HMEC fac-torizes the joint routing distribution as 
+
+p(e, ℓ | x) = p(ℓ | x)p(e | ℓ, x ),
+
+separating expert selection from semantic-level ag-gregation. 
+
+Gate regularization. For intra-level gates, AHRA discourages systematic under-use of private experts: 
+
+Lcol = λfair 
+
+X
+
+> m∈M
+
+[max(0 , η m − Ex,ℓ [αm,ℓ ])] 2
+
+(19) Here ηm is a small positive lower-usage prior for private experts, not a full target distribution over all experts. The actual expert distribution is mainly determined by the task loss and sample-dependent gates. For inter-level aggregation, AHRA uses the entropy-form regularizer 
+
+Lhier = λhier 
+
+> L
+
+X
+
+> ℓ=1
+
+ρℓ log( ρℓ + ϵ). (20) Since P 
+
+> ℓ
+
+ρℓ log ρℓ = −H(ρ), minimizing Lhier 
+
+with λhier > 0 mildly encourages distributed level usage and prevents premature collapse to a single level. It is a level-diversity stabilizer rather than a sparsity or concentration penalty. 
+
+2.6 Learning Objective 
+
+The final prediction is produced by a task-specific head ˆy = ftask (zfinal ). For classification, ftask is a two-layer MLP with dropout 0.1 and outputs logits, for MOSI/MOSEI regression, it outputs a scalar sentiment score. Raw logits are passed directly to BCEWithLogits or CE without an explicit sigmoid or softmax. The overall objective is: 
+
+Ltotal = Ltask +Ldec +Lexam +Lcol +Lhier . (21) The task loss is dataset-dependent: 
+
+Ltask =
+
+
+
+BCEWithLogits(ˆ y, y ),
+
+CE(ˆ y, y ),
+
+MSE(ˆ y, y ).
+
+(22) for multi-label classification, single-label classi-fication and sentiment regression. MM-IMDB uses BCEWithLogits for multi-label genre predic-tion. Food101, MVSA-Single, and MIntRec use CE, MOSI/MOSEI use MSE and are evaluated by MAE, Acc-7, and F1. All auxiliary losses are computed only over available modalities and valid modality pairs. See Appendix B for details. 
+
+Table 1: Performance comparison across three bench-marks (%). AHRA results are averaged over five random seeds.                                                             
+
+> Methods MM-IMDB Food101 MVSA-Single
+> F1-mic F1-mac Acc F1 Acc F1 ConCat 49.76 52.58 88.20 88.19 65.89 65.43 LateFu 59.56 58.91 90.69 90.77 76.88 75.72 GMU 63.00 54.10 90.38 84.86 75.31 70.82 MGMU 66.30 61.60 91.05 90.33 76.03 74.99 MMBT 66.80 61.80 94.10 91.28 78.50 -TMC 66.80 61.80 89.86 89.80 76.06 74.55 QMF --92.92 92.93 78.90 77.18 EAU --93.20 93.18 79.15 78.36 MLA --93.33 -79.84 -BPMulT 68.90 58.70 ----ARL --93.55 93.55 --
+> AHRA 69.18 63.24 95.06 94.21 79.84 78.59
+
+Table 2: Performance Comparison on the MIntRec (%).                                         
+
+> Methods Acc. F1 Pre. Rec.
+> Concat 68.54 66.22 66.90 66.10 LateFusion 69.21 67.01 67.88 67.13 MAG-BERT 70.34 68.19 68.31 69.36 MuLT 72.58 69.36 70.73 69.47 MISA 72.36 70.57 71.24 70.41 DLF 72.42 70.68 71.26 70.39 TSDA 72.61 71.43 72.13 70.74 EMOE 72.58 71.47 72.08 70.86
+> AHRA 73.02 72.16 72.97 71.36
+
+3 Experiments 
+
+3.1 Datasets and Implementation Details 
+
+We evaluate AHRA on six multimodal bench-marks, including four classification datasets (MM-IMDB (Ma et al., 2022), Food101 (Bossard et al., 2014), MVSA-Single (Niu et al., 2016), and MIntRec (Zhang et al., 2022)) and two trimodal sentiment analysis datasets (CMU-MOSI (Zadeh et al., 2016) and CMU-MOSEI (Zadeh et al., 2018)). For the classification datasets, we follow EAU (Gao et al., 2024) and report accuracy, micro-F1, and macro-F1. For MOSI and MOSEI, we follow EMOE (Fang et al., 2025) and report MAE, Acc-7, and F1. AHRA is implemented in PyTorch and trained on four NVIDIA A100 GPUs. We use a unified training configuration across datasets unless otherwise specified, with early stopping based on validation F1. Detailed dataset information is pro-vided in Appendix C. We evaluate AHRA against representative baselines, detailed descriptions and citations are deferred to Appendix D. Table 3: Performance Comparison on MOSI and MO-SEI. ↓ indicates that lower values are better.                                                                                         
+
+> Methods CMU-MOSI CMU-MOSEI
+> MAE ↓Acc7(%) F1(%) MAE ↓Acc7(%) F1(%) TFN 0.947 31.9 77.95 0.572 51.6 78.96 MulT 0.846 40.05 81.66 0.673 48.37 80.86 PMR 0.895 40.60 79.83 0.645 48.88 81.56 MISA 0.788 41.27 82.43 0.594 51.43 82.13 FDMER 0.760 42.88 83.22 0.571 53.21 83.35 DMD 0.744 43.88 83.55 0.561 54.18 83.88 MCIS 0.756 43.58 83.85 0.557 53.85 84.34 CGGM 0.747 43.21 84.13 0.551 53.47 84.14 ConFEDE -42.33 85.53 -54.51 85.84 DEVA -46.33 84.45 -52.28 83.75 I2RL -47.06 86.21 -54.72 86.46 DLF 0.731 47.08 85.04 0.536 53.9 85.27 EMOE 0.710 47.7 85.4 0.536 54.1 85.3
+> AHRA 0.702 48.77 86.36 0.522 55.65 86.66
+
+3.2 Comparison with the State-of-the-Art 
+
+We report the mean over five random seeds, with standard deviations provided in Appendix E. We first compare AHRA with existing methods on the four classification benchmarks. As shown in Table 1 and Table 2, AHRA consistently matches or surpasses the strongest baselines. Specifically, on Food101, AHRA improves accuracy from 94.10 (MMBT (Kiela et al., 2019)) to 95.06, and F1 from 93.55 (ARL (Wei et al., 2025)) to 94.21. On MIntRec, AHRA reaches 73.02 accuracy and 72.16 F1, outperforming the strongest reported baselines of 72.61 accuracy (TSDA (Meng et al., 2026f)) and 71.47 F1 (EMOE (Fang et al., 2025)). These results indicate that explicitly preserving modality-private information and routing it through private experts is beneficial for both image–text classification and trimodal intent recognition. On the trimodal sentiment benchmarks CMU-MOSI and CMU-MOSEI, AHRA also achieves competitive or superior performance compared with recent multimodal models, as summarized in Table 3. On MOSI, AHRA reduces MAE com-pared with EMOE (Fang et al., 2025). On MOSEI, AHRA obtains the lowest MAE and the highest Acc-7 among the compared methods, while its F1 remains competitive with the strongest baseline. These results suggest that AHRA produces more informative multimodal representations for fine-grained sentiment prediction. In summary, AHRA improves over prior meth-ods on heterogeneous benchmarks by jointly fac-torizing features into shared and private streams and by using an adaptive expert hierarchy to se-
+
+Table 4: F1-macro on MM-IMDB under the train-test image/text availability settings reported by PEFT (Kim and Kim, 2024). Baseline values are quoted from the corresponding comparison table, while AHRA is evalu-ated under the same availability settings.                                         
+
+> Training Image/Text Testing Image/Text ViLT Lee Uni. PEFT AHRA
+> 100%/30% 100%/30% 32.78 37.72 39.47 43.21 54.28
+> 30%/100% 26.58 21.68 42.12 54.67 62.93
+> 65%/65% 30.55 30.80 40.99 49.09 58.15
+> Average. 29.97 30.07 40.86 48.99 58.45
+> 30%/100% 100%/30% 30.25 24.93 29.85 43.07 50.67
+> 30%/100% 37.97 47.10 54.37 56.03 63.37
+> 65%/65% 34.45 36.76 37.61 49.81 53.96
+> Average. 34.22 36.26 40.61 49.64 56.00
+> 65%/65% 100%/30% 35.80 39.04 40.60 42.46 55.09
+> 30%/100% 36.65 42.68 53.19 55.26 63.43
+> 65%/65% 36.66 41.33 47.34 49.24 58.65
+> Average. 36.37 41.02 47.04 48.99 59.06
+
+Table 5: Accuracy (%) of different methods on MVSA-Single under various noise levels.             
+
+> Methods Clean Salt–Pepper Gaussian
+> ϵ=0 ϵ=5 ϵ=10 ϵ=5 ϵ=10 Concat 65.89 58.69 51.16 50.70 46.12 Late Fusion 76.88 67.88 55.43 63.46 55.16 MMBT 78.50 74.07 51.26 71.99 55.34 TMC 76.06 68.02 56.62 66.72 60.35 QMF 78.90 73.90 60.41 73.85 61.28 EAU 79.15 74.81 61.40 73.89 62.04
+> AHRA 79.84 76.43 62.20 73.98 63.37
+
+lect informative private tokens and semantic levels, thereby mitigating the dilution of modality specific cues inherent in single space fusion. 
+
+3.3 Robustness Analysis 
+
+We further evaluate AHRA under missing, im-balanced, and noisy modality conditions. On MM-IMDB, AHRA achieves the highest F1-macro across all image/text train–test availability ratios, including strongly mismatched distributions (Ta-ble 4), showing its ability to adapt modality reliance when one stream is undersampled or partially ab-sent. On MVSA-Single, AHRA also achieves the highest accuracy under all evaluated salt-and-pepper and Gaussian noise levels, maintaining the strongest absolute performance as corruption sever-ity increases (Table 5). These results indicate that shared–private separation, foreground-controlled private experts, and hierarchical co-fusion allow AHRA to suppress unreliable evidence and reallo-cate trust across modalities and semantic levels. Table 6: Ablation Studies of AHRA.                                                      
+
+> Setting CMU-MOSI Food101 MAE ↓Acc-7(%) Acc(%) F1(%)
+> AHRA (Ours) 0.702 48.77 95.06 94.21
+> Importance of AHRA Components
+> w/o AEA 0.724 47.10 94.02 93.30
+> w/o HMEC 0.716 47.65 94.35 93.65
+> Importance of Modality
+> w/o Linguistic 0.864 38.10 93.85 93.02
+> w/o Acoustic 0.728 46.80 --
+> w/o Visual 0.735 45.50 88.90 88.75
+> Importance of Regularization
+> w/o Ldec 0.725 46.90 94.10 93.45
+> w/o Lexam 0.716 47.40 94.32 93.70
+> w/o Lcol 0.708 48.15 94.72 93.98
+> w/o Lhier 0.710 48.05 94.60 93.90
+
+Table 7: Ablation on Fusion Mechanisms                       
+
+> Setting CMU-MOSI Food101 MAE ↓Corr ↑Acc(%) F1(%)
+> AHRA (Ours) 0.702 0.806 95.06 94.21
+> Different Fusion Mechanisms
+> Addition 0.746 0.762 94.05 93.28 Multiplication 0.741 0.771 94.25 93.50 CMAF 0.729 0.785 94.55 93.82
+
+3.4 Ablation Studies 
+
+We conduct ablation studies on MOSI and Food101 to examine the contribution of each component in AHRA, with results reported in Table 6 and Table 7. 
+
+Effect of architectural components. Remov-ing AEA consistently degrades performance on both datasets, showing that adaptive routing of pri-vate tokens through modality-specific experts is more effective than uniform private-feature process-ing. Removing HMEC also leads to performance drops, indicating that level-aware expert coordina-tion is beneficial for jointly exploiting shared and private streams. These results confirm that AHRA preserves modality-private cues through the cou-pling of adaptive expert routing and hierarchical co-fusion. 
+
+Effect of modalities. Dropping any modality weakens performance, while the full multimodal setting achieves the best results. On MOSI, remov-ing language causes the largest degradation, con-sistent with its dominant role in sentiment predic-tion, whereas audio and vision provide complemen-tary private cues. On Food101, removing vision leads to the most severe drop, reflecting the visually dominant nature of fine-grained food recognition. This demonstrates that AHRA can exploit domi-
+
+Figure 3: Visualization of learned expert weights and importance for AHRA. CE and LE dominate with se-lective AE/VE activation on MOSI, while all experts contribute more evenly on MIntRec, showing that expert allocation adapts to both data and task. 
+
+nant modalities while still benefiting from comple-mentary modality-specific information. 
+
+Effect of fusion mechanisms. Replacing HMEC with additive fusion, multiplicative fusion, or CMAF (Yang et al., 2022) consistently under-performs the full model. This suggests that hier-archical expert-level fusion is more suitable than fixed operators or single-stage attention for deter-mining which experts and semantic levels should contribute to prediction. 
+
+Effect of regularization. Removing Ldec 
+
+causes the most evident degradation, verifying the importance of aligning shared streams while decor-relating private streams to avoid collapse into a single latent space. Removing Lexam also hurts performance, indicating that sparse and confident foreground selection helps private experts focus on informative tokens. In contrast, dropping Lcol or 
+
+Lhier yields mild but consistent declines, suggest-ing that they mainly stabilize expert usage and level utilization rather than define the core representa-tional capacity. 
+
+3.5 Visualization of Expert Weights and Importance. 
+
+To understand how AHRA allocates its experts, we visualize expert weights and expert importance on MOSI and MIntRec (Fig. 3). The expert weights are the fusion coefficients produced by HMEC for the cross-modal expert (CE) and the modality-specific experts (LE, AE, VE), while the expert importance reflects their estimated contributions to the final prediction. On MOSI, CE and LE gen-Table 8: Effect of the foreground exam budget on CMU-MOSI and Food101. “FG ratio” denotes the achieved average foreground rate under the target budget π.                                     
+
+> Setting FG ratio CMU-MOSI Food101 (avg.) MAE ↓Acc-7 (%) Acc (%) F1 (%) No exam 100 0.716 47.40 94.32 93.70
+> π= 0 .15 17 0.708 48.20 94.72 93.98
+> π= 0 .30 31 0.702 48.77 95.06 94.21
+> π= 0 .45 44 0.707 48.10 94.90 94.00
+> π= 0 .70 69 0.712 47.80 94.65 93.85
+
+erally receive the largest weights and importance, whereas AE and VE are selectively amplified when prosodic or facial cues are salient. On MIntRec, the four experts are used in a more balanced man-ner, matching the setting where language, audio, and vision are all informative for intent recogni-tion. Across both datasets, higher weights tend to coincide with higher importance, and different samples display distinct expert usage patterns. This indicates that AHRA exploits its expert bank in a data-dependent and task-aware way, rather than collapsing to a single dominant branch. 
+
+3.6 Analysis of the Foreground Exam Mechanism. 
+
+To clarify the role of the foreground exam, we vary a global foreground ratio π ∈{0.15 , 0.30 , 0.45 , 0.70 } in the exam loss while keeping all other components of AHRA fixed, and measure both the average fraction of private to-kens emphasized by the soft foreground gate and performance on CMU-MOSI and Food101. We also include a variant without the exam, where all private tokens always enter the experts. As sum-marized in Table 8, the foreground budget controls the trade-off between selectivity and coverage: a very small budget ( π = 0 .15 ) activates too few pri-vate tokens and weakens modality-specific contri-butions, while a moderate budget ( π = 0 .30 ) yields the best results by filtering most background noise while retaining informative private tokens. Larger budgets ( π = 0 .45 and π = 0 .70 ) gradually ap-proach the no-exam variant, where many redundant or noisy private tokens are routed into the experts and performance declines. These results show that a moderate, sample-dependent foreground budget is crucial for selecting a compact yet informative subset of private tokens without either underusing private branches or overwhelming them with noise. 
+
+> Figure 4: Visualization of selected test cases from the MVSA-Single dataset. Our method consistently shows better robustness against noise in the three cases.
+
+3.7 Qualitative Analysis 
+
+To examine the robustness of AHRA under noisy multimodal inputs, we visualize representative test cases with different noise levels in Fig. 4. Com-pared with the baseline method QMF (Zhang et al., 2023), which is more sensitive to input perturba-tions and tends to produce incorrect predictions, AHRA maintains more stable and accurate senti-ment predictions. This qualitative comparison indi-cates that the proposed AEA and HMEC modules help suppress modality-specific noise and preserve reliable cross-modal evidence, thereby improving prediction stability under noisy conditions. More qualitative results are provided in Appendix H. 
+
+Complementary Analysis in the appendix fur-ther support AHRA : t-SNE visualization shows more compact and class-separable embeddings (Appendix F), sensitivity studies verify robustness to regularization coefficients (Appendix G). 
+
+4 Conclusion 
+
+In this paper, we proposed the Adaptive Hierar-chical Representation Alliance (AHRA) to miti-gate the dilution of modality-private information in single-space multimodal fusion. AHRA factor-izes each modality into shared and private streams across multiple semantic levels and couples an Adaptive Expert Alliance, a foreground exam, and a Hierarchical Multi-Expert Co-Fusion module to selectively enhance private cues while coordinating cross-modal evidence. Experiments on image–text classification, multimodal intent recognition, and trimodal sentiment analysis under noisy and miss-ing modality conditions show that AHRA consis-tently outperforms strong baselines and ablations, confirming its effectiveness and robustness for mul-timodal recognition. Limitations 
+
+AHRA is evaluated on bimodal and trimodal bench-marks. Extending the framework to settings with many heterogeneous modalities, such as infrared, radar, depth, or physiological signals, may require additional modality selection or routing mecha-nisms to control computational cost and avoid ex-pert over-fragmentation. In addition, AHRA does not explicitly address privacy risks, demographic bias, or dataset bias in multimodal data. These issues require further study before deployment in sensitive real-world applications. Our SGM analysis relies on CKA between layer representations and task-label kernels. CKA pro-vides a useful diagnostic of representation-label similarity, but it does not establish causal evidence about which layer should be used for fusion and may miss nonlinear label dependencies not cap-tured by the chosen kernels. Future work can com-bine CKA with probing classifiers or causal inter-vention analyses. 
+
+Ethics Statement 
+
+This work studies multimodal representation learn-ing on established academic benchmarks and does not introduce, collect, or release any new dataset. AHRA is evaluated on standard image–text classifi-cation, multimodal intent recognition, and trimodal sentiment analysis datasets, and all experiments are conducted for research purposes under their origi-nal benchmark settings. Since several benchmarks involve human-centered multimodal signals such as language, images, audio, or video, they may inherit annotation noise, demographic imbalance, privacy sensitivity, or social bias from the origi-nal data sources. Our method does not explicitly remove such dataset-level risks. AHRA aims to improve robustness by preserving shared and modality-private evidence across seman-tic levels and by reducing reliance on unreliable or corrupted modalities. However, robustness to noisy or missing modalities should not be interpreted as a guarantee of fairness, privacy protection, or de-ployment safety. In particular, sentiment and intent recognition models may be misused for intrusive profiling, surveillance, or consequential decision-making if applied without appropriate consent and oversight. Therefore, AHRA should be regarded as a research framework and should not be directly deployed in sensitive real-world applications with-out dataset-specific bias audits, privacy assessment, human supervision, and compliance with the usage policies of the corresponding data sources. 
+
+References                     
+
+> John Arevalo, Thamar Solorio, Manuel Montes-y Gómez, and Fabio A González. 2017. Gated multi-modal units for information fusion. arXiv preprint arXiv:1702.01992 .Lukas Bossard, Matthieu Guillaumin, and Luc Van Gool. 2014. Food-101 – mining discriminative components with random forests. In European Conference on Computer Vision (ECCV) , pages 446–461. Yiyang Fang, Wenke Huang, Guancheng Wan, Kehua Su, and Mang Ye. 2025. Emoe: Modality-specific enhanced dynamic emotion experts. In Proceedings of the Computer Vision and Pattern Recognition Con-ference , pages 14314–14324. Zixian Gao, Xun Jiang, Xing Xu, Fumin Shen, Yujie Li, and Heng Tao Shen. 2024. Embracing unimodal aleatoric uncertainty for robust multimodal fusion. In
+> Proceedings of the IEEE/CVF Conference on Com-puter Vision and Pattern Recognition (CVPR) , page 26876–26885. Zirun Guo, Tao Jin, Jingyuan Chen, and Zhou Zhao. 2024. Classifier-guided gradient modulation for en-hanced multimodal learning. Advances in Neural Information Processing Systems , 37:133328–133344. Zongbo Han, Changqing Zhang, Huazhu Fu, and Joey Tianyi Zhou. 2023. Trusted multi-view classifi-cation with dynamic evidential fusion. IEEE Trans-actions on Pattern Analysis and Machine Intelligence ,45(2):2551–2566. Devamanyu Hazarika, Roger Zimmermann, and Sou-janya Poria. 2020. Misa: Modality-invariant and -specific representations for multimodal sentiment analysis. In Proceedings of the 28th ACM interna-tional conference on multimedia , pages 1122–1131. Douwe Kiela, Suvrat Bhooshan, Hamed Firooz, Ethan Perez, and Davide Testuggine. 2019. Supervised multimodal bitransformers for classifying images and text. arXiv preprint arXiv:1909.02950 .Donggeun Kim and Taesup Kim. 2024. Missing modal-ity prediction for unpaired multimodal learning via joint embedding of unimodal models. In Computer Vision – ECCV 2024: 18th European Conference ,page 171–187. Springer-Verlag. Wonjae Kim, Bokyung Son, and Ildoo Kim. 2021. Vilt: Vision-and-language transformer without con-volution or region supervision. In Proceedings of the International Conference on Machine Learning (ICML) , pages 5583–5594. PMLR. Simon Kornblith, Mohammad Norouzi, Honglak Lee, and Geoffrey Hinton. 2019. Similarity of neural network representations revisited. In Proceedings of
+
+the International Conference on Machine Learning (ICML) , pages 3519–3529. PMLR. Jing Li, Zhibin Wu, and Qiangchang Wang. 2026. Pro-gressive intra- and inter-modality relation learning for multimodal sentiment analysis. Knowledge-Based Systems , 334:115088. Yong Li, Yuanzhi Wang, and Zhen Cui. 2023. De-coupled multimodal distilling for emotion recogni-tion. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 6631–6640. Chih-Ting Liao, Zhangquan Chen, Chunlei Meng, Tzu-Yu Huang, Xin Cao, and Xu Zheng. 2025. Adversar-ial robustness for unified multi-modal encoders via efficient calibration. Preprint , arXiv:2505.11895. Chih-Ting Liao, Fei Shen, Xin Cao, and Tat-Seng Chua. 2026a. Decodable is not grounded: A vision-ablation arbiter for vlm spatial reasoning. Preprint ,arXiv:2606.31257. Chih-Ting Liao, Xi Xiao, Chunlei Meng, Zhangquan Chen, Yitong Qiao, Weilin Zhou, Tianyang Wang, Xu Zheng, and Xin Cao. 2026b. Spamem: Bench-marking dynamic spatial reasoning via perception-memory integration in embodied environments. 
+
+Preprint , arXiv:2604.22409. Fengmao Lv, Xiang Chen, Yanyong Huang, Lixin Duan, and Guosheng Lin. 2021. Progressive modality rein-forcement for human multimodal emotion recogni-tion from unaligned multimodal sequences. In Pro-ceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 2554–2562. Mengmeng Ma, Jian Ren, Long Zhao, Davide Testug-gine, and Xi Peng. 2022. Are multimodal transform-ers robust to missing modality? In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition (CVPR) , pages 18177–18186. Chunlei Meng, Pengbin Feng, Rong Fu, Hoi Leong Lee, Xiaojing Du, Zhaolu Kang, Zeyu Zhang, Weilin Zhou, Chun Ouyang, and Zhongxue Gan. 2026a. Group cognition learning: Making everything bet-ter through controlled two-stage agents collaboration. In Forty-third International Conference on Machine Learning .Chunlei Meng, Guanhong Huang, Rong Fu, Runmin Jian, Zhongxue Gan, and Chun Ouyang. 2026b. Clcr: Cross-level semantic collaborative represen-tation for multimodal learning. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 1606–1615. IEEE/CVF. Chunlei Meng, Jiabin Luo, Pengbin Feng, Zhenglin Yan, Chengyin Hu, Zhongxue Gan, and Chun Ouyang. 2026c. Mitigating shared-private branch imbalance via dual-branch rebalancing for multimodal senti-ment analysis. Preprint , arXiv:2604.25179. Chunlei Meng, Jiabin Luo, Zhenglin Yan, Zhenyu Yu, Rong Fu, Zhongxue Gan, and Chun Ouyang. 2026d. Tri-subspaces disentanglement for multimodal sen-timent analysis. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recog-nition (CVPR) , pages 8791–8800. IEEE/CVF. Chunlei Meng, Jacqueline J. Pang, Pengbin Feng, Zhenyu Yu, Chun Ouyang, and Zhongxue Gan. 2026e. Rethinking modality reliability in multi-modal sentiment analysis with incomplete observa-tions. Preprint , arXiv:2608.03611. Chunlei Meng, Jiacheng Yang, Wei Lin, Linqiang Hu, Bowen Liu, Zhuo Zou, LiDa Xu, Zhongxue Gan, and Chun Ouyang. 2025. Multi-grained teacher–student joint representation learning for surface defect classi-fication. Journal of Industrial Information Integra-tion , 48:100958. Chunlei Meng, Ziyang Zhou, Lucas He, Xiaojing Du, Chun Ouyang, and Zhongxue Gan. 2026f. Temporal-spatial decouple before act: Disentangled represen-tation learning for multimodal sentiment analysis. In ICASSP 2026 - 2026 IEEE International Confer-ence on Acoustics, Speech and Signal Processing (ICASSP) , pages 11917–11921. IEEE. Diego Aarón Moreno-Galván, Roberto López-Santillán, Luis Carlos González-Gurrola, Manuel Montes-Y-Gómez, Fernando Sánchez-Vega, and Adrián Pas-tor López-Monroy. 2025. Automatic movie genre classification & emotion recognition via a biprojec-tion multimodal transformer. Information Fusion ,113:102641. Teng Niu, Shiai Zhu, Lei Pang, and Abdulmotaleb El Saddik. 2016. Sentiment analysis on multi-view social data. In International Conference on Multime-dia Modeling (MMM) , pages 15–27. Zhikai Pan, Chih-Ting Liao, Chunrui Liu, Xi Xiao, Yi-tong Qiao, Chunlei Meng, Zhangquan Chen, and Xin Cao. 2026. Do llms build world models from text? a multilingual diagnostic of spatial reasoning. Preprint ,arXiv:2605.28277. Wasifur Rahman, Md. Kamrul Hasan, Sangwu Lee, AmirAli Bagher Zadeh, Chengfeng Mao, Louis-Philippe Morency, and Ehsan Hoque. 2020. Inte-grating multimodal information in large pretrained transformers. In Proceedings of the 58th Annual Meeting of the Association for Computational Lin-guistics , pages 2359–2369. Isaac Rodríguez Bribiesca, Adrián Pastor López Mon-roy, and Manuel Montes-y Gómez. 2021. Multi-modal weighted fusion of transformers for movie genre classification. In Proceedings of the Third Workshop on Multimodal Artificial Intelligence ,pages 1–5. Association for Computational Linguis-tics. Yao-Hung Hubert Tsai, Shaojie Bai, Paul Pu Liang, J Zico Kolter, Louis-Philippe Morency, and Ruslan Salakhutdinov. 2019. Multimodal transformer for un-aligned multimodal language sequences. In Proceed-ings of the 57th annual meeting of the association for computational linguistics (ACL) , pages 6558–6569. Laurens Van der Maaten and Geoffrey Hinton. 2008. Visualizing data using t-sne. Journal of Machine Learning Research , 9(86):2579–2605. Pan Wang, Qiang Zhou, Yawen Wu, Tianlong Chen, and Jingtong Hu. 2025. Dlf: Disentangled-language-focused multimodal sentiment analysis. In Proceed-ings of the AAAI Conference on Artificial Intelligence ,volume 39, pages 21180–21188. Shicai Wei, Chunbo Luo, and Yang Luo. 2025. Improv-ing multimodal learning via imbalanced learning. In 
+
+Proceedings of the IEEE/CVF International Confer-ence on Computer Vision (ICCV) , pages 2250–2259. Sheng Wu, Dongxiao He, Xiaobao Wang, Longbiao Wang, and Jianwu Dang. 2025. Enriching multi-modal sentiment analysis through textual emotional descriptions of visual-audio content. In Proceedings of the AAAI Conference on Artificial Intelligence ,volume 39, pages 1601–1609. Xi Xiao, Chen Liu, Chih-Ting Liao, Yunbei Zhang, Qizhen Lan, Yuxiang Wei, Lin Zhao, Janet Wang, Jianyang Gu, Muchao Ye, Tianyang Wang, and Hao Xu. 2026. Staying vigilant: Mitigating visual lazi-ness via counterfactual visual alignment in mllms. 
+
+Preprint , arXiv:2606.26387. Dingkang Yang, Shuai Huang, Haopeng Kuang, Yang-tao Du, and Lihua Zhang. 2022. Disentangled repre-sentation learning for multimodal emotion recogni-tion. In Proceedings of the 30th ACM international conference on multimedia , pages 1642–1651. Dingkang Yang, Mingcheng Li, Dongling Xiao, Yang Liu, Kun Yang, Zhaoyu Chen, Yuzheng Wang, Peng Zhai, Ke Li, and Lihua Zhang. 2024. Towards multi-modal sentiment analysis debiasing via bias purifica-tion. In Computer Vision – ECCV 2024: 18th Euro-pean Conference , pages 464–481. Springer-Verlag. Jiuding Yang, Yakun Yu, Di Niu, Weidong Guo, and Yu Xu. 2023. Confede: Contrastive feature decompo-sition for multimodal sentiment analysis. In Proceed-ings of the 61st Annual Meeting of the Association for Computational Linguistics , pages 7617–7630. Amir Zadeh, Minghai Chen, Soujanya Poria, Erik Cam-bria, and Louis-Philippe Morency. 2017. Tensor fusion network for multimodal sentiment analysis. In Proceedings of the 2017 Conference on Empiri-cal Methods in Natural Language Processing , pages 1103–1114. Amir Zadeh, Rowan Zellers, Eli Pincus, and Louis-Philippe Morency. 2016. Multimodal sentiment in-tensity analysis in videos: Facial gestures and verbal messages. IEEE Intelligent Systems , 31(6):82–88. AmirAli Bagher Zadeh, Paul Pu Liang, Soujanya Poria, Erik Cambria, and Louis-Philippe Morency. 2018. Multimodal language analysis in the wild: Cmu-mosei dataset and interpretable dynamic fusion graph. In Proceedings of the 56th Annual Meeting of the As-sociation for Computational Linguistics , pages 2236– 2246. Dapeng Zhang, Zhenlong Yuan, Zhangquan Chen, Chih-Ting Liao, Yinda Chen, Fei Shen, Qingguo Zhou, and Tat-Seng Chua. 2026. Reasoning-VLA: An efficient and spatial-guided general vision-language-action reasoning model for autonomous driving. In Forty-third International Conference on Machine Learning .Hanlei Zhang, Hua Xu, Xin Wang, Qianrui Zhou, Shao-jie Zhao, and Jiayan Teng. 2022. Mintrec: A new dataset for multimodal intent recognition. In Pro-ceedings of the 30th ACM International Conference on Multimedia , page 1688–1697. Qingyang Zhang, Haitao Wu, Changqing Zhang, Qinghua Hu, Huazhu Fu, Joey Tianyi Zhou, and Xi Peng. 2023. Provable dynamic fusion for low-quality multimodal data. In Proceedings of the 40th International Conference on Machine Learn-ing (ICML) , pages 41753–41769. Xiaohui Zhang, Jaehong Yoon, Mohit Bansal, and Huaxiu Yao. 2024. Multimodal representation learn-ing by alternating unimodal adaptation. In Proceed-ings of the IEEE/CVF Conference on Computer Vi-sion and Pattern Recognition (CVPR) , pages 27456– 27466. A Related Works 
+
+A.1 Multimodal Learning 
+
+Multimodal learning has been widely studied in tasks such as sentiment analysis, intent recognition, and vision language understanding. Recent stud-ies have further extended multimodal reasoning to embodied and spatial settings, including vision-language-action planning and dynamic perception-memory integration (Zhang et al., 2026; Liao et al., 2026b). Related diagnostic and alignment studies reveal persistent limitations in spatial world mod-eling and visual grounding, including reliance on non-visual priors and insufficient use of visual ev-idence (Pan et al., 2026; Liao et al., 2026a; Xiao et al., 2026). Early works such as TFN (Zadeh et al., 2017), MMBT (Kiela et al., 2019), and ViLT (Kim et al., 2021) encode each modality separately and project the resulting features into a shared latent space, where a joint representation is learned for prediction. For video and audio–text modeling, MAG-BERT (Rahman et al., 2020), MulT (Tsai et al., 2019), and other transformer-based mod-els use cross-modal attention to capture temporal interactions between language, vision, and audio. Methods such as MISA (Hazarika et al., 2020), MCIS (Yang et al., 2024), CGGM (Guo et al., 2024), and DMD (Li et al., 2023) explicitly model modality-invariant and modality-specific factors to obtain more structured multimodal representa-tions for sentiment analysis. Most existing methods fuse all modalities in a single latent space, which biases representations toward shared factors and tends to wash out modality-private cues, especially under noisy or partially missing inputs. Despite their differences in architecture and training strate-gies, most of these methods ultimately concentrate both supervision and fusion in a single latent space. Strong cross-modal alignment or joint optimiza-tion tends to emphasize features that are predictive across modalities and for the target label, while sub-tle modality-private cues with weak cross-modal correlation are downweighted or compressed. As a result, the joint representation is often biased toward shared factors, and modality-specific infor-mation is easily diluted, especially under noisy or partially missing modalities. 
+
+A.2 Multimodal Fusion Mechanism 
+
+Many works design more flexible fusion mecha-nisms to handle modality heterogeneity. Simple concatenation and late fusion baselines (Gao et al., 2024) combine unimodal features at the feature or decision level, but ignore fine-grained cross-modal interactions. FDMER (Yang et al., 2022) employs dynamic fusion with mutual enhancement and reg-ularization, while MCIS (Yang et al., 2024) and CGGM (Guo et al., 2024) incorporate contrastive or graph-based modules to refine multimodal rep-resentations. EAU (Gao et al., 2024) explicitly models aleatoric uncertainty with stable unimodal augmentation and robust multimodal integration to obtain compact and noise-resistant joint represen-tations. Robustness has also been examined at the representation level, where unified multimodal en-coders exhibit modality-dependent vulnerability to adversarial perturbations, motivating lightweight calibration of their shared representation spaces (Liao et al., 2025). EMOE (Fang et al., 2025) integrates emotion-guided subspace interactions, DLF (Wang et al., 2025) adopts dual-level fusion blocks, and DEVA (Wu et al., 2025) uses decoupled visual–acoustic streams with attentive fusion to en-hance emotion recognition robustness. However, existing fusion mechanisms still fuse all modali-ties in a single joint embedding, which tends to suppress modality private cues. 
+
+B Methodological Details and Theoretical Rationale 
+
+This appendix provides the details omitted from the main methodology because of space constraints. The main paper defines the AHRA architecture and the training objective; here we clarify the CKA diagnostic, the shared–private motivation, and the exact interpretation of the correlation and gate reg-ularizers. 
+
+B.1 CKA Diagnostic for Semantic Granularity Mismatch 
+
+For each modality m and semantic level ℓ, we com-pute sample-level features h(m) 
+
+> ℓ,i
+
+= Pool( H(m) 
+
+> ℓ,i
+
+)
+
+for all validation samples. Let X(m) 
+
+> ℓ
+
+∈ Rn×d stack these vectors. We use a centered linear representa-tion kernel 
+
+K(m) 
+
+> ℓ
+
+= Γ X(m) 
+
+> ℓ
+
+(X(m) 
+
+> ℓ
+
+)⊤Γ, Γ = In − 1
+
+n 11 ⊤.
+
+(23) For single-label classification, the label matrix Y ∈
+
+Rn×C is one-hot. For multi-label classification such as MM-IMDB, Y is multi-hot. In both cases, the label kernel is 
+
+Ky = Γ Y Y ⊤Γ. (24) For regression datasets such as CMU-MOSI and CMU-MOSEI, we use the scalar label vector y ∈
+
+Rn and set 
+
+Ky = Γ yy ⊤Γ. (25) The empirical CKA score is 
+
+CKA  K(m) 
+
+> ℓ
+
+, K y
+
+ = ⟨K(m) 
+
+> ℓ
+
+, K y⟩F
+
+∥K(m) 
+
+> ℓ
+
+∥F ∥Ky∥F
+
+. (26) This score is used only to diagnose the layer at which each modality becomes most label-informative. It is not optimized during AHRA train-ing and should not be read as a proof of semantic granularity mismatch. The diagnostic supports the architectural choice of retaining multiple semantic levels when different modalities peak at different depths. 
+
+B.2 Why Flat Alignment Can Suppress Private Factors 
+
+We give a simple latent-factor argument for why single-space cross-modal alignment can attenuate modality-private cues. Consider two modalities 
+
+m and m′ at one semantic level, with zero-mean representations 
+
+h(m) = A(m)c + B(m)u(m) + ϵ(m), (27) 
+
+h(m′) = A(m′)c + B(m′)u(m′) + ϵ(m′), (28) where c is a shared latent factor, u(m) and u(m′) are modality-private factors, and the noise terms are zero mean. Assume the shared, private, and noise factors are mutually uncorrelated across the groups. A flat alignment objective with linear projections 
+
+Wm and Wm′ is 
+
+J = E Wmh(m) − Wm′ h(m′) 22 . (29) Expanding Eq. (29) under the uncorrelated-factor assumption gives 
+
+J = WmA(m) − Wm′ A(m′) 2Σc
+
++ WmB(m) 2Σum 
+
++ Wm′ B(m′) 2Σum′
+
++ ∥Wm∥2Σϵm + ∥Wm′ ∥2Σϵm′ , (30) where ∥Q∥2Σ = tr( QΣQ⊤). The shared compo-nent is rewarded when WmA(m) and Wm′ A(m′)
+
+match. By contrast, the private components appear only as positive penalty terms because u(m) and 
+
+u(m′) are not predictable across modalities. There-fore, if the model relies only on flat alignment and lacks a private path, minimizing alignment pres-sure can shrink the private directions WmB(m) and 
+
+Wm′ B(m′). AHRA addresses this by keeping pri-vate streams and routing them through modality-specific experts rather than forcing all evidence into a single aligned space. 
+
+B.3 Interpretation of the Decoupling Losses 
+
+The shared alignment loss in the main paper uses dimension-wise batch standardization followed by a cross-correlation target. This should be distin-guished from full whitening. Dimension-wise stan-dardization ensures approximately zero mean and unit variance for each coordinate in a mini-batch, but it does not remove all within-modality covari-ance. Full whitening would require multiplying by an inverse covariance square root. The finite-batch identity target should be inter-preted as a regularizer rather than an exactly at-tainable constraint. Let Zm, Z m′ ∈ RB×dsh be the standardized shared representations in a mini-batch. The empirical matrix C = Z⊤
+
+> m
+
+Zm′ /B satisfies 
+
+rank( C) ≤ min(rank( Zm), rank( Zm′ )) ≤ B. 
+
+(31) With centered standardized features, the effective rank is at most B − 1 in the usual case. Therefore, when dsh > B , as in our default setting dsh = 256 
+
+and B = 32 , C cannot equal the full-rank identity matrix Idsh in a single mini-batch. The identity-shaped target is used as a stochastic correlation-shaping surrogate that encourages coordinate agree-ment and redundancy reduction over training. The private loss penalizes linear cross-correlation between streams. Zero covariance is equivalent to independence only under additional assumptions such as joint Gaussianity. For general neural representations, Lpr should be interpreted as encouraging linear decorrelation and reducing duplicated linear factors, not as a guarantee of full disentanglement. 
+
+B.4 Interpretation of the Foreground Exam 
+
+The foreground exam produces sample-wise soft gates β(m) 
+
+> ℓ,i,t
+
+over private tokens. The rate term in 
+
+Lexam controls the expected number of private to-kens passed to the private expert, while the con-fidence term penalizes uncertain values near 0.5.These terms alone do not prove that selected tokens are semantically foreground or task-relevant. Task relevance is learned through gradients from Ltask 
+
+and the subsequent expert/fusion modules, while 
+
+Lexam controls sparsity and stability. The shared stream used in the private expert is interpreted as contextual conditioning. In the main text this is written as E(m)pr ,ℓ (R(m)
+
+> ℓ, FG
+
+; c(m) 
+
+> ℓ
+
+), where 
+
+c(m) 
+
+> ℓ
+
+= Ctx( S(m) 
+
+> ℓ
+
+). This notation does not in-troduce a new training objective; it clarifies that private-token enhancement is anchored in R(m)
+
+> ℓ, FG
+
+while being calibrated by same-level shared con-text. 
+
+B.5 Interpretation of the Hierarchical Regularizer 
+
+The main paper keeps the original inter-level regu-larizer 
+
+Lhier = λhier 
+
+> L
+
+X
+
+> ℓ=1
+
+ρℓ log( ρℓ + ε). (32) Ignoring the numerical constant ε, this is 
+
+−λhier H(ρ), where H(ρ) is the entropy of the inter-level distribution. Since the training objec-tive is minimized and λhier > 0, this term encour-ages higher entropy, i.e., more distributed level usage. It should therefore be described as a level-diversity or anti-collapse stabilizer, not as a concen-tration or sparsity penalty. The inter-level gate can still produce non-uniform level weights because the task loss and the gate network remain sample-dependent. 
+
+B.6 Training Procedure 
+
+For each mini-batch, AHRA is optimized as fol-lows. 1. Extract multi-level unimodal features 
+
+{H(m) 
+
+> ℓ
+
+}Lℓ=1 for all available modalities 
+
+m ∈ M .2. Project each level into shared and private streams using Eq. (5). 3. Compute Lsh and Lpr from mini-batch cross-correlations. 4. Apply AEA: route shared streams through 
+
+Esh ,ℓ and foreground-weighted private streams through E(m)pr ,ℓ .5. Apply HMEC: compute intra-level expert weights αe,ℓ , level descriptors ¯zℓ, inter-level weights ρℓ, and zfinal .6. Compute Ltask , Lexam , Lcol , and Lhier .7. Update all trainable parameters by minimizing 
+
+Ltotal with AdamW. 
+
+C Dataset Details 
+
+We evaluate AHRA on six multimodal benchmarks, including four classification datasets and two tri-modal sentiment analysis datasets. 
+
+Classification datasets. The first group contains MM-IMDB (Ma et al., 2022), Food101 (Bossard et al., 2014), MVSA-Single (Niu et al., 2016), and MIntRec (Zhang et al., 2022). MM-IMDB consists of 25,959 movie samples, where each sample con-tains a movie poster and a synopsis for multi-label genre prediction. Food101 provides over 100,000 image-text pairs from 101 food categories for fine-grained food classification. MVSA-Single con-tains 4,869 social media image–text pairs anno-tated with three-way sentiment labels. MIntRec includes 2,224 trimodal samples from 20 intent categories. Following EAU (Gao et al., 2024), we report accuracy, micro-F1, and macro-F1 on these four datasets. 
+
+Sentiment analysis datasets. The second group contains CMU-MOSI (Zadeh et al., 2016) and CMU-MOSEI (Zadeh et al., 2018). CMU-MOSI includes 2,199 monologue video clips, while CMU-MOSEI contains 22,856 video clips. Both datasets provide aligned language, acoustic, and visual fea-tures, together with sentiment scores in [−3, 3] ,ranging from strongly negative to strongly positive. Following EMOE (Fang et al., 2025), we report MAE, Acc-7, and F1 on these two datasets. 
+
+D Model Zoo 
+
+We compare AHRA with image-text classification baselines ConCat, LateFu, GMU, MGMU, MMBT, TMC, QMF, EAU, MLA, BPMulT, and ARL (Gao et al., 2024; Arevalo et al., 2017; Rodríguez Bri-biesca et al., 2021; Kiela et al., 2019; Han et al., 2023; Zhang et al., 2023, 2024; Moreno-Galván et al., 2025; Wei et al., 2025), multimodal intent baselines MAG-BERT, MulT, MISA, DLF, TSDA, and EMOE (Rahman et al., 2020; Tsai et al., 2019; Hazarika et al., 2020; Wang et al., 2025; Meng et al., 2026f; Fang et al., 2025), trimodal senti-ment baselines TFN, PMR, FDMER, DMD, MCIS, CGGM, ConFEDE, DEVA, and I2RL (Zadeh et al., 2017; Lv et al., 2021; Yang et al., 2022; Li et al., 2023; Yang et al., 2024; Guo et al., 2024; Yang Figure 5: t-SNE visualization of final multimodal embeddings on MVSA-Single under key AHRA designs. The full AHRA yields the most compact intra-class structures and the clearest inter-class separation. Removing HMEC weakens semantic-level aggregation, removing AEA reduces adaptive private-token enhancement, and removing 
+
+Ldec causes the strongest class overlap due to weakened shared–private structuring. 
+
+Figure 6: Sensitivity of AHRA to the decoupling loss Ldec and exam regularization Lexam on CMU-MOSI and CMU-MOSEI. 
+
+Figure 7: Sensitivity of AHRA to the gating regularizers 
+
+Lcol and Lhier on the image–text and multimodal clas-sification benchmarks Food101 (Bossard et al., 2014) and MIntRec (Zhang et al., 2022). 
+
+et al., 2023; Wu et al., 2025; Li et al., 2026), and ro-bustness baselines following PEFT (Kim and Kim, 2024). The tables therefore use compact method names without repeated citations. 
+
+E Statistical Reliability of AHRA 
+
+All AHRA experiments were repeated five times with different random seeds. As shown in Table 9, we report mean and standard deviation for AHRA on all benchmarks, together with variance and 95% confidence intervals to assess statistical stabil-ity. The statistical evidence confirms that AHRA exhibits high stability across modalities, dataset scales, and tasks, with consistently small variance and narrow confidence intervals. Combined with the ablation studies and robustness experiments, these results validate that the performance improve-ments of AHRA arise from principled architectural design rather than randomness. 
+
+Figure 8: Qualitative multimodal recognition results of AHRA in a real-world sentiment analysis case. 
+
+F Representation Visualization 
+
+To further examine the representation geometry learned by AHRA, we apply t-SNE (Van der Maaten and Hinton, 2008) to project the final mul-timodal embeddings on MVSA-Single into a two-dimensional space. As shown in Fig. 5, the full AHRA forms the most compact and class-separable Table 9: Statistical results of AHRA across all bench-marks. Mean and standard deviation are computed over 5 runs with different random seeds.                                                                                                
+
+> Dataset Metric Mean ±Std Var. 95% CI Image-text and Multimodal Classification (% )MM F1-mic 69.18 ±0.33 0.11 [68.77, 69.59] -IMDB F1-mac 63.24 ±0.41 0.17 [62.73, 63.75] Food101 Acc 95.06 ±0.18 0.03 [94.84, 95.28] F1 94.21 ±0.21 0.04 [93.95, 94.47] MVSA Acc 79.84 ±0.26 0.07 [79.52, 80.16] -Single F1 78.59 ±0.31 0.10 [78.21, 78.97]
+> Multimodal Intent Recognition (MIntRec, %)
+> MIntRec Acc 73.02 ±0.27 0.07 [72.68, 73.36] F1 72.16 ±0.30 0.09 [71.79, 72.53] Precision 72.97 ±0.34 0.12 [72.55, 73.39] Recall 71.36 ±0.29 0.08 [71.00, 71.72]
+> Trimodal Sentiment Analysis (MOSI / MOSEI)
+> CMU MAE 0.702 ±0.006 3.6×10 −5[0.695, 0.709] -MOSI Acc-7 48.77 ±0.37 0.14 [48.31, 49.23] F1 86.36 ±0.28 0.08 [86.01, 86.71] CMU MAE 0.522 ±0.004 1.6×10 −5[0.517, 0.527] -MOSEI Acc-7 55.65 ±0.25 0.06 [55.34, 55.96] F1 86.66 ±0.19 0.04 [86.42, 86.90]
+
+Figure 9: Qualitative multimodal recognition results of AHRA on the sentiment analysis task. 
+
+sentiment clusters, indicating that the joint use of shared–private factorization, adaptive expert rout-ing, and hierarchical co-fusion produces discrimi-native multimodal representations. The ablated variants reveal how different designs contribute to this geometry. Removing HMEC leads to more diffuse decision regions and heavier boundary overlap, suggesting that intra-level expert coordination and inter-level semantic selection are important for organizing evidence across semantic levels. Removing AEA further weakens cluster compactness, which indicates that adaptive private-token enhancement helps preserve task-relevant modality-specific cues before final fusion. The variant without Ldec exhibits the most severe class mixing, showing that shared alignment and private decorrelation are crucial for maintaining a struc-tured shared–private representation space. These visual patterns are consistent with the quantitative ablation results and provide qualitative evidence that AHRA mitigates modality-private cue dilution while improving the discriminability of final multi-modal embeddings. 
+
+G Sensitivity to Regularization Hyperparameters 
+
+We evaluate the sensitivity of AHRA to the main regularization hyperparameters that control shared–private decoupling, the foreground exam, and hierarchical gating. Instead of sweeping all coefficients on all datasets, we probe each group of terms on benchmarks where their effects are most directly reflected in the evaluation metrics. We first study the decoupling loss Ldec in Eq. (11) and the exam loss Lexam in Eq. (16) on CMU-MOSI (Zadeh et al., 2016) and CMU-MOSEI (Zadeh et al., 2018). These terms act on the representation level: λsh and λpr shape the alignment and separation of shared and pri-vate subspaces, while λrate and λconf control how strongly the foreground budget and gate confi-dence are enforced. Fine-grained sentiment regres-sion on MOSI/MOSEI is particularly sensitive to such changes in token-level structure and modality-private cues. As shown in Fig. 6, we therefore vary each of λsh , λ pr , λ rate , λ conf around the de-fault setting, keeping the others fixed, and monitor MAE and Acc-7. Across a broad range of values, both datasets exhibit only mild fluctuations; perfor-mance degrades noticeably only when decoupling is almost removed or when the exam regularization becomes either too weak or too strong. This pattern is consistent with the design goal of AHRA: as long as a structured shared–private decomposition is pre-served and a moderate fraction of private tokens is selected, the model maintains stable sentiment performance without aggressive tuning. We then analyze the gating regularizers Lcol 
+
+and Lhier on Food101 (Bossard et al., 2014) and MIntRec (Zhang et al., 2022). These terms mainly stabilize private-expert usage and inter-level rout-ing, rather than directly modifying token represen-tations. Specifically, Lcol discourages systematic under-use of modality-specific experts, while Lhier 
+
+controls the strength of the level-diversity stabilizer. As shown in Fig. 7, accuracy and F1 remain stable around the default setting, with degradation only at extreme values. Very small λfair can under-use pri-vate experts, whereas very large λfair forces nearly uniform expert usage and weakens adaptive routing. Similarly, removing or weakening Lhier can make inter-level routing less stable, while an overly large 
+
+λhier makes level usage too diffuse and reduces the gate’s ability to emphasize the most informative semantic scale for a given sample. Overall, these studies indicate that AHRA is ro-bust to the precise choice of regularization hyper-parameters. The decoupling and exam coefficients can be tuned within a broad range without desta-bilizing fine-grained sentiment regression, and the gating regularizers admit similarly wide margins on diverse classification benchmarks. This robust-ness simplifies deployment in new multimodal set-tings, since reasonable default values already yield strong performance without extensive hyperparam-eter search. 
+
+> Figure 10: Qualitative multimodal recognition results of AHRA on the movie category recognition task.
+
+H Additional Qualitative Results 
+
+Versatility Across Semantic Domains. We fur-ther provide qualitative examples to examine the generalization capability of AHRA across differ-ent multimodal tasks, including sentiment analysis and movie genre recognition. As shown in Fig. 8 and Fig. 9, AHRA can capture nuanced affective cues from complex real-world image-text scenar-ios, leading to reliable sentiment predictions. In addition, the results on the IMDb dataset in Fig. 10 show that AHRA can also support high-level se-mantic reasoning for multi-label movie genre pre-diction. These observations suggest that the adap-tive expert collaboration and hierarchical fusion design enable AHRA to align and integrate het-erogeneous multimodal evidence across diverse se-mantic domains.
