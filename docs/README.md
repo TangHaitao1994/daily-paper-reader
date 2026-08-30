@@ -6,41 +6,47 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-29
-- 运行时间：2026-08-29 22:04:09 UTC
+- 最新运行日期：2026-08-30
+- 运行时间：2026-08-30 22:48:03 UTC
 - 运行状态：成功
-- 本次总论文数：6
-- 精读区：3
-- 速读区：3
+- 本次总论文数：8
+- 精读区：2
+- 速读区：6
 
 ### 今日简报（AI）
-- 今日共生成 6 篇推荐（精读 3 篇，速读 3 篇）
-- 精读：《Adaptive Hierarchical Representation Alliance for Multimodal Learning》（9.0/10）, 《Fine-Tuning Whisper for Automatic Speech Recognition in Baniwa: A Preliminary Study》（9.0/10）
-- 速读：《CoSTALA: Compositional Spatio-Temporal Audio-Language Alignment via Multi-Grain Hierarchical Contrastive Learning》（7.0/10）, 《REDnet: Recursive Encoder and Decoder for Speech Separation under Unknown Number of Speakers and Variable Number of Microphones》（6.0/10）, 《Generative vs. Encoder Large Language Models for ASR Evaluation: A Comparative Study》（6.0/10）
+- 今日共生成 8 篇推荐（精读 2 篇，速读 6 篇）
+- 精读：《The ISCSLP 2026 Real-World Audio-Visual Speech Enhancement Challenge》（8.0/10）, 《SpeechGym: An Audio-Native Gym for Training Voice Agents via Reinforcement Learning》（8.0/10）
+- 速读：《AudioLens: Multi-Perspective Speech Clustering with Reasoning Audio-Language Models》（7.0/10）, 《Mandarin Humorous Homophone Recognition and Disambiguation in Automatic Speech Recognition》（7.0/10）, 《Direct or Mediated? Task-Dependent Audio Information Routing in Large Audio Language Models》（7.0/10）
 - 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
-- 详情：[/202608/29/README](/202608/29/README)
+- 详情：[/202608/30/README](/202608/30/README)
 
 ### 精读区论文标签
-1. [Adaptive Hierarchical Representation Alliance for Multimodal Learning](/202608/29/2608.22863v2-adaptive-hierarchical-representation-alliance-for-multimodal-learning)  
-   标签：评分：9.0/10、query:speech-model
-   evidence：层级共享-私有专家框架对齐语言、视觉和音频
-2. [Fine-Tuning Whisper for Automatic Speech Recognition in Baniwa: A Preliminary Study](/202608/29/2608.26060v1-fine-tuning-whisper-for-automatic-speech-recognition-in-baniwa-a-preliminary-study)  
-   标签：评分：9.0/10、query:speech-model
-   evidence：微调Whisper用于低资源语言ASR直接提升识别准确率
-3. [CSAVocoder: A Causal Spatial Audio Vocoder Towards Real-Time Spatial Audio Generation](/202608/29/2608.25404v1-csavocoder-a-causal-spatial-audio-vocoder-towards-real-time-spatial-audio-generation)  
+1. [The ISCSLP 2026 Real-World Audio-Visual Speech Enhancement Challenge](/202608/30/2608.23759v1-the-iscslp-2026-real-world-audio-visual-speech-enhancement-challenge)  
    标签：评分：8.0/10、query:speech-model
-   evidence：因果GAN空间音频声码器，支持流式推理用于实时生成
+   evidence：音视频语音增强挑战
+2. [SpeechGym: An Audio-Native Gym for Training Voice Agents via Reinforcement Learning](/202608/30/2608.26432v1-speechgym-an-audio-native-gym-for-training-voice-agents-via-reinforcement-learning)  
+   标签：评分：8.0/10、query:speech-model
+   evidence：语音代理的音频原生强化学习环境
 
 ### 速读区论文标签
-1. [CoSTALA: Compositional Spatio-Temporal Audio-Language Alignment via Multi-Grain Hierarchical Contrastive Learning](/202608/29/2608.24374v1-costala-compositional-spatio-temporal-audio-language-alignment-via-multi-grain-hierarchical-contrastive-learning)  
+1. [AudioLens: Multi-Perspective Speech Clustering with Reasoning Audio-Language Models](/202608/30/2608.25177v1-audiolens-multi-perspective-speech-clustering-with-reasoning-audio-language-models)  
    标签：评分：7.0/10、query:speech-model
-   evidence：多粒度层次对比学习用于音频-语言对齐
-2. [REDnet: Recursive Encoder and Decoder for Speech Separation under Unknown Number of Speakers and Variable Number of Microphones](/202608/29/2608.24659v1-rednet-recursive-encoder-and-decoder-for-speech-separation-under-unknown-number-of-speakers-and-variable-number-of-microphones)  
+   evidence：多视角语音聚类，用于组织语音集合
+2. [Mandarin Humorous Homophone Recognition and Disambiguation in Automatic Speech Recognition](/202608/30/2608.25384v1-mandarin-humorous-homophone-recognition-and-disambiguation-in-automatic-speech-recognition)  
+   标签：评分：7.0/10、query:speech-model
+   evidence：基于音系特征的MDD提升ASR诊断准确率
+3. [Direct or Mediated? Task-Dependent Audio Information Routing in Large Audio Language Models](/202608/30/2608.27026v1-direct-or-mediated-task-dependent-audio-information-routing-in-large-audio-language-models)  
+   标签：评分：7.0/10、query:speech-model
+   evidence：分析LALM中任务相关音频路由，ASR与AQA鲁棒性差异
+4. [TurboT2VA: Fast Large-Scale Text-to-Video-Audio Generation via Score-Regularized Consistency Distillation](/202608/30/2608.24674v1-turbot2va-fast-large-scale-text-to-video-audio-generation-via-score-regularized-consistency-distillation)  
    标签：评分：6.0/10、query:speech-model
-   evidence：递归编解码器语音分离方法，可作为多说话人场景下ASR的前端
-3. [Generative vs. Encoder Large Language Models for ASR Evaluation: A Comparative Study](/202608/29/2608.25574v1-generative-vs-encoder-large-language-models-for-asr-evaluation-a-comparative-study)  
+   evidence：通过一致性蒸馏加速联合文生视频音频生成
+5. [Knowledge Distillation for Efficient Acoustic Echo Control](/202608/30/2608.25596v1-knowledge-distillation-for-efficient-acoustic-echo-control)  
    标签：评分：6.0/10、query:speech-model
-   evidence：比较编码器与解码器大模型用于ASR评估指标
+   evidence：知识蒸馏用于高效声学回声控制，属于语音预处理步骤
+6. [AudioSpan: Spanning the Duration and Depth of Audio Comprehension](/202608/30/2608.26431v1-audiospan-spanning-the-duration-and-depth-of-audio-comprehension)  
+   标签：评分：6.0/10、query:speech-model
+   evidence：长时长语音、声音、音乐音频理解基准
 
 
 <div class="dpr-home-promo-card">
