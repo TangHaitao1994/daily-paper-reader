@@ -1,0 +1,534 @@
+Title: Diagnose, Then Refine: A Closed-Loop TTS System with AudioLLM-Guided Correction
+
+URL Source: https://arxiv.org/pdf/2608.28970v1
+
+Published Time: Tue, 01 Sep 2026 00:26:46 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# Diagnose, Then Refine: A Closed-Loop TTS System with AudioLLM-Guided Correction 
+
+Zeyang Song 1,2 , Tianchi Liu 3,* , Tianrui Wang 4
+
+Chenglin Xu 3, Yiwen Guo 5, Haizhou Li 6,7,* 
+
+> 1
+
+National University of Singapore 2Tencent 3LIGHTSPEED 
+
+> 4
+
+Nanyang Technological University 5Independent Researcher 
+
+> 6
+
+The Chinese University of Hong Kong, Shenzhen 7Shenzhen Loop Area Institute 
+
+Abstract 
+
+Current TTS systems typically rely on open-loop, single-pass generation and can produce sporadic local prosodic defects, such as mis-placed stress, unnatural pauses, or flattened intonation, that utterance-level metrics often fail to expose. We present LOOP TTS , a judge-guided Filter–Judge–Refiner framework for recovering low-quality TTS outputs diag-nosed by an AudioLLM. Given an initial ut-terance from a base TTS model, an Audi-oLLM Judge identifies salient prosodic issues and generates structured refine instructions; a Refiner, our fine-grained instruction-following TTS model, then performs guided expressive re-synthesis conditioned on the initial utterance, target text, and instruction. To train the Refiner, we construct R EFINER -DB, a ∼42K-example AudioLLM-annotated dataset with word-level prosodic weak supervision. Human evaluation on diagnosed low-quality utterances shows that LOOP TTS can detect perceptually salient er-rors and correct them with the Refiner, out-performing raw generated audio and practi-cal open-loop re-generation baselines in recov-ery quality. The Refiner also demonstrates stronger instruction-following ability for stress and pause control in targeted prosody modifi-cation. L OOP TTS is available online. 1
+
+1 Introduction 
+
+The emergence of neural audio codecs has enabled a new generation of large-language-model-based text-to-speech (LLM-based TTS) systems (Wang et al., 2023; Chen et al., 2024; Du et al., 2024a; Anastassiou et al., 2024; Chen et al., 2025b; Wang et al., 2024b) that achieve near-human natural-ness. Building on this foundation, controllable TTS has progressed rapidly, spanning emotion con-trol (Yang et al., 2025a; Cho et al., 2024; Liu 
+
+> *Corresponding authors.
+> 1https://github.com/Pooookeman/LoopTTS
+
+et al., 2026; Wang et al., 2026b) and instruction-following (Guo et al., 2023; Yang et al., 2024; Zhou et al., 2024; Du et al., 2024b), broadening the scope of speech generation. Despite this progress, achieving consistently high-quality generation at scale remains an un-solved challenge. Most deployed TTS pipelines remain open-loop: after one generation pass, they either accept the audio or regenerate it from scratch. Due to the stochasticity of autoregressive and flow-based decoding, even strong systems can produce sporadic local prosodic defects, such as misplaced emphasis, contextually inappropriate pauses, and flattened intonation, particularly in complex lin-guistic contexts. These defects are subtle yet conse-quential; for instance, stressing a preposition (“the book IS on the table” instead of “the BOOK is on the table”) can make an otherwise intelligible utter-ance sound unnatural. Conventional objective met-rics such as Word Error Rate (WER), UTMOS, and speaker similarity are useful for content, audio qual-ity, and identity, but they operate at the utterance level and only indirectly reflect such fine-grained prosodic failures. The central question we address is therefore: how can we move beyond single-pass, open-loop TTS toward a system that integrates au-tomatic prosodic diagnosis with bounded correc-tive generation? 
+
+Existing attempts toward closing this loop re-main limited. On the generation side , the default solution for a prosodically defective utterance is full re-synthesis with a different random seed, an untargeted strategy that may fix the problem but may also reproduce it or change other attributes. Speech editing methods (Peng et al., 2024; Wang et al., 2024a) can modify existing audio, but primar-ily address content -level replacement or insertion and do not expose controls such as “add empha-sis to word X.” On the evaluation and alignment side , recent work has introduced AudioLLM-based judges for preference alignment (Zhang et al., 2024; arXiv:2608.28970v1 [cs.SD] 29 Aug 2026 Figure 1: Overview of the L OOP TTS pipeline. Stage 1 (Filter): coarse-grained metrics (WER, UTMOS) discard catastrophically degraded outputs and trigger full re-generation. Stage 2 (Judge): an AudioLLM evaluates prosody naturalness and emotional fidelity, producing an overall score (1–10) along with structured refine instructions that specify both global attributes (emotion, speed, pitch) and local operations (stress, pause). Utterances meeting the threshold are accepted as final output. Stage 3 (Refiner): the Refiner takes the initial utterance together with the refine instructions and performs guided expressive re-synthesis, producing corrected speech with optional iterative refinement for residual defects. 
+
+Hussain et al., 2025a; Xia et al., 2025); however, these approaches usually collapse diagnostic de-tail into scalar preference signals, discarding infor-mation needed for corrective generation, such as which word should carry stress or where a pause is missing. We therefore study whether the judge can participate in the correction loop by producing executable instructions for a separate re-synthesis model. To address this, we present LOOP TTS , a TTS system that places an AudioLLM Judge at its core and orchestrates two functionally complementary TTS models for judge-guided corrective genera-tion (Figure 1). Specifically, we construct a three-stage Filter–Judge–Refiner architecture: a base TTS model first produces an initial utterance; the Judge identifies salient word-level prosodic issues and emits structured refine instructions; finally, the Refiner, our proposed fine-grained instruction-following TTS model, takes the initial utterance together with the refine instructions and performs guided expressive re-synthesis. This design is not waveform-local editing: unrequested regions and speaker embeddings can change, and we explic-itly evaluate this trade-off. Training such a model requires word-level prosodic annotations that no existing dataset provides. We therefore leverage AudioLLM-based contrastive annotation to con-struct R EFINER -DB, a ∼42K-utterance dataset with fine-grained but weak prosodic supervision. Through this judge-centric, multi-model mecha-nism, L OOP TTS studies how bounded test-time diagnosis and refinement can improve selected low-quality TTS outputs. Our contributions are as fol-lows: • We propose L OOP TTS, a judge-centric, multi-model collaborative TTS system that instanti-ates a closed-loop alternative through a three-stage Filter–Judge–Refiner architecture. • We validate that AudioLLMs can provide scal-able high-salience prosodic weak labels, and leverage this capability to construct R EFINER -DB, a ∼42K-example dataset with word-level prosodic supervision. • We introduce the Refiner, a fine-grained instruction-following TTS model trained with a position-aware objective that focuses super-vision on instruction-specified prosodic posi-tions, enabling guided expressive re-synthesis of flagged prosodic defects in our LoopTTS. 
+
+2 Related Work 
+
+Controllable and expressive TTS. Recent LLM-based TTS systems (Chen et al., 2024, 2025b; Wang et al., 2024b; Hussain et al., 2025b; Chen et al., 2025a; Cui et al., 2025; Ye et al., 2025; Zhou et al., 2025) have established a dominant backbone for high-quality speech synthesis. Built on these backbones, controllable TTS (Xie et al., 2025) has progressed along several axes: emotion control (Cho et al., 2024; Wu et al., 2024; Yang et al., 2025a; Li et al., 2025a), natural-language de-scription (Guo et al., 2023; Yang et al., 2024), and instruction-guided synthesis (Zhou et al., 2024; Du et al., 2024b). In parallel, speech editing methods (Peng et al., 2024; Wang et al., 2024a) enable post-hoc modification of existing audio by replacing or inserting words at the content level. However, none of these methods can accept prosodic-level refine instructions to refine an already-generated utterance. 
+
+LLM-as-Judge for TTS quality optimization. 
+
+AudioLLMs are increasingly used to improve TTS quality. On the evaluation side, recent LLM-as-a-Judge models (Zheng et al., 2023) such as Au-dioJudge (Manakul et al., 2025) and SpeechJudge (Zhang et al., 2025) can perceive fine-grained acoustic details and prosody to assess speech nat-uralness, approaching human-level judgment. Be-cause human preference data is expensive to col-lect and inter-annotator agreement is often low, a growing body of work adopts these LLM judges to provide preference signals for TTS post-training: RLAIF-SPA (Yang et al., 2025b) uses LLM judg-ments of semantic accuracy and prosody-emotion alignment as RLAIF rewards, and Step-Audio-EditX (Yan et al., 2025) applies reinforcement learning with LLM-derived rewards for expressive speech editing. Agent-based frameworks such as DialogueAgents (Li et al., 2025b) modify text or sentence-level emotional expression through multi-agent coordination. However, these methods do not focus on detecting prosodic defects or perform-ing fine-grained refinement of an already-generated utterance. 
+
+3 The L OOP TTS Framework 
+
+This section presents the L OOP TTS framework: a three-stage inference pipeline for iterative refine-ment (Section 3.1) and a contrastive data construc-tion paradigm for training the Refiner (Section 3.2). The AudioLLM capabilities underlying both are validated in Section 5. 
+
+3.1 Three-Stage Quality Assurance Pipeline 
+
+The pipeline is designed as a cascade that oper-ates on utterances produced by a base TTS model, where each stage narrows the set of utterances re-quiring expensive processing (Figure 1): coarse filtering removes catastrophic failures at negligible cost, AudioLLM diagnosis evaluates the remain-der, and the Refiner re-synthesizes only the flagged subset. This makes L OOP TTS an offline quality-assurance pipeline rather than a streaming TTS model. 
+
+Stage 1: Coarse-grained filtering. Given target text T , the base TTS model generates yinit . Stage 1 removes severe content or quality failures using WER and UTMOS (Saeki et al., 2022): an ut-terance passes only when Whisper-large-v3-turbo yields WER ≤3.0% against T and UTMOS >3.0.Otherwise, Stage 1 performs up to two additional re-generation attempts with different random seeds. Utterances that still fail are excluded from later stages; the rest proceed to Stage 2. 
+
+Stage 2: AudioLLM prosodic diagnosis. For each retained utterance, an AudioLLM Judge scores prosodic naturalness and emotional fidelity on a 1–10 scale. Utterances scoring at least 
+
+τjudge =5 are accepted as-is; lower-scoring utter-ances are flagged and assigned a refine instruction 
+
+I covering global style (emotion, speed, pitch) and local prosody (stress, pause). The concrete Judge choices are validated in Section 5 and specified in the experimental setup. Full prompts are provided in Appendix I. 
+
+Stage 3: Guided expressive re-synthesis. The Refiner re-synthesizes flagged utterances condi-tioned on the initial audio, refine instruction, and target text: yR = Refiner (yinit , I, T ). This is guided expressive re-synthesis rather than waveform-level local editing, so unrequested re-gions and speaker embeddings can change; we therefore evaluate speaker similarity and the result-ing expressiveness–similarity trade-off. The output can be fed back to Stage 2 for bounded iterative refinement. 
+
+3.2 Contrastive Instruction Data Construction 
+
+Training the Refiner requires word-level prosodic supervision, which is expensive to label manually. We therefore construct R EFINER -DB through con-trastive AudioLLM annotation (Figure 2): each expressive recording ytgt is paired with a neutral synthetic counterpart yneu of the same text and speaker, and the AudioLLM extracts salient high-contrast prosodic differences between them. Global style metadata and local AudioLLM annotations Figure 2: Contrastive data construction for R EFINER -DB. Each expressive recording ytgt is paired with a zero-shot neutral clone yneu synthesized from the same text and speaker with neutral emotion. Global style comes from dataset metadata; an AudioLLM compares the two utterances and outputs word-level prosodic differences (stress, pause) as structured JSON. Both sources are merged into a natural-language refine instruction I, yielding tuples  
+
+> (yneu , I, y tgt , T ). Full prompts are in Appendix I.
+
+are merged into a refine instruction I, yielding train-ing tuples D = {(yneu , I, y tgt , T )}.This procedure yields ∼42K weakly annotated contrastive tuples. At inference time, yinit plays the same role as an utterance to be improved. Dataset composition and filtering details are provided in Appendix B, and full AudioLLM prompts are pro-vided in Appendix I. 
+
+4 Refiner: Architecture and Training 
+
+The Refiner must execute refine instructions from the AudioLLM Judge, yet standard training ob-jectives lack the inductive bias to focus on the sparse, prosodically critical positions that carry the refine signal. In a typical utterance, only 10–30 out of 200+ codec tokens correspond to instruction-specified stress or pause positions, mak-ing it difficult for uniform objectives to supervise these regions. We address this with a position-aware training objective (Figure 3): token-level loss reweighting that amplifies gradients at instruction-specified positions (Section 4), and span-level rela-tional alignment that encourages internal coherence within stress spans (Section 4.3). 
+
+4.1 Architecture 
+
+Our Refiner is built on EmoVoice (Yang et al., 2025a), a codec language model for emotion-controllable TTS that autoregressively predicts 50 Hz CosyVoice (Du et al., 2024a) semantic to-kens, decoded into waveforms via flow matching and HiFi-GAN (Kong et al., 2020). We initialize from the pretrained checkpoint and fine-tune on REFINER -DB. The input sequence is the concate-nation (I, y init , T ): placing the refine instruction 
+
+I first ensures that it conditions all subsequent pro-cessing under causal attention; the initial utterance 
+
+yinit precedes the target text T to provide a concrete acoustic reference. 
+
+4.2 Position-Weighted Cross-Entropy Loss 
+
+Under standard cross-entropy (CE) loss, all to-kens contribute equally to the gradient, leaving the learning signal at prosodically critical positions diluted by the majority of unchanged tokens. Our Position-Weighted CE loss assigns higher weights to instruction-specified stress and pause positions, forcing the model to focus on these sparse but deci-sive regions. 
+
+Prosody span identification. We use Whisper word-level timestamps 2 to locate the codec token spans corresponding to each stressed word and each pause position specified in the refine instruction. These prosodic spans, i.e., the regions where the Refiner must deviate from the input, serve both the Position-Weighted CE (all spans) and the Structural Alignment Loss (stress spans only; Section 4.3). We encode them as a per-token position label mt ∈{0, 1, 2}:
+
+mt =
+
+
+
+1 if position t falls within a stress span, 
+
+2 if position t falls within a pause span, 
+
+0 otherwise.         
+
+> 2https://github.com/linto-ai/ whisper-timestamped Figure 3: Refiner architecture and position-aware training objective. The Refiner takes a refine instruction I, the initial utterance yinit , and the target text Tas input. Two losses are applied in training: a position-weighted CE loss LCE that amplifies gradients at stressed and pause positions, and a structural alignment loss Lstruct that aligns span-level consistency.
+
+Position weighting. Each token receives aweight determined by its prosodic role: 
+
+wt = 1 + α · 1[mt=1] + β · 1[mt=2] (1) Stress and pause tokens thus receive mild upweight-ing relative to the unit baseline, encouraging the model to attend to the annotated local edits with-out overwhelming global speech modeling. The Position-Weighted CE loss is: 
+
+LCE =
+
+P 
+
+> t
+
+CE (ˆ yt, y t) · wt · vt
+
+P 
+
+> t
+
+wt · vt
+
+(2) where vt = 1[yt̸ = pad ] masks padding positions. In practice we set α=0 .2 and β=0 .3, a gentle boost that prioritizes prosodic positions without destabi-lizing the generation of other attributes (emotion, pitch, speed). 
+
+4.3 Position-Aware Structural Alignment Loss 
+
+The Position-Weighted CE optimizes each to-ken independently, but stress realization is inher-ently span-level, spanning 5–20 contiguous tokens. Token-wise optimization may predict each position correctly in isolation yet fail to capture the internal structure of a stress span. To encourage span-level consistency, we introduce a structural alignment loss based on Representational Similarity Matrices (RSMs) (Park et al., 2019; Kornblith et al., 2019), aligning pairwise token relations within each stress span between prediction and target. (Pause spans are excluded because inserted pauses consist al-most entirely of silence tokens, whose trivial in-ternal structure does not benefit from relational alignment.) 
+
+RSM construction and alignment. Using the prosodic spans identified in Section 4, let P =
+
+{S 1, S2, . . . } denote the set of all stress spans (max-imal contiguous regions where mt = 1 ). For each span S = [ s, e ), let HS ∈ R|S|× D denote the acoustic-code embeddings within the span. After row-wise ℓ2 normalization ( ¯HS ), the RSM is: 
+
+RS = ¯HS ¯H⊤S ∈ R|S|×|S| (3) where each entry is the cosine similarity between two positions in the span. During teacher-forced training, we construct Rpred  
+
+> S
+
+from the model hid-den representations at acoustic-code positions and 
+
+Rtgt  
+
+> S
+
+from the corresponding target acoustic-code embeddings, making the loss an embedding-level alignment objective. We then minimize the squared Frobenius distance averaged over all spans: 
+
+Lstruct = 1
+
+|P| 
+
+X
+
+> S∈P
+
+1
+
+|S| 2 Rpred  
+
+> S
+
+− Rtgt  
+
+> S
+> 2
+> F
+
+(4) Dividing by |S| 2, the number of entries in the RSM, ensures scale invariance across spans of different lengths. When P = ∅, the loss is set to zero. The overall training objective combines both terms: 
+
+L = LCE + λ · L struct (5) AudioLLM Regular Emotional           
+
+> Gemini-3-flash (Team et al., 2023) 3.1 3.2 Gemini-3-pro (Team et al., 2023) 3.3 3.4
+> Kimi-Audio (KimiTeam et al., 2025) 2.2 2.5 Qwen3-Omni (Xu et al., 2025) 2.6 2.7 Qwen3-Omni Thinking (Xu et al., 2025) 2.9 3.0
+
+Table 1: Mean human–AudioLLM alignment scores (1–4). Higher is better.                          
+
+> Stress Pause AudioLLM Rec. F1 Rec. F1
+> Gemini-3-flash 0.861 0.535 0.573 0.432 Gemini-3-pro 0.884 0.673 0.697 0.532
+> Kimi-Audio 0.588 0.438 0.440 0.316 Qwen3-Omni 0.613 0.441 0.487 0.330 Qwen3-Omni Thinking 0.667 0.465 0.478 0.325
+
+Table 2: AudioLLM annotation quality (micro Recall and F1) against professional human labels. The labels mark salient stress and pause differences rather than exhaustive prosodic structure. 
+
+We set λ=0 .1 in all experiments. 
+
+5 AudioLLM Evaluation 
+
+Before deploying AudioLLMs in our pipeline, we validate two capabilities: (1) diagnosing ,whether their inference-time diagnoses align with human perception (Section 5.1), and (2) annotation ,whether they can extract salient prosodic labels for training data construction (Section 5.2). We bench-mark five AudioLLMs on evaluation data held out from the training set, sourced from EmoVoice (Emotional) and LibriTTS (Regular). Detailed eval-uation setups are provided in Appendix G. 
+
+5.1 Diagnostic Capability 
+
+Each AudioLLM diagnoses prosodic defects in 100 TTS-generated utterances (50 Regular, 50 Emo-tional) and generates refine instructions in the same format as Stage 2 (prompt in Appendix I). Six non-technical evaluators with fluent English listening proficiency then rate whether each diagnosis aligns with their own judgment on a 1–4 scale (4: fully aligned, 3: mostly aligned, 2: partially aligned, 1: not aligned). Results (Table 1) show that Gemini-3-pro achieves the highest alignment among the evalu-ated AudioLLMs on both subsets (3.3 Regular, 3.4 Emotional). We therefore use it as the main Judge, while treating its diagnoses as fallible signals rather than ground truth. 
+
+5.2 Annotation Capability 
+
+We assess whether AudioLLMs can identify salient prosodic differences between neutral and expres-sive speech, the core capability required for con-structing R EFINER -DB. Professional annotators label prominent stress and pause positions on 200 neutral–expressive utterance pairs; each Au-dioLLM independently annotates the same pairs (prompt in Appendix I) and is evaluated against these labels using micro recall and F1. This is a weak-labeling evaluation: the goal is to obtain scalable high-salience supervision, not exhaustive word-level prosody annotation. Results (Table 2) show that Gemini-3-pro achieves the highest recall and F1 on both stress and pause, making it the best annotator among the tested AudioLLMs for the large-margin contrasts used in our data construction pipeline (Section 3.2). The absolute F1 values remain moderate, especially for pause (0.532), so we do not interpret the labels as precise or exhaustive word-level ground truth. We adopt Gemini-3-pro for R EFINER -DB because it provides useful scalable weak supervision, and we later evaluate final outputs with human listeners rather than using these labels alone. 
+
+6 Experiments 
+
+6.1 Metrics 
+
+We evaluate the content consistency of synthe-sized speech using WER, with transcriptions ob-tained from Whisper-large-v3-turbo (Radford et al., 2023). Speaker identity preservation is measured by speaker similarity (SIM), the cosine similar-ity between WavLM-based speaker embeddings of the output and the reference audio 3. We also report UTMOS (Saeki et al., 2022) as an auto-matic speech quality estimator. For MOS-style subjective evaluation, ten professional paid evalua-tors with fluent English listening proficiency in-dependently score each sample in a blind shuf-fled test. MOS rates overall naturalness and au-dio quality (1–5), while MOS-I rates instruction-following fidelity across five dimensions (emotion, pitch, speed, stress, pause), each on a 1–5 scale. When per-evaluator means are available, subjective scores are reported with 95% confidence intervals (subscript ±) computed from the t-distribution. For paired evaluation, the same evaluator pool performs blind A/B comparisons over 30 flagged samples           
+
+> 3https://github.com/BytedanceSpeech/ seed-tts-eval 025 50 75 100
+> LoopTTS vs Raw LoopTTS vs CosyVoice LoopTTS vs EmoVoice LoopTTS-Q vs Raw Regen vs Raw
+> 85.7% 77.0% 72.3% 79.7% 62.3%
+> Win rate
+> 50%
+> Agreement
+> ≥7/10 ≥9/10
+> 27 20 20 13 19 10 19 14 95
+
+Figure 4: Blind paired preference evaluation on flagged utterances. Each paired comparison uses 30 samples. 
+
+per comparison; we report the preferred system, preference rate, and the number of samples with at least 7/10 and 9/10 evaluator agreement. Scor-ing rubrics and reliability statistics are provided in Appendices H and D.4. 
+
+6.2 LoopTTS Pipeline Evaluation 
+
+We evaluate the full LOOP TTS pipeline on CosyVoice2-generated speech. We sample 100 Stage 2 flagged utterances (score < 5) per condi-tion (Neutral and Emotional, 200 total) for human evaluation. We choose this selected failure subset for two reasons: only a small fraction of the full set is routed to Stage 3 refinement, so full-distribution MOS would be dominated by already accepted ut-terances and make recovery gains harder to distin-guish; and full-distribution MOS over all systems would require substantially more human ratings. Appendix A reports full-pipeline stage accounting and objective metrics over 3,000 utterances. Table 3 compares raw flagged utterances, budget-aligned no-target re-generation, and closed-loop refinement. Re-generation uses the same initial out-put and Stage 2 Judge trigger as L OOP TTS, but spends the one-correction budget on untargeted full re-synthesis rather than the instruction-conditioned Refiner. The Global-only control retains emotion, speed, and pitch instructions while removing word-level stress and pause cues. L OOP TTS-Q keeps the Gemini-annotated Refiner unchanged and replaces the entire inference-time Judge with Qwen3-Omni Thinking (Xu et al., 2025), including both diag-nosis and instruction generation. Figure 4 reports win rate for the first-listed system and agreement at 7/10 and 9/10 listeners. Table 3 shows that a single L OOP TTS refine-ment round improves MOS over both raw flagged audio and the strongest re-generation baseline un-der Neutral and Emotional conditions. Remov-ing local stress and pause cues reduces MOS from 4.17/4.01 to 3.96/3.72 while WER and SIM re-main comparable, supporting the contribution of position-specific instructions beyond global style control. Figure 4 supports the recovery result: lis-teners prefer L OOP TTS over raw flagged audio (85.67%), CosyVoice2 re-generation (77.00%), and EmoVoice re-generation (72.3%). For the latter comparison, 19/30 samples receive at least 7/10 listener agreement and 10/30 receive at least 9/10 agreement. Because the re-generation baselines use the same judge-triggered one-correction bud-get, these results support targeted guided expressive re-synthesis over a no-target retry strategy. The held-out Judge result further shows that the framework is not tied to Gemini at inference time. LOOP TTS-Q replaces Gemini-3-pro with Qwen3-Omni Thinking for both diagnosis and instruction generation, yet obtains MOS scores of 4.09/3.98 under Neutral/Emotional conditions and remains preferred over raw flagged audio in paired eval-uation (79.67%). Because our Refiner performs guided expressive re-synthesis rather than local waveform editing, SIM reduction is an expected trade-off when prosody or emotion is strengthened. Similar trade-offs have also been observed in ex-pressive TTS studies (Wang et al., 2026a; Cho et al., 2025). 
+
+6.3 Instruction-Following Comparison 
+
+This experiment isolates the Refiner’s instruction-following capability outside the full cascade. Hu-man evaluators use MOS-I to judge whether each requested control–emotion, pitch, speed, stress, or pause–is executed naturally without introduc-ing harmful unintended changes. We compare against CosyVoice2 (Du et al., 2024b), CosyVoice2-marker, and EmoVoice (Yang et al., 2025a). All systems receive the same instruction I and text 
+
+T ; only the Refiner additionally conditions on the initial utterance yinit . Appendix E provides the baseline setup details and limitations. Results are shown in Table 4. The Refiner achieves the highest MOS-I on Pitch, Speed, Stress, and Pause under this protocol, indicating that fine-tuning on R EFINER -DB improves execution of the annotated prosodic controls. The slight MOS gap relative to EmoVoice is largely due to occasional less vivid emotional delivery, suggesting that the Refiner is better suited as a Stage 3 corrective model than as a standalone emotional TTS gen-erator. Neutral Emotional Condition WER ↓ SIM ↑ MOS ↑ WER ↓ SIM ↑ MOS ↑
+
+Baseline 
+
+Before refinement 2.04 0.73 3.21 ±.15 2.11 0.69 3.01 ±.16 
+
+Re-generation (open-loop) 
+
+CosyVoice2 (Du et al., 2024b) 1.95 0.71 3.45 ±.14 2.03 0.70 3.15 ±.15 
+
+EmoVoice (Yang et al., 2025a) 1.83 0.68 3.90 ±.13 1.72 0.65 3.85 ±.12 
+
+LOOP TTS (closed-loop) 
+
+LOOP TTS (Global-only) 1.87 0.68 3.96 ±.10 1.82 0.66 3.72 ±.16 
+
+LOOP TTS (1-round) 1.86 0.68 4.17 ±.12 1.79 0.67 4.01 ±.14 
+
+LOOP TTS-Q (1-round) 1.90 0.67 4.09 ±.16 1.84 0.66 3.98 ±.15 
+
+LOOP TTS (2-round) 1.85 0.66 4.16 ±.13 1.80 0.64 4.17 ±.13 
+
+Human-instruction 1.79 0.67 4.20 ±.14 1.78 0.67 4.26 ±.12 
+
+Table 3: Pipeline recovery evaluation on Stage 2 flagged utterances under Neutral and Emotional conditions. LOOP TTS uses Gemini-3-pro as the inference-time Judge, while L OOP TTS-Q uses the same Refiner with the inference-time Judge changed to Qwen3-Omni Thinking. 
+
+Objective Subjective Model WER ↓ SIM ↑ UTMOS ↑ MOS ↑ MOS-I ↑
+
+Emo. Pitch Speed Stress Pause 
+
+CosyVoice2 † – 0.72 3.40 2.21 ±.11 2.25 ±.12 2.31 ±.10 2.54 ±.09 2.15 ±.10 2.12 ±.09 
+
+CosyVoice2-marker 4.74 0.69 3.27 2.95 ±.16 3.02 ±.11 3.78 ±.12 3.46 ±.09 4.32 ±.07 3.88 ±.08 
+
+EmoVoice 2.81 0.67 3.86 4.32 ±.13 4.13 ±.11 3.45 ±.09 3.76 ±.08 3.83 ±.08 2.92 ±.09 
+
+Refiner 2.90 0.68 3.60 4.21 ±.14 4.04 ±.10 4.01 ±.10 4.13 ±.08 4.57 ±.07 4.28 ±.08 
+
+Table 4: Instruction-following comparison. †CosyVoice2 frequently reads the instruction text verbatim, making its WER not comparable.                 
+
+> Variant WER ↓MOS ↑Avg. MOS-I ↑
+> Refiner 2.90 4.21 ±.13 4.21 ±.09
+> w/o Lstruct 2.78 4.06 ±.15 4.01 ±.09
+> w/o Position-Weighting 2.92 4.17 ±.14 4.13 ±.08
+> w/o Both 2.87 4.03 ±.14 3.75 ±.10
+
+Table 5: Ablation: effect of loss components. 
+
+6.4 Ablation Studies 
+
+We ablate Position-Weighting and Structural Align-ment to isolate their individual contributions. Results (Table 5) suggest that the two loss com-ponents help instruction-following, but the evi-dence should be interpreted cautiously. Remov-ing Lstruct causes the largest Avg. MOS-I drop, consistent with stress realization benefiting from span-level relational alignment. Removing posi-tion weighting produces a smaller but consistent MOS/MOS-I decrease, suggesting that token-level emphasis on annotated spans is useful. However, WER is slightly better for some ablated variants and the absolute MOS gaps are modest, so these ab-lations support the losses as helpful design choices rather than uniquely isolating the mechanism be-hind all gains. The separate audio-conditioning ablation in Appendix D.1 shows that removing yinit 
+
+only slightly affects MOS but reduces SIM and MOS-I, indicating that the initial utterance helps preserve speaker/prosodic identity and avoid un-necessary edits. Notably, the full Refiner exhibits a minor WER increase compared to ablated variants. This reflects an inherent trade-off: more aggressive prosodic modification, particularly emphatic stress and in-serted pauses, occasionally causes higher WER (e.g., Whisper misrecognizes elongated stressed syllables or transcribes deliberate pauses as punc-tuation). 
+
+7 Conclusion 
+
+We have presented L OOP TTS, an offline Filter– Judge–Refiner framework that integrates prosodic diagnosis with guided expressive re-synthesis. The key idea is to leverage AudioLLMs as scalable but imperfect sources of diagnostic weak super-vision and pair them with a Refiner trained on contrastive prosody data and a position-aware ob-jective. Experiments show that the Refiner im-proves fine-grained instruction following under our protocol, and that bounded refinement improves human-rated recovery quality on Stage 2 flagged utterances compared with raw audio and practical open-loop re-generation baselines. The modular architecture allows the inference-time Judge to be replaced, as shown by L OOP TTS-Q, although the training labels remain Gemini-derived. Extend-ing the framework to full-distribution human eval-uation, stronger deployment baselines, tonal lan-guages, and lower-cost open judges are important directions for future work. 
+
+Limitations 
+
+The main human pipeline evaluation is conducted on Stage 2 flagged utterances, directly testing re-covery from diagnosed defects. This subset is where refinement can change the output; on the full distribution, the observed effect would be diluted by many utterances that already pass without re-finement. Due to the cost of blind human listening tests, we do not run full-distribution human evalu-ation over every initial-generation utterance. Ap-pendix A instead reports larger-scale full-pipeline accounting and objective metrics over 3,000 utter-ances. Our experiments focus on English read and emo-tional speech with a limited range of speakers and corpora. The framework is modular in that the ini-tial TTS system and inference-time Judge can be re-placed, as illustrated by the re-generation baselines and L OOP TTS-Q, but broader speaker, language, and speaking-style coverage remains future work. Extending the framework to larger multilingual, multi-speaker emotional corpora and incorporating prompt-based speaker conditioning are natural next steps. Current annotations and controls represent stress and pause decisions as binary labels. This sup-ports word-level diagnosis and correction, but does not model degrees of stress intensity or calibrated pause duration. Future extensions could use more fine-grained prosodic labels to support continuous or multi-level expressive control. The Refiner performs guided expressive re-synthesis conditioned on the original audio rather than waveform-level local editing. This design sup-ports broad prosodic correction, but expressive or prosodic changes may also shift speaker embed-dings. Such SIM degradation is a common trade-off in expressive TTS, where emotional/prosodic changes can affect speaker similarity (Wang et al., 2026a; Cho et al., 2025); Appendix D.5 discusses this trade-off in more detail. 
+
+Ethics Statement 
+
+Human annotation and fair compensation. Hu-man participation in this work includes ten pro-fessional paid blind listening test evaluators with fluent English listening proficiency, six diagnostic alignment raters, and professional prosodic annota-tors who provided annotation ground-truth labels and human-instruction upper-bound references. All participants were compensated in accordance with local labor regulations and institutional guidelines, consistent with ACL requirements regarding fair treatment and remuneration of human participants. All human tasks were limited to listening to AI-synthesized speech and providing subjective qual-ity ratings; no personally identifiable information was collected from any participant. Our institution classifies such perception-only studies as minimal-risk research, exempt from formal ethics board re-view. 
+
+Data privacy and consent. All training data in REFINER -DB are constructed from publicly avail-able speech corpora released for research purposes (ESD, RAVDESS, SAVEE, MESS, EmoVoice-DB, and LibriTTS). The contrastive instruction data are generated entirely from these public datasets via our AudioLLM-annotated data construction pipeline; no private, user-uploaded, or personally identifiable data are used at any stage. For any dataset release, we will follow the license and redis-tribution terms of each source corpus: derived an-notations and construction scripts will be released where permitted, while source audio will be redis-tributed only when the original license allows it. The released dataset and model checkpoints do not contain any private user data. 
+
+Licensing and responsible use. The complete code, data construction scripts, prompts, model checkpoints, generated annotations, raw Audi-oLLM JSON outputs where license-compatible, and evaluation sample lists will be released upon acceptance for non-commercial academic research. We acknowledge that controllable prosodic speech synthesis carries potential risks of misuse, includ-ing generating deceptive or manipulative audio con-tent. We emphasize that L OOP TTS is intended as a research contribution to advance fine-grained prosodic control in TTS, and we encourage respon-sible use with appropriate human oversight in any downstream application. 
+
+Usage of AI assistants. AI language mod-els were used in this work in three capaci-ties: (1) language polishing during paper writing, (2) prosodic annotation during dataset construc-tion (Appendix I.1), and (3) prosodic diagnosis in the Judge stage of the L OOP TTS pipeline (Ap-pendix I.2). All experimental design, analysis, and scientific conclusions were made by the authors. 
+
+Acknowledgments 
+
+This work was supported by the Program for Guangdong Introducing Innovative and En-trepreneurial Teams (Grant No. 2023ZT10X044). 
+
+References 
+
+Philip Anastassiou, Jiawei Chen, Jitong Chen, Yuanzhe Chen, Zhuo Chen, Ziyi Chen, Jian Cong, Lelai Deng, Chuang Ding, Lu Gao, and 1 others. 2024. Seed-tts: A family of high-quality versatile speech generation models. arXiv preprint arXiv:2406.02430 .Jie Chen, Jinhao Jiang, Yingqian Min, Zican Dong, Shijie Wang, Wayne Xin Zhao, and Ji-Rong Wen. 2025a. Sticker-TTS: Learn to utilize historical expe-rience with a sticker-driven test-time scaling frame-work. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing ,pages 12328–12338. Sanyuan Chen, Shujie Liu, Long Zhou, Yanqing Liu, Xu Tan, Jinyu Li, Sheng Zhao, Yao Qian, and Furu Wei. 2024. Vall-e 2: Neural codec language models are human parity zero-shot text to speech synthesiz-ers. arXiv preprint arXiv:2406.05370 .Yushen Chen, Zhikang Niu, Ziyang Ma, Keqi Deng, Chunhui Wang, JianZhao JianZhao, Kai Yu, and Xie Chen. 2025b. F5-tts: A fairytaler that fakes fluent and faithful speech with flow matching. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) ,pages 6255–6271. Deok-Hyeon Cho, Hyung-Seok Oh, Seung-Bin Kim, Sang-Hoon Lee, and Seong-Whan Lee. 2024. Emosphere-tts: Emotional style and intensity mod-eling via spherical emotion vector for control-lable emotional text-to-speech. arXiv preprint arXiv:2406.07803 .Deok-Hyeon Cho, Hyung-Seok Oh, Seung-Bin Kim, and Seong-Whan Lee. 2025. Diemo-tts: Disentan-gled emotion representations via self-supervised dis-tillation for cross-speaker emotion transfer in text-to-speech. Domenic V Cicchetti. 1994. Guidelines, criteria, and rules of thumb for evaluating normed and standard-ized assessment instruments in psychology. Psycho-logical assessment , 6(4):284. Jiayan Cui, Zhihan Yang, Naihan Li, Jiankun Tian, Xingyu Ma, Yi Zhang, Guangyu Chen, Runxuan Yang, Yuqing Cheng, Yizhi Zhou, and 1 others. 2025. Glm-tts technical report. arXiv preprint arXiv:2512.14291 .Zhihao Du, Qian Chen, Shiliang Zhang, Kai Hu, Heng Lu, Yexin Yang, Hangrui Hu, Siqi Zheng, Yue Gu, Ziyang Ma, and 1 others. 2024a. Cosyvoice: A scal-able multilingual zero-shot text-to-speech synthesizer based on supervised semantic tokens. arXiv preprint arXiv:2407.05407 .Zhihao Du, Yuxuan Wang, Qian Chen, Xian Shi, Xiang Lv, Tianyu Zhao, Zhifu Gao, Yexin Yang, Changfeng Gao, Hui Wang, and 1 others. 2024b. Cosyvoice 2: Scalable streaming speech synthesis with large language models. arXiv preprint arXiv:2412.10117 .Zhifang Guo, Yichong Leng, Yihan Wu, Sheng Zhao, and Xu Tan. 2023. Prompttts: Controllable text-to-speech with text descriptions. In ICASSP 2023-2023 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , pages 1–5. IEEE. Hangrui Hu, Xinfa Zhu, Ting He, Dake Guo, Bin Zhang, Xiong Wang, Zhifang Guo, Ziyue Jiang, Hongkun Hao, Zishan Guo, and 1 others. 2026. Qwen3-tts technical report. arXiv preprint arXiv:2601.15621 .Shehzeen Hussain, Paarth Neekhara, Xuesong Yang, Edresson Casanova, Subhankar Ghosh, Roy Fejgin, Ryan Langman, Mikyas Desta, Leili Tavabi, and Ja-son Li. 2025a. Align2speak: Improving tts for low resource languages via asr-guided online preference optimization. arXiv preprint arXiv:2509.21718 .Shehzeen Samarah Hussain, Paarth Neekhara, Xuesong Yang, Edresson Casanova, Subhankar Ghosh, Roy Fejgin, Mikyas T. Desta, Rafael Valle, and Jason Li. 2025b. Koel-TTS: Enhancing LLM based speech generation with preference alignment and classifier free guidance. In Proceedings of the 2025 Confer-ence on Empirical Methods in Natural Language Processing , pages 21219–21234. Shengpeng Ji, Qian Chen, Wen Wang, Jialong Zuo, Minghui Fang, Ziyue Jiang, Hai Huang, Zehan Wang, Xize Cheng, Siqi Zheng, and 1 others. 2025. Con-trolspeech: Towards simultaneous and independent zero-shot speaker cloning and zero-shot language style control. In Proceedings of the 63rd Annual Meeting of the Association for Computational Lin-guistics (Volume 1: Long Papers) , pages 6966–6981. KimiTeam, Ding Ding, Zeqian Ju, Yichong Leng, Songxiang Liu, Tong Liu, Zeyu Shang, Kai Shen, Wei Song, Xu Tan, Heyi Tang, Zhengtao Wang, Chu Wei, Yifei Xin, Xinran Xu, Jianwei Yu, Yutao Zhang, Xinyu Zhou, Y. Charles, and 21 others. 2025. Kimi-audio technical report. Preprint , arXiv:2504.18425. Jungil Kong, Jaehyeon Kim, and Jaekyoung Bae. 2020. Hifi-gan: Generative adversarial networks for effi-cient and high fidelity speech synthesis. Advances in neural information processing systems , 33:17022– 17033. Simon Kornblith, Mohammad Norouzi, Honglak Lee, and Geoffrey Hinton. 2019. Similarity of neural network representations revisited. In International conference on machine learning , pages 3519–3529. PMlR. Haoxun Li, Yu Liu, Yuqing Sun, Hanlei Shi, Leyuan Qu, and Taihao Li. 2025a. Emorl-tts: Reinforce-ment learning for fine-grained emotion control in llm-based tts. arXiv preprint arXiv:2510.05758 .Xiang Li, Duyi Pan, Hongru Xiao, Jiale Han, Jing Tang, Jiabao Ma, Wei Wang, and Bo Cheng. 2025b. Dia-logueagents: A hybrid agent-based speech synthesis framework for multi-party dialogue. pages 1–6. Tianchi Liu, Zeyang Song, Tianrui Wang, Zhipeng Li, Chenglin Xu, and Yiwen Guo. 2026. EmoTra-TTS: Smooth intra-utterance emotion transitions for speech synthesis. arXiv preprint arXiv:2608.23791 .Steven R Livingstone and Frank A Russo. 2018. The ryerson audio-visual database of emotional speech and song (ravdess): A dynamic, multimodal set of fa-cial and vocal expressions in north american english. 
+
+PloS one , 13(5):e0196391. Potsawee Manakul, Woody Haosheng Gan, Michael J Ryan, Ali Sartaz Khan, Warit Sirichotedumrong, Ku-nat Pipatanakul, William Held, and Diyi Yang. 2025. Audiojudge: Understanding what works in large au-dio model based speech evaluation. arXiv preprint arXiv:2507.12705 .Shae D Morgan. 2019. Categorical and dimensional rat-ings of emotional speech: Behavioral findings from the morgan emotional speech set. Journal of Speech, Language, and Hearing Research , 62(11):4015– 4029. MOSS-TTS Team. 2026. MOSS-TTS Family: An open-source speech and sound generation model family. 
+
+https://github.com/OpenMOSS/MOSS-TTS .Wonpyo Park, Dongju Kim, Yan Lu, and Minsu Cho. 2019. Relational knowledge distillation. In Proceed-ings of the IEEE/CVF conference on computer vision and pattern recognition , pages 3967–3976. Puyuan Peng, Po-Yao Huang, Shang-Wen Li, Abdelrah-man Mohamed, and David Harwath. 2024. Voice-craft: Zero-shot speech editing and text-to-speech in the wild. In Proceedings of the 62nd Annual Meet-ing of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 12442–12462. Alec Radford, Jong Wook Kim, Tao Xu, Greg Brock-man, Christine McLeavey, and Ilya Sutskever. 2023. Robust speech recognition via large-scale weak su-pervision. In International conference on machine learning , pages 28492–28518. PMLR. Takaaki Saeki, Detai Xin, Wataru Nakata, Tomoki Koriyama, Shinnosuke Takamichi, and Hiroshi Saruwatari. 2022. Utmos: Utokyo-sarulab sys-tem for voicemos challenge 2022. arXiv preprint arXiv:2204.02152 .Gemini Team, Rohan Anil, Sebastian Borgeaud, Jean-Baptiste Alayrac, Jiahui Yu, Radu Soricut, Johan Schalkwyk, Andrew M Dai, Anja Hauth, Katie Mil-lican, and 1 others. 2023. Gemini: a family of highly capable multimodal models. arXiv preprint arXiv:2312.11805 .Chengyi Wang, Sanyuan Chen, Yu Wu, Ziqiang Zhang, Long Zhou, Shujie Liu, Zhuo Chen, Yanqing Liu, Huaming Wang, Jinyu Li, and 1 others. 2023. Neural codec language models are zero-shot text to speech synthesizers. arXiv preprint arXiv:2301.02111 .Siyi Wang, Shihong Tan, Siyi Liu, Hong Jia, Gong-ping Huang, James Bailey, and Ting Dang. 2026a. Cocoemo: Composable and controllable human-like emotional tts via activation steering. arXiv preprint arXiv:2602.03420 .Tianrui Wang, Ziyang Ma, Yizhou Peng, Haoyu Wang, Zhikang Niu, Zikang Huang, Yihao Wu, Yi-Wen Chao, Yu Jiang, Yuheng Lu, and 1 others. 2026b. Evaluating the expressive appropriateness of speech in rich contexts. In Proceedings of the 64th Annual Meeting of the Association for Computational Lin-guistics (Volume 1: Long Papers) , pages 9088–9106. Xiaofei Wang, Manthan Thakker, Zhuo Chen, Naoyuki Kanda, Sefik Emre Eskimez, Sanyuan Chen, Min Tang, Shujie Liu, Jinyu Li, and Takuya Yoshioka. 2024a. Speechx: Neural codec language model as a versatile speech transformer. IEEE/ACM Transac-tions on Audio, Speech, and Language Processing ,32:3355–3364. Yuancheng Wang, Haoyue Zhan, Liwei Liu, Ruihong Zeng, Haotian Guo, Jiachen Zheng, Qiang Zhang, Xueyao Zhang, Shunsi Zhang, and Zhizheng Wu. 2024b. Maskgct: Zero-shot text-to-speech with masked generative codec transformer. arXiv preprint arXiv:2409.00750 .Haibin Wu, Xiaofei Wang, Sefik Emre Eskimez, Man-than Thakker, Daniel Tompkins, Chung-Hsien Tsai, Canrun Li, Zhen Xiao, Sheng Zhao, Jinyu Li, and Naoyuki Kanda. 2024. Laugh now cry later: Control-ling time-varying emotional states of flow-matching-based zero-shot text-to-speech. In IEEE Spoken Lan-guage Technology Workshop (SLT) , pages 690–697. Kangxiang Xia, Xinfa Zhu, Jixun Yao, and Lei Xie. 2025. Mpo: Multidimensional preference optimiza-tion for language model-based text-to-speech. arXiv preprint arXiv:2509.00685 .Tianxin Xie, Yan Rong, Pengfei Zhang, Wenwu Wang, and Li Liu. 2025. Towards controllable speech syn-thesis in the era of large language models: A system-atic survey. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Process-ing (EMNLP) , pages 764–791. Jin Xu, Zhifang Guo, Hangrui Hu, Yunfei Chu, Xiong Wang, Jinzheng He, Yuxuan Wang, Xian Shi, Ting He, Xinfa Zhu, Yuanjun Lv, Yongqi Wang, Dake Guo, He Wang, Linhan Ma, Pei Zhang, Xinyu Zhang, Hongkun Hao, Zishan Guo, and 19 others. 2025. Qwen3-omni technical report. arXiv preprint arXiv:2509.17765 .Chao Yan, Boyong Wu, Peng Yang, Pengfei Tan, Guoqiang Hu, Li Xie, Yuxin Zhang, Fei Tian, Xuerui Yang, Xiangyu Zhang, and 1 others. 2025. Step-audio-editx technical report. arXiv preprint arXiv:2511.03601 .Dongchao Yang, Songxiang Liu, Rongjie Huang, Chao Weng, and Helen Meng. 2024. Instructtts: Modelling expressive tts in discrete latent space with natural language style prompt. IEEE/ACM Transactions on Audio, Speech, and Language Processing , 32:2913– 2925. Guanrou Yang, Chen Yang, Qian Chen, Ziyang Ma, Wenxi Chen, Wen Wang, Tianrui Wang, Yifan Yang, Zhikang Niu, Wenrui Liu, and 1 others. 2025a. Emovoice: Llm-based emotional text-to-speech model with freestyle text prompting. In Pro-ceedings of the 33rd ACM International Conference on Multimedia , pages 10748–10757. Qing Yang, Zhenghao Liu, Junxin Wang, Yangfan Du, Pengcheng Huang, and Tong Xiao. 2025b. Rlaif-spa: Optimizing llm-based emotional speech synthesis via rlaif. arXiv preprint arXiv:2510.14628 .Zhen Ye, Xinfa Zhu, Chi-Min Chan, Xinsheng Wang, Xu Tan, Jiahe Lei, Yi Peng, Haohe Liu, Yizhu Jin, Zheqi Dai, and 1 others. 2025. Llasa: Scaling train-time and inference-time compute for llama-based speech synthesis. arXiv preprint arXiv:2502.04128 .Heiga Zen, Viet Dang, Rob Clark, Yu Zhang, Ron J Weiss, Ye Jia, Zhifeng Chen, and Yonghui Wu. 2019. Libritts: A corpus derived from librispeech for text-to-speech. arXiv preprint arXiv:1904.02882 .Dong Zhang, Zhaowei Li, Shimin Li, Xin Zhang, Pengyu Wang, Yaqian Zhou, and Xipeng Qiu. 2024. Speechalign: Aligning speech generation to human preferences. Advances in Neural Information Pro-cessing Systems , 37:50343–50360. Xueyao Zhang, Chaoren Wang, Huan Liao, Ziniu Li, Yuancheng Wang, Li Wang, Dongya Jia, Yuanzhe Chen, Xiulin Li, Zhuo Chen, and 1 oth-ers. 2025. Speechjudge: Towards human-level judgment for speech naturalness. arXiv preprint arXiv:2511.07931 .Lianmin Zheng, Wei-Lin Chiang, Ying Sheng, Siyuan Zhuang, Zhanghao Wu, Yonghao Zhuang, Zi Lin, Zhuohan Li, Dacheng Li, Eric Xing, and 1 others. 2023. Judging llm-as-a-judge with mt-bench and chatbot arena. Advances in neural information pro-cessing systems , 36:46595–46623. Kun Zhou, Berrak Sisman, Rui Liu, and Haizhou Li. 2021. Seen and unseen emotional style transfer for voice conversion with a new emotional speech dataset. In ICASSP 2021-2021 IEEE International Conference on Acoustics, Speech and Signal Process-ing (ICASSP) , pages 920–924. IEEE. Siyi Zhou, Yiquan Zhou, Yi He, Xun Zhou, Jinchao Wang, Wei Deng, and Jingchen Shu. 2025. In-dextts2: A breakthrough in emotionally expressive and duration-controlled auto-regressive zero-shot text-to-speech. arXiv preprint arXiv:2506.21619 .Yixuan Zhou, Xiaoyu Qin, Zeyu Jin, Shuoyi Zhou, Shun Lei, Songtao Zhou, Zhiyong Wu, and Jia Jia. 2024. Voxinstruct: Expressive human instruction-to-speech generation with unified multilingual codec language modelling. In Proceedings of the 32nd ACM Interna-tional Conference on Multimedia , pages 554–563. 
+
+A LoopTTS on scaled evaluation set 
+
+Beyond the small-scale human evaluation in Sec-tion 6.2, we conduct a larger-scale objective com-parison on 3,000 emotional synthesis utterances (Table 6). Each sample provides a neutral refer-ence audio and a target emotion label; the system must synthesize emotionally expressive speech for the given text. We report WER ( ↓), SIM ( ↑), and UTMOS ( ↑). The high error rate of CosyVoice2 and EmoVoice is largely due to generation failures (e.g., garbled audio, missing words); Stage 1 per-forms up to two additional re-generation attempts after the initial generation and removes most such failures before Judge-based diagnosis. Samples that still fail the Stage 1 filters after these attempts are not passed to Stage 2, while the remaining sam-ples enter optional refinement. To contextualize full-distribution performance, we additionally apply untargeted CosyVoice2 and EmoVoice re-generation directly to the same 3,000 synthesis requests. We also evaluate a best-of-5 alternative: for each request, CosyVoice2 generates five candidates, each candidate is independently scored by the AudioLLM for target-emotion fi-delity and overall quality, and the highest-scoring candidate is retained.                            
+
+> System WER ↓SIM ↑UTMOS ↑
+> CosyVoice2 3.69 0.70 3.33 EmoVoice 3.65 0.65 3.31 LOOP TTS (Stage 1) 2.94 0.74 3.76 CosyVoice2 re-generation 2.90 0.74 3.81 EmoVoice re-generation 2.81 0.72 3.79 Judge-reranked best-of-5 2.90 0.74 3.82 LOOP TTS (Full) 2.73 0.73 3.93
+
+Table 6: Objective evaluation on 3,000 emotional syn-thesis utterances. WER is computed via Whisper-large-v3-turbo; SIM is measured against the neutral speaker reference; UTMOS estimates perceptual quality. 
+
+All rows use the same 3,000 requests and evalu-ation metrics. The full L OOP TTS pipeline obtains the lowest WER and highest UTMOS while retain-ing comparable SIM. Judge-reranked best-of-5 pro-vides little improvement over a single CosyVoice2 retry and remains below L OOP TTS in WER and UTMOS, while requiring five generations and five AudioLLM scoring calls per request. In the re-finement stage of L OOP TTS, each flagged request instead requires one AudioLLM call to produce its refine instruction and one Refiner generation. To make the scaled-set cascade more transparent, we also report stage-level accounting in Table 7. This separates utterances that pass the initial coarse filter, those recovered by Stage 1 re-generation, those flagged by Stage 2, and the remaining flagged subset after one refinement round.              
+
+> Stage # Utt. Rate
+> Total 3,000 100.00% Initial pass 2,367 78.90% After regen. 2,753 91.76% Stage 2 flagged 237 7.90% After 1st refine 103 3.43%
+> Table 7: Stage-level accounting for the large-scale LOOP TTS cascade.
+
+B Data Statistics 
+
+Table 8 summarizes the composition of R EFINER -DB. The dataset contains ∼42K contrastive tuples sourced from six publicly available corpora, all used for training. In addition, we construct three non-overlapping evaluation splits from the same source corpora: 1,796 tuples for validation and 500 tuples for testing. There is no overlap in tar-get recordings or text utterance instances among the training, validation, and test sets. We do not claim an unseen-speaker split for all corpora; same-speaker neutral prompts are part of the zero-shot cloning setup. ESD (Zhou et al., 2021), RAVDESS (Living-stone and Russo, 2018), SAVEE 4, MESS (Morgan, 2019), and EmoVoice-DB (Yang et al., 2025a) pro-vide emotionally expressive recordings, while Lib-riTTS (Zen et al., 2019) contributes read speech with natural prosodic variation. Where available, utterance-level emotion, speed, and pitch metadata are sourced from VccmDataset (Ji et al., 2025). For each target recording ytgt , we synthesize a neutral counterpart yneu with CosyVoice2 (Du et al., 2024b) in zero-shot mode using a neutral prompt from the 
+
+> 4http://kahlan.eps.surrey.ac.uk/savee
+
+same speaker, and retain pairs only when the neu-tral synthesis satisfies WER =0 and UTMOS >3.The paired utterances therefore share text and speaker prompt, making prosody the dominant con-trast while not eliminating all acoustic differences.                 
+
+> Corpus # Tuples Type
+> ESD 14,000 Emotional RAVDESS 1,440 Emotional SAVEE 480 Emotional MESS 6,800 Emotional EmoVoice-DB 17,280 Emotional LibriTTS 2,000 Regular
+> Total ∼42,000 —
+> Table 8: R EFINER -DB composition by source corpus.
+
+The 500 test tuples are partitioned into three non-overlapping subsets: 200 neutral–emotional pairs for AudioLLM annotation capability assessment (Section 5.2), 100 TTS-generated utterances for AudioLLM diagnostic capability assessment (Sec-tion 5.1), and 200 tuples for instruction-following comparison (Section 6.3). 
+
+C Pipeline Evaluation Setup 
+
+Data preparation. Using speakers from the eval-uation set, we pair their neutral reference au-dio with text transcripts as speaker prompts for CosyVoice2 zero-shot generation, synthesizing 2,000 utterances per condition ( Neutral and Emo-tional ). For the Emotional condition, the target emotion label is provided by the dataset condition and used for all systems. Stage 1 performs up to two additional re-generation attempts after the ini-tial generation, stopping early once WER ≤3.0% 
+
+and UTMOS >3.0 are both satisfied; samples still failing after these attempts do not enter Stage 2. After Stage 1 filtering and Stage 2 AudioLLM di-agnosis (score 1–10), utterances scoring < 5 are flagged. We sample 100 flagged utterances per con-dition (200 total) for MOS-style human evaluation, directly testing each method’s ability to recover from diagnosed defects. For L OOP TTS-Q, the same evaluation protocol and Refiner are used, but Qwen3-Omni Thinking replaces Gemini-3-pro for the complete inference-time Judge step, including diagnosis and instruction generation. 
+
+Condition details. Table 3 reports eight condi-tions in three groups: • Before refinement (Baseline): original flagged utterances, serving as the lower bound. • CosyVoice2 re-generation (Re-generation, open-loop): re-synthesized from scratch by CosyVoice2 with a different random seed but the same text T , speaker prompt, and emotion instruction. This is the default untargeted retry strategy, using the same Stage 2 Judge trigger and one additional synthesis call as one-round LOOP TTS. • EmoVoice re-generation (Re-generation, open-loop): same setup as above but using EmoVoice as the generator, testing cross-model recovery under the same one-correction budget. • LOOP TTS, Global-only (Closed-loop): the Refiner retains the Judge-derived global emo-tion, speed, and pitch controls but receives no word-level stress or pause cues. All other in-puts and evaluation settings match one-round LOOP TTS. • LOOP TTS, 1-round refinement (Closed-loop): the flagged yinit is diagnosed by Gemini-3-pro to produce instruction I; the Re-finer takes (yinit , I, T ) and outputs corrected speech yR.• LOOP TTS-Q, 1-round refinement (Closed-loop): same as L OOP TTS, except that Qwen3-Omni Thinking performs the complete Stage 2 Judge step, including scoring, diagnosis, and instruction generation. The Refiner is un-changed and is not retrained. • LOOP TTS, 2-round refinement (Closed-loop): after the first round produces y(1)  
+
+> R
+
+,it is re-diagnosed; if still < 5, a second instruction I(2) is generated and y(2)  
+
+> R
+
+=
+
+Refiner (y(1)  
+
+> R
+
+, I (2) , T ). No second round if the first already scores ≥ 5.• Human-instruction (Closed-loop): a native English speaker with phonetics training first writes the refine instruction in the same struc-tured format (global style + word-level stress/-pause), replacing the AudioLLM output. Two additional professional annotators then review and revise the stress/pause choices until con-sensus. This isolates instruction quality and serves as a soft upper bound. 
+
+Evaluation protocol. SIM is computed against the neutral speaker reference. Ten professional paid evaluators score each sample on MOS (1–5) in a blind test with all conditions shuffled and sys-tem identities hidden. Conditions are compared on matched texts, speakers, and target styles; evalua-tors may therefore hear the same text across sys-tems, but presentation order is randomized. For paired preference evaluation, each comparison uses 30 flagged samples and the same 10 evaluators in a blind A/B setting. The order of systems is ran-domized per sample, and we report the aggregate preference rate as well as the number of samples for which at least 7/10 or 9/10 evaluators agree on the preferred system. 
+
+D Additional Robustness and Reliability Analyses 
+
+D.1 Audio Conditioning Ablation 
+
+The Refiner conditions on the initial utterance yinit ,which provides an acoustic reference for preserv-ing speaker identity and unmodified prosodic at-tributes. Removing this input reduces the model to instruction-conditioned synthesis from the text and speaker prompt, testing whether targeted correction benefits from explicitly seeing the utterance to be refined. This ablation is also a check on whether the system is genuinely using the defective input or mainly acting as a standalone expressive TTS model.              
+
+> Variant WER ↓SIM ↑MOS ↑Avg. MOS-I ↑
+> Refiner 2.90 0.68 4.21 ±.14 4.21 ±.09
+> w/o yinit 2.91 0.62 4.17 ±.12 3.94 ±.11
+> Table 9: Ablation of conditioning on the initial utter-ance.
+
+Removing yinit only slightly decreases MOS from 4.21 to 4.17, showing that the model can still generate broadly natural speech from the text, speaker prompt, and instruction. However, SIM drops from 0.68 to 0.62 and Avg. MOS-I decreases from 4.21 to 3.94. This indicates that the initial utterance is important for targeted refinement: with-out this acoustic reference, the model is more likely to drift from the intended speaker/prosodic identity and, in some instruction-following cases, change prosodic regions that were not requested. The full Refiner therefore better balances naturalness, preservation, and instruction execution. D.2 Counterfactual Instruction Robustness 
+
+To test whether the Refiner blindly executes erro-neous local edits, we construct a counterfactual set of 40 utterances containing linguistically inappro-priate stress placements on function words or pause placements between tightly coupled constituents. For each utterance, one correct stress/pause po-sition is replaced by a counterfactual one, allow-ing us to check both wrong-position execution and correct-position preservation.         
+
+> Setting WER ↓SIM ↑
+> Before refinement 1.92 0.68 With GT instruction 1.72 0.67 With counterfactual instruction 1.87 0.68
+> Table 10: Objective results under counterfactual local stress/pause instructions.
+
+The counterfactual instruction affects refinement, but WER still improves over the pre-refinement au-dio. This suggests that the Refiner does not simply sacrifice content fidelity to execute a noisy instruc-tion. One reason is the training setup: during Re-finer training, instructions are paired with correct target audio, so the model mainly learns acousti-cally plausible corrections that move the input to-ward a better target realization, rather than arbitrary local command execution. This test is limited to a small counterfactual set and does not fully measure false-edit rates on natural unrequested positions.       
+
+> Type Wrong Exe. Rate Corr. Pres. Rate
+> Stress 10% 34% Pause 28% 52%
+> Table 11: Professional annotation of counterfactual in-struction execution. Exe. and Pres. denote execution and preservation.
+
+These results suggest partial robustness to over-diagnosed local edits: erroneous local edits are usually not introduced. The non-zero preservation rates should be interpreted more cautiously; they show that some emotionally salient stress/pause cues can remain natural even when omitted from the instruction, but they do not eliminate the risk of under-diagnosis. 
+
+D.3 Iteration Budget 
+
+We further check a 3-round setting to evaluate whether additional iterations continue to help. The objective gains saturate after one to two rounds, while SIM gradually decreases as later                  
+
+> Setting Neutral Emotional WER ↓SIM ↑WER ↓SIM ↑
+> 1-round 1.86 0.66 1.79 0.65 2-round 1.85 0.64 1.80 0.61 3-round 1.85 0.60 1.80 0.58
+> Table 12: Objective results with additional refinement rounds.
+
+rounds refine previously generated audio rather than the original audio. AudioLLM over- or under-diagnosis may also contribute to this accumulation through unnecessary edits or residual defects. We therefore view one or two rounds as the practical operating point. 
+
+D.4 Human Evaluation Reliability 
+
+For MOS-style ratings, we compute Intraclass Cor-relation Coefficient ICC(2,k), which measures the reliability of averaged continuous scores from mul-tiple raters. Following Cicchetti’s guideline (Cic-chetti, 1994), values from 0.60 to 0.74 are consid-ered good and 0.75 to 1.00 excellent. Most MOS/MOS-I reliability values are in the good range or above, and the Refiner shows good consistency on the prosody-related dimensions. Some dimensions remain below the good range, reflecting the inherent difficulty of fine-grained sub-jective prosody evaluation. 
+
+D.5 Speaker Similarity Trade-off 
+
+SIM in our main experiments is computed against a neutral speaker reference. This metric can de-crease when emotional prosody moves away from the neutral reference and therefore conflates in-tended emotional variation with speaker-identity drift. To examine speaker preservation under emo-tional generation, we additionally compute same-speaker expressive-reference similarity (SIM-EXP). For each generated output x, we average its simi-larity to five different-utterance references ri from the same speaker and target emotion: 
+
+SIM -EXP( x) = 15
+
+> 5
+
+X
+
+> i=1
+
+cos( e(x), e (ri)) , (6) where e(·) denotes the normalized WavLM speaker embedding. CosyVoice2 has the highest neutral-reference SIM but the lowest SIM-EXP, consistent with its System MOS Emotion Pause Stress Pitch Speed                                 
+
+> CosyVoice2 0.784 0.562 0.915 0.496 0.728 0.848 CosyVoice2-marker 0.549 0.588 0.943 0.598 0.729 0.865 EmoVoice 0.496 0.706 0.899 0.694 0.683 0.823 Refiner 0.791 0.679 0.886 0.677 0.744 0.835
+> Table 13: ICC(2,k) reliability for MOS and MOS-I ratings.
+> System Neutral SIM ↑SIM-EXP ↑
+> CosyVoice2 0.72 0.65 EmoVoice 0.67 0.75 Refiner 0.68 0.77
+> Table 14: Speaker similarity against a neutral reference and five same-speaker, same-emotion expressive refer-ences.
+
+weaker target-emotion realization in Table 4 (Emo-tion MOS-I: 2.25). The Refiner retains neutral-reference SIM comparable to EmoVoice while achieving the highest SIM-EXP. These results sug-gest that the SIM reduction under emotional gen-eration primarily reflects intended emotional vari-ation rather than substantial speaker drift. Sim-ilar patterns have been reported in expressive TTS: CoCoEmo observes that speaker similar-ity can decrease as emotional similarity increases (Wang et al., 2026a), and DiEmo-TTS shows that speaker embeddings can form emotion-dependent sub-clusters (Cho et al., 2025). 
+
+D.6 Construction Cost Estimate 
+
+For R EFINER -DB construction, each tuple requires one AudioLLM call over two audio clips. Including audio, transcript, and prompt, each tuple uses about 2.7K input tokens and 0.6K output tokens. For 42K tuples, this corresponds to about 113.4M input to-kens and 25.2M output tokens. Using Gemini-3-pro pricing of $4 per 1M input tokens and $18 per 1M output tokens, the estimated construction cost is about $907.2. At inference time, each retained utterance requires one Judge call, and each flagged utterance additionally requires one Refiner genera-tion per refinement round; this is why our intended deployment setting is offline batch synthesis. 
+
+D.7 Prompt-only TTS Baselines 
+
+We also conducted small-sample listening trials with Qwen3-TTS (Hu et al., 2026) and MOSS-TTS (MOSS-TTS Team, 2026). In these trials, the models did not reliably execute fine-grained word-level stress or pause edits through prompts alone, making them difficult to use as comparable refin-ers for this task. This observation is preliminary rather than a full MOS-style baseline, and we do not claim that all future prompt-only or SSML-like systems would fail. The key distinction is that prompt-only optimization is limited by the controllability exposed by the original TTS model, whereas L OOP TTS performs correction through a separate post-generation Refiner. 
+
+E Instruction-Following Baselines 
+
+CosyVoice2 (Du et al., 2024b) is a streaming TTS that accepts natural-language instructions along-side target text and generates speech from scratch. It must interpret open-ended instructions, which often leads to verbatim reading of the instruction rather than executing it as a prosodic directive. 
+
+CosyVoice2-marker augments CosyVoice2 with explicit prosodic markup tags (e.g., <strong> ,
+
+<breath> ) instead of free-form language. This pro-vides unambiguous structural directives and avoids verbatim reading, but can cause mispronunciation at modified positions. We tune prompts on the validation set and use the best-performing markup variant for the comparison. 
+
+EmoVoice (Yang et al., 2025a) is the pretrained 1.5B backbone without refinement fine-tuning, iso-lating the contribution of our training procedure from the backbone’s inherent capabilities. Speech editing methods (VoiceCraft (Peng et al., 2024), SpeechX (Wang et al., 2024a)) are excluded as they address content-level word replacement and cannot accept prosodic instructions. 
+
+F Implementation Details 
+
+Model architecture. The Refiner is built on EmoVoice-1.5B, which uses Qwen2.5-1.5B (hid-den dimension 896) as the language model back-bone. Audio is represented as 3-layer grouped semantic codes from the CosyVoice codec (audio vocabulary size 4,160 per layer). We initialize from the pretrained EmoVoice checkpoint and fine-tune all LLM parameters (encoder frozen). Training setup. We fine-tune with AdamW (learning rate 5×10 −6, no weight decay) using a warmup schedule (1,000 warmup steps, 300K total steps) and a batch size of 8. 
+
+Hyperparameters. The position-weighting hy-perparameters are α=0 .2 (stress) and β=0 .3
+
+(pause) in Equation 1. The structural alignment loss weight is λ=0 .1 in Equation 5. These values were selected based on validation-set MOS-I and WER trends without extensive search. 
+
+AudioLLM versions. We accessed Gemini-3-pro through Google’s official Gemini API using the model code gemini-3-pro-preview in January 2026. For Qwen3-Omni Thinking, we use the official Qwen/Qwen3-Omni-30B-A3B-Thinking 
+
+checkpoint. 
+
+Inference. The Judge score threshold is τjudge =5 .Stage 1 filtering uses Whisper-large-v3-turbo for WER computation and UTMOS for quality esti-mation, with WER ≤3.0% and UTMOS >3.0 as the pass condition. The Refiner uses determinis-tic greedy decoding (argmax, without sampling) with a maximum of 256 new tokens per utterance. AudioLLM responses are parsed as strict JSON ac-cording to the schemas in Appendix I; malformed outputs are retried once, and unresolved failures are excluded during data construction or treated as no-refinement fallbacks during inference. Because proprietary AudioLLM endpoints can change, we will release the prompts, raw parsed outputs, and per-call metadata where permitted. 
+
+G AudioLLM Evaluation Setup 
+
+Data source. Evaluation data is drawn from the 500-tuple test set held out from R EFINER -DB. We use 200 neutral–expressive pairs for annota-tion evaluation and 100 TTS-generated utterances for diagnostic evaluation. For each emotional ut-terance, a neutral counterpart is synthesized via CosyVoice2 zero-shot generation, yielding 200 neutral–emotional pairs. 
+
+Diagnostic Capability (Section 5.1). We select 50 Regular and 50 Emotional TTS-generated ut-terances with noticeable prosodic defects. Each utterance is presented to five AudioLLMs along with its text transcript; the AudioLLM diagnoses prosodic defects and generates refine instructions. Six non-technical evaluators with fluent English lis-tening and reading proficiency independently listen to each utterance, review the AudioLLM’s diagno-sis, and rate its alignment with their own judgment on a 1–4 scale (4: fully aligned, 3: mostly aligned, 2: partially aligned, 1: not aligned). Scores are averaged across evaluators. 
+
+Annotation Capability (Section 5.2). All 200 neutral–expressive pairs are used. Professional an-notators with expertise in prosodic analysis listen to each pair and label the most prominent stressed words and pause positions that distinguish the ex-pressive utterance from its neutral counterpart (see the annotation interface in Appendix J). Each Au-dioLLM is independently prompted to annotate the same pairs, and its outputs are evaluated against the professional labels using micro recall and F1. 
+
+H Scoring Rubrics 
+
+Evaluators receive the following rubrics before the blind test. Each sample is rated independently on MOS and five MOS-I dimensions. In Table 3, MOS measures whether the recovered utterance sounds natural after correction. In Table 4, MOS-I sepa-rately measures whether the specified instruction is executed on the intended control dimension, rather than overall naturalness. For local controls, MOS-I is our human subjective proxy for requested stress/-pause execution and unintended changes that make the instruction less correctly or naturally realized. 
+
+MOS: Naturalness & Audio Quality. Rate how natural and human-like the speech sounds, regard-less of whether instructions are followed. 5 (Excel-lent): Completely natural, human-like, no artifacts. 
+
+4 (Good): Natural, but with very minor artifacts. 
+
+3 (Fair): Understandable, but somewhat robotic or buzzy. 2 (Poor): Unnatural, distinct metallic or robotic sounds. 1 (Bad): Completely unnatural, unintelligible artifacts. 
+
+MOS-I: Instruction Adherence. Each of the five sub-dimensions (emotion, pitch, speed, stress, pause) is scored independently. Focus only on whether the specific instruction for that dimension is followed. 5 (Natural adherence): The instruc-tion is fully followed, and the result sounds natural and effortless. 4 (Followed, slightly unnatural): 
+
+The instruction is followed, but the execution feels slightly exaggerated or mechanical. 3 (Partially followed): The instruction is partially followed; some aspects are correct, others are missing or weak. 2 (Barely followed): The instruction is barely perceptible; very weak or mostly missing. 1 (Not followed): The instruction is completely ignored or contradicted. 
+
+I AudioLLM Prompts 
+
+This section provides the full prompts used for AudioLLM-based prosodic annotation (Sec-tion 3.2) and inference-time diagnosis (Sec-tion 3.1). 
+
+I.1 Annotation Prompt (Training-Time) 
+
+The following prompt is used during R EFINER -DB construction (Section 3.2, Step 2). The Au-dioLLM receives Audio A ( yneu , the neutral syn-thesis) and Audio B ( ytgt , the expressive human recording) along with the shared transcript, and outputs a structured JSON specifying word-level prosodic differences. Global style attributes (emo-tion, speed, pitch) are extracted separately from dataset metadata and merged with the JSON output in post-processing to form the final refine instruc-tion I.
+
+Annotation Prompt 
+
+SYSTEM INSTRUCTIONS 
+
+You are a Prosody Comparison Expert. Your goal is to compare two audio recordings of the same text and identify word-level prosodic differences. 
+
+TASK 
+
+1. Listen to both audios: Audio A is a neutral, prosodically flat synthesis. Audio B is an expressive human recording of the same text. 2. Compare A vs B: Identify where A fails to match B’s prosody, focusing on two dimensions: - stress: Words that are emphasized/stressed in B but not in A. - pause: Positions where B has a noticeable pause but A does not (report the word before the pause). 3. Select top changes: Pick the 3–5 most salient prosodic differences. 4. Generate JSON: Output the result in strict JSON format. 
+
+OUTPUT FORMAT 
+
+{"local_edits": [ { "word": "<word>", "type": "stress" | "pause" } ]}
+
+CONSTRAINTS 
+
+1. Type values: MUST be one of "stress" or "pause". 2. Word matching: The "word" field MUST be an exact word from the provided transcript. 3. Evidence-based: Only report differences you can clearly hear between A and B. Do not guess. 4. Output: RAW JSON ONLY. No markdown blocks, no explanation. 
+
+I.2 Diagnostic Prompt (Inference-Time) 
+
+The following prompt is used during Stage 2 inference-time diagnosis (Section 3.1). Unlike the annotation prompt, which compares two au-dio recordings, the diagnostic prompt receives a single TTS-generated utterance yinit along with its transcript and, when available, the target emotion label from the synthesis condition. The AudioLLM first scores prosodic naturalness and emotional fi-delity (1–10). If the score is 5 or above, only the score is returned and the utterance is accepted. Oth-erwise, the AudioLLM produces a full diagnosis covering global style (emotion, speed, pitch) and lo-cal prosody (word-level stress and pause positions), along with a natural-language refine instruction forwarded to Stage 3. 
+
+Diagnostic Prompt (Inference-Time) 
+
+SYSTEM INSTRUCTIONS 
+
+You are a Prosodic Quality Judge. Your goal is to diagnose prosodic defects in a TTS-generated utterance and, if needed, produce a structured refine instruction for correction. 
+
+TASK 
+
+1. Listen to the audio and read the transcript carefully. 2. Score: Rate overall prosodic naturalness and emotional fidelity on a 1–10 scale (10: perfect, 1: completely unnatural). 3. If score >= 5: Output only the score. No further diagnosis is needed. 4. If score < 5: Produce a full diagnosis: a. Diagnose global style: Specify the target emotion, speed, and pitch using the strict enums below. b. Diagnose local prosody: Identify the 3–5 most salient word-level prosodic defects, focusing on two dimensions: - stress: Words that should be emphasized but are not. - pause: Positions where a pause is missing (report the word before the pause position). c. Generate a natural-language refine instruction summarizing all changes. 5. Generate JSON: Output the result in strict JSON format. 
+
+GLOBAL STYLE ENUMS (STRICT) 
+
+emotion: ["Angry", "Contempt", "Disgusted", "Fear", "Happy", "Sad", "Surprised", "Neutral"] speed: ["Slow", "Moderate", "Fast"] pitch: ["Low", "Moderate", "High"] 
+
+OUTPUT FORMAT 
+
+If score >= 5: { "score": <1-10> } If score < 5: {"score": <1-10>, "global_style": { "emotion": "<target>", "speed": "<target>", "pitch": "<target>" }, "local_edits": [ { "word": "<word>", "type": "stress" | "pause" } ], "instruction": "<natural-language refine instruction>" }
+
+CONSTRAINTS 
+
+1. Strict enums: Global style values MUST be chosen from the provided lists. 2. Word matching: The "word" field MUST be an exact word from the provided transcript. 3. Type values: MUST be one of "stress" or "pause". 4. Instruction: Summarize all suggested changes (global and local) in one concise natural-language sentence. 5. Output: RAW JSON ONLY. No markdown blocks, no explanation. Figure 5: Screenshot of the web-based human annotation interface used for collecting prosodic ground-truth labels (Section 5.2). Annotators toggle between Stress and Pause modes, clicking words or inter-word gaps to mark stressed words (red) and pause positions (vertical bars). A live preview and free-text note field are provided below. 
+
+J Human Annotation Interface 
+
+To collect professional human labels for evaluating AudioLLM annotation quality (Section 5.2), we build a web-based annotation tool (Figure 5). For each of the 200 neutral–expressive utterance pairs, annotators listen to the expressive recording and interact with the displayed transcript in two modes: • Stress mode : clicking a word toggles it as a stressed word (highlighted in red). • Pause mode : clicking the gap between two words toggles a pause marker at that position (indicated by a vertical bar). Selected stress words and pause positions are displayed in a live preview below the text. Anno-tators can also leave free-text notes for ambiguous cases. Annotations are auto-saved and exportable as structured JSON, with each entry recording the list of stressed word indices and pause slot indices for downstream evaluation.
