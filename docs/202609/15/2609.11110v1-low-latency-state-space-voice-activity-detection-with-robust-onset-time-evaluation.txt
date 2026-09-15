@@ -1,0 +1,891 @@
+Low-Latency State Space Voice Activity Detection
+with Robust Onset Time Evaluation
+Elad Cohen
+Arm Holdings
+Israel
+elad.cohen2@arm.com
+Arnon Netzer
+Arm Holdings
+Israel
+arnon.netzer@arm.com
+Hai Victor Habi
+Arm Holdings
+Israel
+haivictor.habi@arm.com
+Abstract—Voice Activity Detection (VAD) systems are com-
+monly evaluated using metrics such as the area under the
+receiver operating characteristic curve (AUROC), but these
+metrics do not account for temporal responsiveness. For low-
+latency applications, however, accurately measuring speech onset
+delay is essential. This is particularly challenging because onset
+latency evaluation is affected by noise and systematic misalign-
+ment in annotation timestamps. In this work, we introduce a
+probabilistic framework for evaluating VAD onset time under
+noisy temporal labels. We model annotated onset times as noisy
+observations of latent acoustic onsets and estimate the resulting
+discrepancy distribution from data. We show that this approach
+provides a more stable and robust estimate of algorithmic latency.
+In addition, we introduce S4VAD, the first state-space-model-
+based (SSM-based) VAD architecture. S4VAD supports efficient
+streaming inference while directly controlling the decay of past
+acoustic evidence, enabling fast and responsive speech-onset
+detection. We evaluate VAD onset latency across several low-
+latency architectures, including CNN, Transformer, and RNN
+models. Our proposed VAD achieves the lowest latency while
+maintaining a competitive AUROC.
+Index Terms—VAD, Low Latency, SSM
+I. INTRODUCTION
+Voice Activity Detection (VAD) [1]–[5] is a core component
+in speech processing pipelines, including speech recognition
+[6], [7], speaker diarization [8], [9], speech enhancement [10],
+and real-time communication. VAD is usually evaluated with
+classification metrics such as accuracy, F1-score, equal error
+rate (EER), and area under the receiver operating characteristic
+curve (AUROC), but these metrics are largely insensitive
+to detection timing. In low-latency and streaming scenarios
+[11], however, onset latency directly affects user experience
+and downstream system behavior. This sensitivity has become
+increasingly important with the rise of on-device and real-time
+audio user interfaces, where efficient, low-latency inference is
+critical for responsiveness and scalability. Despite its practical
+importance, algorithmic latency is much less standardized than
+classification accuracy in the VAD literature. It is typically
+defined as the time difference between an annotated speech
+onset and the first frame where the VAD output crosses a
+threshold or indicates speech [12], [13]. This definition im-
+plicitly assumes that onset annotations are temporally precise,
+an assumption that is often violated in practice.
+In this work, we demonstrate that onset annotations in
+widely used VAD datasets are inherently noisy, owing to
+Fig. 1: S4VAD. Model Overview.
+ambiguous acoustic transitions and varying annotation con-
+ventions. In particular, after manually re-annotating a subset
+of these datasets for true onset times, we observe jitters on
+the order of tens to hundreds of milliseconds. As a result,
+naive latency measurements relative to annotated onset times
+can be unstable and misleading. Related areas such as speaker
+diarization and sound event detection [14] address boundary
+uncertainty using collars or tolerance windows. While these
+reduce over-penalization of small temporal shifts, they mask
+boundary errors rather than provide explicit delay estimates,
+and therefore do not offer a principled solution for onset-
+latency evaluation under noisy labels.
+To address this limitation, we propose an algorithmic
+onset-latency evaluation that explicitly accounts for annotation
+uncertainty. Rather than treating annotated onsets as exact
+timestamps, we model them as noisy observations of unknown
+true acoustic onsets. We estimate the annotation-noise statistics
+from noisy onset labels and reference VAD scores using Ex-
+pectation–Maximization (EM) [15], and use the resulting mean
+offset to correct naive latency estimates. This produces robust
+and stable latency measurements under realistic annotation
+jitter. In addition, we introduce S4VAD, the first state-space
+model (SSM) [16] VAD, to the best of our knowledge. S4VAD
+is built on the S4 architecture [17]. It combines a linear state-
+space recurrence with efficient sequence modeling, controlling
+how quickly past acoustic evidence decays and providing a
+principled architectural mechanism for trading long-context
+robustness against fast onset responsiveness. We evaluate sev-
+arXiv:2609.11110v1  [eess.AS]  10 Sep 2026
+
+
+eral low-latency VAD architectures, including CNN-, RNN-,
+and Transformer-based models, using the proposed framework.
+Our experiments show that S4VAD achieves the lowest onset
+latency while maintaining competitive AUROC.
+Our main contributions are as follows:
+• We propose an algorithmic onset-latency evaluation
+method for VAD models that explicitly accounts for anno-
+tation uncertainty, enabling more stable latency estimates.
+• We introduce S4VAD, the first SSM-based VAD. S4VAD
+enables efficient streaming inference while preserving fast
+local responsiveness for onset detection.
+• We present a systematic comparison of low-latency VAD
+models, including CNN, RNN, Transformer, and SSM-
+based models, with a focus on temporal responsiveness.
+Our proposed VAD achieves the lowest onset latency
+while maintaining a competitive AUROC.
+II. BACKGROUND
+A. Related Work
+Voice activity detection (VAD) has been studied using
+both classical signal-processing methods and modern neural
+architectures. Traditional approaches rely on features such as
+energy, zero-crossing rate, and statistical models [3], [18],
+while recent work employs CNNs, RNNs, and Transformers
+[2], [19]–[21]. Although these methods achieve strong frame-
+level performance under metrics such as AUROC and EER,
+such metrics do not capture temporal responsiveness, which is
+crucial in streaming applications.
+Latency-sensitive speech detection has mainly been studied
+for endpointing in streaming ASR. Prior work examined
+the trade-off between detection delay and false alarms [22],
+[23], while neural end-of-utterance detectors improved re-
+sponsiveness in noisy conditions [24]. However, these stud-
+ies focus on end-of-speech detection and do not provide
+a general framework for onset evaluation under annotation
+uncertainty. Related domains address temporal uncertainty
+using tolerance regions. Sound event detection (SED) com-
+monly applies onset/offset collars [14], [25], while diarization
+protocols use forgiveness regions [9]. These approaches re-
+duce over-penalization but rely on heuristic windows rather
+than explicitly modeling annotation noise. Recent low-latency
+VAD work has considered streaming deployment and latency-
+aware evaluation. Semantic VAD [26] reduces end-of-utterance
+delay using semantic information, while Personal VAD 2.0
+[27] targets resource-efficient personalized VAD for streaming
+ASR. Similarly, [28] explicitly evaluates detection latency
+in personalized VAD systems. However, personalized VAD
+additionally determines whether speech originates from an
+enrolled target speaker, and these works do not address onset
+evaluation under noisy temporal annotations. Speech onset
+detection can also be formulated as sequential change-point
+detection. Methods such as Bayesian online change-point
+detection [29] and quickest change detection [30], [31] provide
+principled event-time estimation under uncertainty. Structured
+approaches, including CRFs and state-based models, have also
+been applied to VAD [32], [33], but without handling noisy
+onset annotations.
+B. Onset Time Uncertainty
+Onset annotations are inherently imprecise due to human
+labeling variability [34], and recent studies report systematic
+onset deviations relative to human annotations [35], [36].
+AVA-Speech [37] provides annotations at 1 Hz resolution,
+leading to boundary uncertainty of hundreds of milliseconds.
+LibriSpeech [38] does not include manually verified word-
+level timestamps; boundaries are typically obtained using
+forced alignment tools such as Kaldi [39] or MFA [40],
+[41]. Evaluations against manually aligned corpora such as
+TIMIT [42] and Buckeye [43] show boundary deviations
+of tens of milliseconds [44]. Thus, even relatively accurate
+alignments introduce non-negligible temporal uncertainty. This
+motivates evaluation methods that explicitly account for label
+uncertainty. We estimate onset time under noisy timestamp
+annotations by jointly modeling the true onset and annotation-
+noise distribution within a probabilistic evaluation framework.
+C. State Space Models (SSM)
+State-space models (SSMs) [16], [17], [45], [46] describe
+sequential data through latent dynamical systems with explicit
+temporal memory. In continuous time, a linear SSM is defined
+as
+˙x(t) = Ax(t) + Bu(t),
+y(t) = Cx(t),
+(1)
+where u(t) is the input signal, x(t) ∈CN is a latent state,
+and y(t) is the output. Here, the parameters consist of the
+state matrix A ∈CN×N and the input and output matrices
+B ∈CN×1 and C ∈C1×N, respectively. State matrix A
+governs the temporal dynamics of the state, while B and C
+control input coupling and readout. When the real parts of the
+eigenvalues of A are negative, the system is stable and exhibits
+decaying memory exponentially.
+For discrete-time sequence modeling, the continuous system
+is discretized with step size ∆, yielding
+xt+1 = ¯Axt + ¯But,
+yt = Cxt,
+(2)
+where ¯A = exp(∆A) and ¯B = (∆A)−1(exp(∆A) −I)∆B.
+This formulation [47] makes temporal memory explicit: past
+inputs influence future outputs through the latent state, with a
+decay rate determined by ¯A.
+III. ONSET TIME EVALUATION
+Here, we present an onset time evaluation method for
+VAD models that explicitly accounts for annotation noise.
+Specifically, let’s denote t∗as the true onset time, t its
+observed (noisy) annotation with annotator noise δ ∼π(δ),
+and x represents the audio segment around the annotated
+onset. Then, the value of t can be written as:
+t = t∗+ δ.
+(3)
+Given a target VAD, our objective is to derive an onset eval-
+uation criterion using a noisy label dataset D = {xi, ti}N
+i=1
+
+
+consisting of N i.i.d. samples. To derive such an evaluation,
+we first assume that π(δ) is a bounded noise distribution such
+that π(δ) = 0 for δ̸ ∈[δL, δR]. Using the assumption and target
+VAD output scores s(t; x), we define the estimated onset time
+as:
+bt(x) = min
+˜t∈Tx
+{˜t : ∀u ∈[˜t, ˜t + T], s(u; x) ≥τ},
+(4)
+where Tx is the time samples of x, τ is a threshold, and T >
+0 is a time interval. In this work, we define the algorithmic
+latency as onset bias, i.e., the average temporal delay between
+a VAD decision and the true speech onset. The expected onset
+bias is then defined by:
+B = E
+bt (x) −t∗
+= E [ϵ]
+|{z}
+e
+B
++E [δ]
+|{z}
+µδ
+,
+(5)
+where ϵ ≜bt (x) −t, µδ denotes the mean error of the
+annotation noise, and eB is the naive onset bias without the
+annotation error correction. We define the onset latency as
+the sum of the corrected onset bias B and the hardware
+inference latency, since a streaming system can emit a speech
+decision only after both the model’s decision delay and the
+computation time have elapsed. Our objective is to estimate
+the average onset bias B at the dataset level in the presence of
+annotation noise. To estimate the onset bias B from a dataset
+D, we propose the following procedure. First, we learn a single
+global noise model for the entire dataset using Expectation-
+Maximization (EM) in conjunction with a reference VAD
+model. Then, we use the dataset D together with the noise
+model to evaluate B.
+A. Annotator Noise Distribution Estimation
+Annotation timestamps are often noisy and systematically
+misaligned with true acoustic onsets, making direct onset
+measurements unreliable. We therefore estimate the noise
+distribution from the data to capture this uncertainty and obtain
+a robust estimate of the onset bias B. Specifically, we model
+the annotation noise and estimate its distribution using the EM
+algorithm [15].
+Expectation Step (E-step): Here, we derive the E-step for
+the EM. Specifically, let us define the expected complete-data
+log-likelihood:
+Q
+
+π|π(k)
+= Eδ∼P(·|D,π(k)) [log P (D, δ|π)]
+(6)
+=
+N
+X
+i=1
+Eδ∼P(·|xi,ti,π(k)) [log P (xi, ti, δ|π)] .
+To obtain the E-step, we need the posterior probability of
+the annotation error and the likelihood term. For the posterior
+probability, we apply Bayes’ rule, which gives:
+q (δ) ≜P (δ|x, t, π) = P (t, δ|x, π)
+P (t|x, π) .
+(7)
+Using the chain rule of probability, we have P (t, δ|x, π) =
+P (t|δ, x) P (δ|x, π). Assuming that P (δ | x, π) = π (δ), i.e.,
+the annotator error is independent of signal x, we approximate
+P (t|δ, x) by the following hazard-style approximation which
+yields:
+P (t|δ, x) ≈ψ(t −δ; x)
+where
+ψ(t; x) ≜1
+Z r(t; x)
+Y
+u<t
+(1 −r(u; x)),
+(8)
+r(t; x) ∈[0, 1] is the activity score of a well-trained reference
+VAD and Z is the normalization constant. Combining (8) and
+P (δ | x, π) = π (δ) results in
+P (t, δ|x, π) = π(δ) ψ(t −δ; x).
+(9)
+Plugging (9) into (7), we have the posterior probability of
+annotator error δ for sample i:
+qi (δ) =
+π(δ) ψ(ti −δ; xi)
+PδR
+δ′=δL π(δ′) ψ(ti −δ′; xi)
+.
+(10)
+Next, we decompose the objective in (6) as:
+log P (xi, ti, δ|π) = log P (xi) + log P (ti, δ|xi, π) .
+(11)
+As the probability of xi being independent of the annotation
+and by using (9) we obtain:
+Q
+
+π|π(k)
+=
+N
+X
+i=1
+Eδ∼P(·|xi,ti,π(k)) [log π (δ) ψ (ti −δ; xi)]
+=
+N
+X
+i=1
+δR
+X
+δ=δL
+qi (δ) log π (δ) .
+(12)
+In the second step of (12), we use the fact that ψ is independent
+of π and apply (10).
+Maximization Step (M-step): In the M-step, we maximize the
+objective in (12) while ensuring that π is a valid distribution,
+by defining the constrained optimization problem:
+π(δ) = arg max
+π
+N
+X
+i=1
+δR
+X
+δ=δL
+qi(δ) log π(δ),
+(13)
+s.t
+δR
+X
+δ=δL
+π(δ) = 1.
+Solving the optimization problem (13) yields:
+π(δ) = 1
+N
+N
+X
+i=1
+qi(δ).
+(14)
+Finally, we initialize π to be a uniform distribution by
+π(0)(δ) =
+1
+δR−δL+1, and then alternate between the E-step
+and M-step for K iterations.
+The estimated noise distribution π(δ) can capture both
+annotation noise and the systematic bias of the reference
+VAD, which are not identifiable separately without additional
+supervision. Consequently, we use a high-quality, well-trained
+reference VAD model, and therefore expect its systematic bias
+to be relatively small compared to annotation uncertainty. As
+a result, we interpret the estimated shift primarily as reflecting
+annotation noise, while acknowledging that residual reference-
+dependent bias may remain.
+
+
+(a) LibriSpeech
+(b) AVA-Speech
+Fig. 2: Annotation noise distribution. Estimated from a small
+subset of clean and noisy onset labels. As shown, outputs
+from our EM algorithm closely match the shape obtained
+from the clean subset. The negative values of δ indicate a
+systematic early-labeling bias, whereby annotators tend to
+place onset labels before the true onset. Results are reported
+for (a) LibriSpeech and (b) AVA-Speech.
+B. Annotation Noise Analysis
+To mitigate bias from the reference VAD, we employ Silero
+VAD [48], a lightweight, high-quality neural VAD widely
+used in real-time audio applications. To verify that its bias
+is substantially smaller than the annotation noise, we obtain
+clean onset labels. Specifically, we collect 100 noisy onset
+instances from each dataset in Subsection V-A and manually
+identify their true onset times, t∗. We then compare the
+resulting annotation-noise histogram with our estimated π(δ).
+We run the EM algorithm for K
+= 5 iterations, using
+δL = −250 ms and δR = 250 ms for LibriSpeech, and
+δL = −500 ms and δR = 500 ms for AVA-Speech, reflecting
+their different uncertainty levels. The estimated annotation-
+noise distributions are shown in Figure 2 and closely match
+those obtained from the manually annotated onsets, with mean
+errors of 5 ms and 13 ms for LibriSpeech and AVA-Speech,
+respectively. These results empirically support the assumptions
+in Subsection III-A. Moreover, π(δ) is sharply concentrated
+around its mean, suggesting that annotation noise is dominated
+by dataset-level bias rather than sample-specific variability.
+Thus, a constant dataset-level correction µδ is preferable to
+per-sample adjustments that may introduce additional variance.
+Note that the reference VAD alone is insufficient: directly
+comparing a target VAD to the reference VAD would measure
+only relative latency and would inherit sample-level reference
+errors. The noisy label, despite its temporal bias, anchors
+the evaluation to the true onset event. Our method uses the
+noisy annotation to define a local candidate window and
+uses the reference VAD only within this window to infer
+the true clean onset. Within the EM procedure, the reference
+VAD acts as a weak local probabilistic observer, enabling the
+dataset-level annotation shift to be estimated from many noisy
+examples rather than from a small manually corrected subset.
+By taking the expectation of π(δ) on the full datasets, we
+obtain dataset-level shifts of µδ = −70 ms and µδ = −136 ms
+for LibriSpeech and AVA-Speech, respectively. These results
+indicate that the reference-VAD mean error is much smaller
+than the annotation shift being corrected.
+IV. SSM-BASED VAD
+Here, we present S4VAD, a VAD model based on a
+diagonal-structured state-space architecture (S4D). Structured
+State-Space models (S4) [16] constrain the state transition ma-
+trix A to have a diagonal or diagonal-plus-low-rank structure,
+enabling efficient modeling of both short-term and long-term
+dependencies in sequential data. In this work, we use S4D
+variant [17] where A is a diagonal matrix with complex-valued
+entries,
+A = diag(λ0, . . . , λN−1),
+λn = −0.5 + jπn,
+(15)
+and the state update can be computed independently for each
+dimension. In addition, the input and output matrices are also
+constrained to be diagonal, such that each channel maintains
+an independent latent state driven by its corresponding input
+dimension. This design enables efficient computation and
+avoids cross-channel mixing within the state dynamics. The
+discretization step is sampled once per channel from the log
+uniform distribution:
+log(∆) ∼U(log(dtmin), log(dtmax)),
+(16)
+where dtmin and dtmax are the minimum and maximum time
+step scales, respectively. ∆controls the hidden-state memory
+timescale: larger values make past information decay faster
+and yield more local, responsive dynamics, while smaller
+values preserve longer context but may smear speech evidence
+into silence. S4VAD operates on frame-level acoustic features
+and predicts a speech probability for each frame. The discrete-
+time form of S4VAD has an equivalent convolutional form
+with a kernel length of L:
+yt =
+L−1
+X
+n=0
+Knut−n,
+(17)
+where the convolution kernel K is real-valued and analytically
+derived from the SSM parameters as Kn = 2ℜ(C ¯An ¯B). This
+representation enables efficient parallel training using one-
+dimensional convolutions, while remaining exactly equivalent
+to the recurrent state update. At inference time, the model
+can be executed in streaming mode by updating the latent
+state sequentially using the recurrence in Eq. (2). As a result,
+S4VAD combines efficient convolutional training with explicit
+state-based inference. The temporal behavior of the model is
+governed by interpretable time constants determined by the
+eigenvalues of A and the discretization step ∆, making S4VAD
+particularly well suited for streaming speech tasks such as
+voice activity detection.
+Architecture Details.
+A diagram of S4VAD is shown in
+Figure 1. It consists of four S4 blocks with hidden dimension
+dmodel = 64. Each block projects the input to the model
+dimension, applies an S4 layer to capture long-range temporal
+dependencies, and then passes the output through GELU, a
+linear layer, and dropout. A residual connection and layer
+normalization are applied within each block. The S4 layer
+
+
+Model
+HW Latency
+LibriSpeech
+AVA-Speech
+[ms]
+AUROC
+Onset Bias [ms]
+Onset Latency [ms]
+AUROC
+Onset Bias [ms]
+Onset Latency [ms]
+MarbleNet [2]
+1.3
+0.974
+54
+55.4
+0.866
+159
+160.3
+TrVAD [49]
+2.7
+0.950
+50
+52.7
+0.851
+122
+124.7
+ResectNet [50]
+0.6
+0.980
+51
+51.6
+0.823
+237
+237.6
+S4VAD (Ours)
+0.3
+0.972
+39
+39.3
+0.846
+114
+114.3
+TABLE I: Onset Latency. Comparison of VAD latencies across different models for target FPR of 3%.
+Model
+Std [ms]
+P50 [ms]
+P90 [ms]
+P95 [ms]
+MarbleNet [2]
+87
+10
+150
+210
+TrVAD [49]
+73
+10
+110
+160
+ResectNet [50]
+74
+10
+100
+170
+S4VAD (Ours)
+66
+10
+90
+130
+TABLE II: Onset latency confidence metrics for LibriSpeech.
+builds a convolution kernel of L = 201 from continuous-
+time state space parameters, where the discretization step
+is sampled once per channel from (16) with dtmin = 0.6
+and dtmax = 1.0. The state dimension is N = 64, imple-
+mented as N/2 complex conjugate pairs. For causal inference,
+asymmetric padding ensures that predictions depend only on
+past frames. After the S4 stack, a final layer normalization
+and a linear classification head produce one logit per frame.
+The model supports both offline convolutional inference and
+streaming inference, where the convolution is replaced by
+a recurrent state update for frame-by-frame processing with
+constant memory and compute.
+V. EXPERIMENTAL RESULTS
+This section describes the experimental setup, implemen-
+tation details, and results. The implementation details are
+provided in Subsection V-A. A comparison of several low-
+latency VAD models is described in Subsection V-B. Finally,
+an ablation study is presented in Subsection V-C.
+A. Implementation Details
+In this work, we use clean speech from LibriSpeech [38]
+combined with noise from DNS Challenge [51]. The DNS
+dataset comprises a diverse range of noise types, including
+real-world recordings (e.g., traffic, crowd noise, household
+appliances, and office environments) and synthetic noise. The
+noise samples were divided into training, validation, and test
+sets with an 8:1:1 ratio, while the original LibriSpeech splits
+were preserved; we used the 100-hour training subset. A
+representative VAD dataset was synthesized by concatenating
+background-noise segments with noisy speech segments. This
+created clear onset transitions, moving from noise to speech.
+Frame-level labels were assigned by majority voting, where
+a frame was labeled as speech if most of its samples corre-
+sponded to speech. In addition, we use the AVA-Speech [37]
+dataset. AVA-Speech annotates real-world speech activity from
+YouTube movie clips and contains audio segments and their
+speech/noise labels. Onset samples are extracted by selecting
+a 1-second window around the noisy onset label, ensuring it
+contains only a single transition. Samples without a sustained
+threshold crossing are treated as missed detections (below
+1% for all models) and excluded from the onset-latency
+computation. The number of onset samples used is about 6,000
+and 3,500 for LibriSpeech and AVA-Speech, respectively.
+The pre-processing consists of raw audio signals sampled at
+16 kHz, which are then converted into log-Mel spectrograms.
+Specifically, each waveform was segmented into 32 ms frames
+with a 10 ms hop size and transformed into 64-dimensional
+log-Mel features.
+Training.
+Training was performed on the training split of
+the synthetic mixtures of LibriSpeech. Noisy mixtures were
+generated uniformly across signal-to-noise ratio (SNR) levels
+from −5 dB to 20 dB. Additional white noise augmentation,
+with amplitudes ranging from −90 dB to −46 dB, was applied
+to improve robustness. Models were trained using binary
+cross-entropy loss and optimized with AdamW [52] for 100
+epochs with a batch size of 512. A cosine annealing learning
+rate schedule [53] was employed, with learning rates ranging
+from 10−3 to 5 × 10−5, and model selection was based on
+validation AUROC.
+Evaluation.
+Evaluation was performed on the test split of the
+synthetic mixtures of LibriSpeech. Here, we mix speech with
+noise at SNR levels between −10 dB and 10 dB, at 5 dB steps.
+In addition, we evaluate the performance on AVA-Speech [37].
+The onset bias was calculated using the proposed method with
+T = 50 ms, to ensure that a detected rise corresponds to
+sustained speech activity rather than a transient spike. The
+threshold τ for each VAD is chosen such that it achieves a
+target False Positive Rate (FPR) on the validation set. For
+hardware inference latency, all models were lowered to the
+XNNPACK backend and evaluated on an Apple M4 Max
+64GB as the CPU inference platform.
+B. Low-Latency VADs Comparison
+We evaluate four low-latency VAD models: MarbleNet [2]
+(CNN-based), TrVAD [49] (Transformer-based), ResectNet
+[50] (RNN-based), and our S4VAD (SSM-based). All of
+these models are reproduced and trained using the same
+preprocessing and operate in causal mode. During inference,
+each model produces frame-level speech posterior probabil-
+ities in a streaming mode at a hop size of 10 ms. Table I
+reports AUROC, HW latency, onset bias, and onset latency
+under target FPRs of 3%. In addition, Table II reports onset
+latency statistics, including the standard deviation and P50,
+P90, and P95 percentiles. As shown, S4VAD achieves the
+
+
+Fig. 3: Naive and our Onset Bias. Comparison between the
+naive onset bias eB and our B. Here, an additional Gaussian
+noise label g ∼N(µg, σ2
+g) is introduced with mean µg
+and variance σ2
+g. As shown, our method remains stable and
+effectively tracks the noise label shift, whereas the naive
+method is highly affected.
+LibriSpeech
+AVA-Speech
+dtmin
+AUROC
+Onset Bias [ms]
+AUROC
+Onset Bias [ms]
+0.1
+0.979
+65
+0.856
+156
+0.3
+0.976
+55
+0.841
+139
+0.6
+0.972
+39
+0.846
+114
+0.9
+0.968
+44
+0.826
+122
+TABLE III: Discretization step ablation.
+lowest onset latency while remaining competitive in AUROC.
+MarbleNet, as a CNN-based model, aggregates evidence over
+a fixed temporal window, which can delay onset decisions until
+sufficient post-onset information is available. TrVAD benefits
+from attention-based temporal modeling but incurs higher
+computational cost, reflected in its increased hardware latency.
+ResectNet is naturally stateful, updating its recurrent state
+as new frames arrive rather than recomputing a full context
+window. This may explain its low latency on LibriSpeech,
+while its higher latency on AVA-Speech suggests reduced
+robustness under challenging acoustic conditions. In contrast,
+S4VAD combines state-space sequence modeling with efficient
+streaming inference. Its compact recurrent state captures long-
+range dependencies while preserving fast local dynamics. Con-
+sequently, S4VAD provides low onset latency with AUROC
+comparable to the strongest baselines, making it well-suited
+for real-time VAD applications requiring early and accurate
+speech detection.
+C. Ablations
+Naive and our Onset Bias.
+In Figure 3, we compare the
+proposed onset bias evaluation with a naive implementation
+under controlled annotation noise. Specifically, we perturb
+the original onset time labels by adding Gaussian noise,
+tnew = t + g, where g ∼N(µg, σ2
+g). We then apply the
+naive and our method to the perturbed labels and evaluate
+Fig. 4: Onset Bias vs. FPR. Evaluated on LibriSpeech.
+the resulting onset bias. The results show that the naive onset
+latency evaluation is strongly affected by annotation noise,
+whereas the proposed method adapts to the underlying noise
+distribution and yields more stable onset latency estimates.
+The evaluation was performed using MarbleNet for a 3% FPR
+target, on the LibriSpeech test set.
+Onset Bias vs. FPR.
+Figure 4 illustrates the trade-off
+between onset bias and FPR. We evaluate onset bias across
+several FPR operating points. Lower FPR values correspond
+to more conservative detection, resulting in larger onset delays,
+whereas higher FPR values allow earlier detection. As shown,
+S4VAD exhibits the lowest onset bias across all FPRs.
+S4VAD Ablation
+S4VAD provides an architectural control
+knob for the AUROC and onset bias tradeoff through the
+discretization timescale ∆. As shown in Table III, varying
+dtmin changes the memory timescale and produces a system-
+atic tradeoff between AUROC and onset bias. This behavior
+is specific to the SSM parameterization: larger ∆values
+encourage faster decay and more local responsiveness, while
+smaller values preserve longer context. The results show that
+both overly short and overly long memory timescales can
+degrade onset responsiveness. Here, a value of dtmin = 0.6
+provides the lowest onset bias while maintaining a competitive
+AUROC.
+VI. CONCLUSIONS
+In this work, we introduced a probabilistic method for
+onset time estimation in Voice Activity Detection under noisy
+onset annotations. By modeling the annotated onset as a noisy
+realization of the true onset time, we formulated onset time
+evaluation as a statistical problem and derived corrected onset
+bias measurements. In addition, we introduce S4VAD, a state-
+space VAD architecture that preserves long-range temporal
+context while maintaining fast local dynamics for respon-
+sive streaming speech detection. Our experiments show that
+S4VAD achieves the fastest onset latency while maintaining a
+competitive AUROC.
+
+
+REFERENCES
+[1] C.-C. Wang, E.-L. Yu, J.-W. Hung, S.-C. Huang, and B. Chen, “Sincqdr-
+vad: A noise-robust voice activity detection framework leveraging
+learnable filters and ranking-aware optimization,” in Proc. IEEE Auto-
+matic Speech Recognition and Understanding Workshop (ASRU), 2025,
+arXiv:2508.20885.
+[2] F. Jia, S. Majumdar, and B. Ginsburg, “Marblenet: Deep 1d time-channel
+separable convolutional neural network for voice activity detection,” in
+ICASSP 2021-2021 IEEE International Conference on Acoustics, Speech
+and Signal Processing (ICASSP).
+IEEE, 2021, pp. 6818–6822.
+[3] J. Ram´ırez, J. C. Segura, C. Ben´ıtez, L. Garc´ıa, and A. Rubio, “Efficient
+voice activity detection algorithms using long-term speech information,”
+Speech Communication, vol. 42, no. 3–4, pp. 271–287, 2004.
+[4] J. Kim and M. Hahn, “Voice activity detection using an adaptive context
+attention model,” IEEE Signal Processing Letters, vol. 25, no. 8, pp.
+1181–1185, 2018.
+[5] T. Hughes and K. Mierle, “Recurrent neural networks for voice activity
+detection,” in 2013 IEEE International Conference on Acoustics, Speech
+and Signal Processing.
+IEEE, 2013, pp. 7378–7382.
+[6] R. Prabhavalkar, T. Hori, T. N. Sainath, R. Schl¨uter, and S. Watanabe,
+“End-to-end speech recognition: A survey,” IEEE/ACM Transactions on
+Audio, Speech, and Language Processing, vol. 32, pp. 325–351, 2023.
+[7] A. Gulati et al., “Conformer: Convolution-augmented transformer for
+speech recognition,” Interspeech, 2020.
+[8] T. J. Park et al., “A review of speaker diarization: Recent advances with
+deep learning,” IEEE Signal Processing Magazine, 2022.
+[9] X. Anguera, S. Bozonnet, N. Evans, C. Fredouille, G. Friedland, and
+O. Vinyals, “Speaker diarization: A review of recent research,” IEEE
+Transactions on Audio, Speech, and Language Processing, vol. 20, no. 2,
+pp. 356–370, 2012.
+[10] D. Wang and J. Chen, “Supervised speech separation based on deep
+learning: An overview,” IEEE/ACM Transactions on Audio, Speech, and
+Language Processing, 2018.
+[11] Y. He, T. N. Sainath, R. Prabhavalkar et al., “Streaming end-to-end
+speech recognition for mobile devices,” in Proc. IEEE ICASSP, 2019.
+[12] J. Ramirez, J. C. Segura, C. Benitez, A. d. l. Torre, and A. Rubio, “Sta-
+tistical voice activity detection using a multiple observation likelihood
+ratio test,” IEEE Signal Processing Letters, 2007.
+[13] Z.-H. Tan and B. Lindberg, “An integrated approach to voice activity
+detection using multiple features,” IEEE Transactions on Audio, Speech,
+and Language Processing, 2010.
+[14] A. Mesaros, T. Heittola, and T. Virtanen, “Metrics for polyphonic sound
+event detection,” Applied Sciences, vol. 6, no. 6, p. 162, 2016.
+[15] T. K. Moon, “The expectation-maximization algorithm,” IEEE Signal
+processing magazine, vol. 13, no. 6, pp. 47–60, 1996.
+[16] A. Gu, I. Johnson, K. Goel, K. Saab, T. Dao, A. Rudra, and C. R´e,
+“Combining recurrent, convolutional, and continuous-time models with
+linear state space layers,” Advances in neural information processing
+systems, vol. 34, pp. 572–585, 2021.
+[17] A. Gu, K. Goel, A. Gupta, and C. R´e, “On the parameterization
+and initialization of diagonal state space models,” Advances in Neural
+Information Processing Systems, vol. 35, pp. 35 971–35 983, 2022.
+[18] J.-M. Sohn, N. S. Kim, and W. Sung, “A statistical model-based voice
+activity detection,” IEEE Signal Processing Letters, vol. 6, no. 1, pp.
+1–3, 1999.
+[19] S. Zhang et al., “End-to-end voice activity detection with convolutional
+neural networks,” in Interspeech, 2019.
+[20] M. Lavechin et al., “End-to-end domain-adversarial voice activity de-
+tection,” in ICASSP, 2020.
+[21] P. Papadopoulos et al., “Voice activity detection using transformers,” in
+ICASSP, 2021.
+[22] H. Arsikere, E. Shriberg, and U. Ozertem, “Computationally-efficient
+endpointing features for natural spoken interaction with personal-
+assistant systems,” in ICASSP, 2014.
+[23] M. Shannon, G. Simko, S. Chang, and C. Parada, “Improved end-of-
+query detection for streaming speech recognition,” in Interspeech, 2017.
+[24] S. Chang, B. Li, T. N. Sainath, G. Simko, and C. Parada, “Endpoint
+detection using grid long short-term memory networks for streaming
+speech recognition,” in Interspeech, 2017.
+[25] G. Lafay, E. Benetos, and M. Lagrange, “Sound event detection in
+synthetic audio: analysis of the dcase 2016 task results,” in WASPAA,
+2017.
+[26] M. Shi, Y. Shu, L. Zuo, Q. Chen, S. Zhang, J. Zhang, and L.-R.
+Dai, “Semantic vad: Low-latency voice activity detection for speech
+interaction,” arXiv preprint arXiv:2305.12450, 2023.
+[27] S. Ding, R. Rikhye, Q. Liang, Y. He, Q. Wang, A. Narayanan,
+T. O’Malley, and I. McGraw, “Personal vad 2.0: Optimizing personal
+voice activity detection for on-device speech recognition,” in ICASSP
+2022, 2022.
+[28] S. S. Buddi, S. Kumar, U. O. Sarawgi, V. Garg, S. Ranjan, O. Rudovic,
+A. H. Abdelaziz, and S. Adya, “Comparative analysis of personalized
+voice activity detection systems: Assessing real-world effectiveness,” in
+Proceedings of Interspeech 2024, 2024, pp. 4768–4772.
+[29] R. P. Adams and D. J. MacKay, “Bayesian online changepoint detec-
+tion,” arXiv preprint arXiv:0710.3742, 2007.
+[30] T. Banerjee and V. V. Veeravalli, “Data-efficient quickest change de-
+tection,” IEEE Signal Processing Magazine, vol. 31, no. 3, pp. 38–49,
+2014.
+[31] A. G. Tartakovsky, I. V. Nikiforov, and M. Basseville, Sequential
+analysis: hypothesis testing and changepoint detection.
+CRC Press,
+2015.
+[32] S. Saito et al., “Voice activity detection based on conditional random
+fields using multiple features,” in Interspeech, 2010.
+[33] M. Fujimoto and K. Ishizuka, “Voice activity detection based on
+switching kalman filter,” in Interspeech, 2007.
+[34] J. Yuan, M. Liberman, and C. Cieri, “Towards an integrated understand-
+ing of speech alignment errors,” in Proceedings of Interspeech, 2013.
+[35] A. Gnanadesikan et al., “Performance of forced-alignment algorithms on
+children’s speech,” Journal of Speech, Language, and Hearing Research,
+2021.
+[36] X. Wu et al., “Using a forced aligner for prosody research,” Humanities
+and Social Sciences Communications, 2023.
+[37] S. Chaudhuri, J. Roth, D. P. W. Ellis, A. Gallagher, L. Kaver, R. Marvin,
+C. Pantofaru, N. Reale, L. G. Reid, K. Wilson, and Z. Xi, “Ava-speech:
+A densely labeled dataset of speech activity in movies,” in Proceedings
+of Interspeech, 2018, pp. 41–45.
+[38] V. Panayotov, G. Chen, D. Povey, and S. Khudanpur, “Librispeech: an asr
+corpus based on public domain audio books,” in 2015 IEEE international
+conference on acoustics, speech and signal processing (ICASSP). IEEE,
+2015, pp. 5206–5210.
+[39] D. Povey, A. Ghoshal, G. Boulianne, L. Burget, O. Glembek, N. Goel,
+M. Hannemann, P. Motlicek, Y. Qian, P. Schwarz, J. Silovsky, G. Stem-
+mer, and K. Vesely, “The kaldi speech recognition toolkit,” in IEEE
+2011 Workshop on Automatic Speech Recognition and Understanding
+(ASRU), 2011.
+[40] M. McAuliffe, M. Socolof, S. Mihuc, M. Wagner, and M. Sonderegger,
+“Montreal forced aligner: Trainable text-speech alignment using kaldi,”
+in Interspeech, 2017.
+[41] D. Rousso, M. Wiesner et al., “Tradition or innovation? comparing
+forced alignment tools for speech research,” in Proceedings of Inter-
+speech, 2024.
+[42] J. S. Garofolo, L. F. Lamel, W. M. Fisher, J. G. Fiscus, D. S. Pallett, and
+N. L. Dahlgren, “TIMIT Acoustic-Phonetic Continuous Speech Corpus,”
+1993.
+[43] M. A. Pitt, K. Johnson, E. Hume, S. Kiesling, and W. Raymond, “The
+buckeye corpus of conversational speech: labeling conventions and a
+test of transcriber reliability,” Speech Communication, vol. 45, no. 1,
+pp. 89–95, 2005.
+[44] L. MacKenzie and D. Turton, “Darla: A forced aligner for sociophonetic
+research,” Language Resources and Evaluation, 2020.
+[45] A. Gu, K. Goel, and C. R´e, “Efficiently modeling long sequences
+with structured state spaces,” in International Conference on Learning
+Representations, 2022.
+[46] A. Gu and T. Dao, “Mamba: Linear-time sequence modeling with
+selective state spaces,” in International Conference on Learning Rep-
+resentations, 2024.
+[47] A. Gupta, A. Gu, and J. Berant, “Diagonal state spaces are as effective as
+structured state spaces,” in Advances in Neural Information Processing
+Systems, 2022.
+[48] S. Team, “Silero vad: pre-trained enterprise-grade voice activity detector
+(vad), number detector and language classifier.”
+GitHub, 2024.
+[49] Y. Zhao and B. Champagne, “An efficient transformer-based model for
+voice activity detection,” in 2022 IEEE 32nd International Workshop
+on Machine Learning for Signal Processing (MLSP).
+IEEE, 2022, pp.
+1–6.
+
+
+[50] O. K¨op¨ukl¨u and M. Taseska, “Resectnet: An efficient architecture for
+voice activity detection on mobile devices.” in Interspeech, 2022, pp.
+5363–5367.
+[51] H. Dubey, A. Aazami, V. Gopal, B. Naderi, S. Braun, R. Cutler,
+H. Gamper, M. Golestaneh, and R. Aichner, “Icassp 2023 deep noise
+suppression challenge,” in ICASSP, 2023.
+[52] I. Loshchilov and F. Hutter, “Decoupled weight decay regularization,”
+in International Conference on Learning Representations (ICLR), 2019.
+[53] ——, “Sgdr: Stochastic gradient descent with warm restarts,” in Inter-
+national Conference on Learning Representations (ICLR), 2017.

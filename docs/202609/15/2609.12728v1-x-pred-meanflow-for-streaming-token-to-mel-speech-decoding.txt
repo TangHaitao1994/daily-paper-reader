@@ -1,0 +1,680 @@
+X-Pred MeanFlow for Streaming Token-to-Mel Speech Decoding
+Hanke Xie1, Xiaming Ren1, Qirui Zhan1, Jingbin Hu1, Wenhao Li1, Haoyu Zhang1, Ruonan You1,
+Chengyou Wang1, Yunxiang Chen2, Houdun Liu2, Su Feng2, Lei Xie1,∗
+1Audio, Speech and Language Processing Group (ASLP@NPU), School of Software,
+Northwestern Polytechnical University, Xi’an, China
+2Shenzhen Pimei Technology Co., Ltd.
+hkxie@mail.nwpu.edu.cn, lxie@nwpu.edu.cn
+Abstract
+Recent advancements in discrete token-based speech gener-
+ation have highlighted the importance of efficient token-to-
+waveform synthesis in streaming and dialogue scenarios. Flow-
+matching acoustic decoders achieve high-quality token-to-mel
+generation, but their iterative sampling requires multiple neu-
+ral function evaluations, limiting low-latency speech synthesis.
+MeanFlow reduces the sampling budget by modeling the av-
+erage velocity over a temporal interval, yet maintaining high
+acoustic quality under extremely few-step token-to-mel gener-
+ation remains challenging. To address this challenge, we pro-
+pose X-Pred MeanFlow, a few-step streaming token-to-mel de-
+coder that reparameterizes MeanFlow with mel-space predic-
+tion. The decoder predicts a generalized mel field and analyti-
+cally derives the corresponding average velocity for sampling,
+thereby preserving the MeanFlow formulation while providing
+a direct acoustic prediction target. We further introduce layer-
+selective block-wise attention to enable continuous chunk-wise
+generation with bounded context. Experiments show that X-
+Pred MeanFlow improves few-step token-to-mel synthesis over
+Direct-u MeanFlow and supports stable streaming generation.
+Speech samples are available.1
+Index Terms: mean flow matching, speech token decoding,
+few-step generation, block-masked attention
+1. Introduction
+Recent progress in large language model (LLM)-based text-
+to-speech (TTS) has shifted speech synthesis from direct re-
+gression of continuous acoustic features [1, 2, 3] to sequence
+modeling over discrete speech representations [4, 5, 6, 7, 8].
+Early neural codec language models, represented by VALL-E
+and AudioLM, formulate speech generation as conditional pre-
+diction of acoustic codec codes [4, 9]. More recent systems
+increasingly separate high-level speech content modeling from
+low-level acoustic reconstruction [10, 11, 12, 13, 14]. For ex-
+ample, CosyVoice uses supervised semantic speech tokens for
+language modeling and a conditional flow-matching decoder for
+acoustic generation [15, 16]. This semantic-token pipeline pro-
+vides a compact interface for the language model, but it trans-
+fers the recovery of speaker characteristics, prosody, and fine
+spectral structure to the downstream acoustic decoder. Conse-
+quently, token-to-acoustic decoding directly affects perceptual
+quality, the computation required for each output packet, and
+whether speech can be generated incrementally in streaming
+and dialogue scenarios.
+1https://renxiaming.github.io/
+xpred-meanflow-stream-demo/
+Conditional flow matching has become an effective frame-
+work for high-quality speech generation [17, 18, 19, 20, 21]. It
+learns a continuous velocity field that transports samples from
+a prior distribution to the target acoustic distribution and per-
+mits non-autoregressive generation within each network evalu-
+ation. Inference, however, still requires numerical integration of
+the learned field, and its cost grows with the number of neural
+function evaluations (NFEs) [22, 23]. This cost is particularly
+restrictive in streaming synthesis, where the computation of ev-
+ery packet must finish within a fixed playback interval [24].
+MeanFlow reduces the sampling budget by modeling the aver-
+age velocity over a temporal interval rather than only the in-
+stantaneous velocity at a single time point [25]. Recent work
+further demonstrates the potential of average-velocity modeling
+for few-step speech generation [26]. Nevertheless, preserving
+detailed acoustic structure under extremely few-step token-to-
+mel generation remains challenging. Since the acoustic decoder
+ultimately produces a mel-spectrogram, the output parameteri-
+zation of a speech-conditioned MeanFlow decoder becomes an
+important design choice [27].
+Sampling efficiency alone does not make an acoustic de-
+coder streamable. A decoder with global self-attention either
+depends on the complete token sequence or attends to an in-
+creasingly long history during incremental generation. At the
+other extreme, independently decoding short chunks removes
+useful cross-chunk context and can produce inconsistent acous-
+tic transitions around chunk boundaries. CosyVoice 2 intro-
+duces chunk-aware causal flow matching to unify streaming
+and non-streaming synthesis, while StreamFlow employs local
+block-wise receptive fields across Diffusion Transformer lay-
+ers to control contextual dependencies [28, 29]. These stud-
+ies establish structured receptive-field control as a key compo-
+nent of streaming speech-token decoding. However, few-step
+generation and bounded-context decoding are often optimized
+from different perspectives: the former reduces the computation
+needed to follow the generative trajectory, whereas the latter de-
+termines when a chunk becomes available and how its compu-
+tation scales with utterance length.
+A practical streaming token-to-mel decoder must therefore
+balance several coupled objectives. It should retain acoustic
+quality when only a few NFEs are available, keep its recep-
+tive field bounded so that per-packet computation does not grow
+with the generated sequence, and preserve sufficient neighbor-
+ing context for smooth transitions between chunks. These ob-
+jectives introduce an inherent trade-off. Shorter chunks reduce
+algorithmic waiting time but provide less acoustic context, ad-
+ditional look-ahead supplies useful local information but in-
+creases startup delay, and extra sampling steps refine the gen-
+erated mel-spectrogram at the expense of the real-time compu-
+tation margin. The central challenge is thus not only to accel-
+arXiv:2609.12728v1  [eess.AS]  11 Sep 2026
+
+
+Figure 1: Overall framework and few-step inference process of the proposed X-Pred MeanFlow acoustic decoder. A frozen text-to-
+token LLM generates discrete speech tokens c, which condition the trainable token-to-mel decoder. At each sampling step, the decoder
+directly predicts the clean mel-spectrogram ˆxθ and analytically recovers the mean velocity as ˆuθ = (zt −ˆxθ)/t. The resulting mel-
+spectrogram ˆx is converted into waveform ˆy by a frozen HiFi-GAN vocoder. The snowflake symbol denotes frozen components.
+erate flow sampling or to constrain attention in isolation, but to
+coordinate the sampling budget and the context budget within a
+unified acoustic decoder.
+To address these limitations, we propose X-Pred Mean-
+Flow, a few-step streaming token-to-mel decoder. X-Pred pre-
+dicts a generalized mel field from an intermediate flow state and
+analytically derives the corresponding average velocity required
+by MeanFlow sampling. This mel-space parameterization pre-
+serves the MeanFlow identity and sampling procedure while
+providing the decoder with a direct acoustic prediction target.
+We further introduce layer-selective block-masked attention for
+the Diffusion Transformer backbone [30], where selected lay-
+ers exchange historical or bounded future context while most
+layers focus on local acoustic refinement. This design bounds
+the receptive field, makes the amount of look-ahead control-
+lable, and supports both strict streaming and bounded-look-
+ahead streaming.
+Experiments show that X-Pred MeanFlow
+improves few-step token-to-mel quality over Direct-u Mean-
+Flow at both Small and Base model scales. Streaming evalu-
+ations further demonstrate that layer-selective bounded context
+achieves a favorable quality-efficiency trade-off and supports
+stable packet-level generation within the real-time computation
+budget.
+2. Preliminaries
+2.1. Conditional Flow Matching
+Conditional flow matching (CFM) [17, 31] learns a vector field
+to transport samples from a prior distribution pprior(ϵ) to a data
+distribution pdata(x). Given a data sample x ∼pdata(x) and
+noise ϵ ∼N(0, I), an optimal transport path is constructed as
+zt = (1−t)x+tϵ, with the conditional velocity vt = dzt/dt =
+ϵ −x. A neural network fθ is trained to minimize the CFM
+objective:
+LCFM(θ) = Et,x,ϵ
+
+∥fθ(t, zt) −vt∥2
+.
+(1)
+During inference, the model solves an ODE to recover x from
+ϵ, which typically requires multiple function evaluations and in-
+curs non-trivial latency.
+2.2. MeanFlow
+To enable high-quality synthesis with only a single neural func-
+tion evaluation (1-NFE), this work adopts mean flows [32, 33].
+Given a time interval [r, t], the average velocity along the ODE
+trajectory is defined as:
+u(zt, r, t) ≜
+1
+t −r
+Z t
+r
+v(zτ, τ) dτ.
+(2)
+Differentiating with respect to t and rearranging yields the mean
+flows identity:
+u(zt, r, t) = v(zt, t) −(t −r) d
+dtu(zt, r, t),
+(3)
+where the total derivative is expanded via the Jacobian-vector
+product as
+d
+dtu = v(zt, t)∂zu + ∂tu. Replacing the marginal
+velocity v(zt, t) with the conditional velocity vt = ϵ −x, the
+training target becomes utgt = vt −(t −r)(vt∂zuθ + ∂tuθ).
+The mean flows training objective is:
+LMF(θ) = Et,r,x,ϵ
+
+∥fθ(zt, r, t) −sg(utgt)∥2
+.
+(4)
+where sg(·) denotes the stop-gradient operation. At t = r,
+this objective reduces to the standard CFM loss.
+During 1-
+NFE sampling, the clean sample is recovered as z0 = z1 −
+fθ(z1, 0, 1), where z1 = ϵ ∼pprior(ϵ).
+3. Method
+3.1. Overview
+Let c = [c1, . . . , cTc] denote discrete speech tokens sam-
+pled at rate fc, and let x ∈RTx×Dm denote the target mel-
+spectrogram sampled at rate fm. We define the temporal-rate
+ratio as ρ = fm/fc, such that each token is aligned with ρ mel
+frames. Our study focuses on the conditional acoustic mapping
+c →x; the upstream token generator and downstream vocoder
+are fixed and excluded from model optimization.
+Figure 1 presents the overall framework.
+The decoder
+uses a DiT backbone and combines two complementary de-
+signs. X-Pred MeanFlow reparameterizes the MeanFlow pre-
+dictor through a mel-space output to improve generation un-
+der a small number of neural function evaluations.
+Layer-
+selective block-masked attention restricts the acoustic context
+to a bounded history and optional look-ahead, enabling chunk-
+wise inference with duration-independent per-packet computa-
+tion. The two components respectively control the sampling
+budget and the context budget of streaming token-to-mel de-
+coding.
+
+
+Figure 2: Comparison between direct-u MeanFlow and X-Pred
+MeanFlow. Both use the same MeanFlow target and sampling
+rule. Direct-u MeanFlow predicts the average velocity, whereas
+X-Pred MeanFlow predicts the generalized mel field ˆxθ and ob-
+tains ˆuθ = (zt −ˆxθ)/t analytically. When r = 0, ˆxθ is the
+predicted clean mel endpoint.
+3.2. X-Pred MeanFlow
+A conventional MeanFlow decoder directly parameterizes the
+average velocity u(zt, r, t, c). In speech token-to-mel decod-
+ing, however, the quantity of ultimate interest is the mel-
+spectrogram itself rather than the velocity field. We therefore
+reparameterize the prediction in the mel space by inducing a
+data-space field from the same average velocity. Specifically,
+we define the generalized mel field as
+xMF(zt, r, t, c) ≜zt −t u(zt, r, t, c).
+(5)
+This quantity is indexed by both interval endpoints (r, t) and is
+therefore not always identical to the clean sample x, but it has
+a direct interpretation in the mel space. When r = 0, the aver-
+age velocity satisfies u(zt, 0, t, c) = (zt −z0)/t, and Eq. (5)
+reduces to xMF = z0, i.e., the clean mel endpoint. When r = t,
+the average velocity collapses to the instantaneous velocity, and
+the induced field becomes the standard endpoint-prediction tar-
+get under the conditional interpolation path. For 0 < r < t,
+it represents an interval-conditioned, denoised mel-space quan-
+tity.
+Our decoder predicts this generalized mel field directly:
+ˆxθ = fθ(zt, r, t, c),
+(6)
+and analytically recovers the corresponding average velocity as
+ˆuθ(zt, r, t, c) = zt −ˆxθ
+t
+,
+t > 0.
+(7)
+This is a one-to-one reparameterization: the network output is
+expressed in the mel space, while the MeanFlow dynamics are
+still carried out in the velocity space. The denominator is t,
+rather than t−r, because the induced mel field is defined relative
+to the endpoint at time zero.
+Let vt denote the conditional velocity along the interpola-
+tion path. The material derivative of the predicted average ve-
+locity is
+Dtˆuθ = ∂tˆuθ + ∂zˆuθ · vt,
+(8)
+where the Jacobian-vector product is computed by automatic
+differentiation. The MeanFlow target is then written as
+utgt
+t
+= vt −(t −r)Dtˆuθ,
+(9)
+Causal Mask
+History Mask
+Future Mask
+Figure 3: Layer-selective block-masked attention. Selected DiT
+layers use history, causal, or future masks to form a bounded
+receptive field for chunk-wise streaming inference.
+and the training objective becomes
+LXMF = Ex,ϵ,r,t,c
+hˆuθ −sg(utgt
+t )
+2
+2
+i
+.
+(10)
+Therefore, the optimization target remains exactly in the Mean-
+Flow velocity space, while the network output is parameterized
+in the mel space. At the boundary r = t, the correction term
+vanishes and
+ˆuθ −vt = x −ˆxθ
+t
+,
+(11)
+which recovers a t−2-weighted endpoint-prediction form.
+During inference, let 1 = t0 > t1 > · · · > tK = 0.
+Starting from zt0 ∼N(0, I), we update
+ztk = ztk−1 −(tk−1 −tk) ˆuθ(ztk−1, tk, tk−1, c).
+(12)
+At each step, the decoder first predicts the generalized mel field
+and then analytically converts it into the MeanFlow update di-
+rection through Eq. (7). In the 1-NFE case, the update reduces
+to z0 = ˆxθ(z1, 0, 1, c), so the model output is exactly the pre-
+dicted clean mel endpoint.
+3.3. Layer-Selective Block-Masked Attention
+Full-context self-attention requires the complete acoustic se-
+quence and makes streaming cost grow with utterance length.
+We instead divide the token and mel sequences into temporally
+aligned blocks. Let each token block contain C tokens. Its cor-
+responding mel block contains B = ρC frames, and the k-th
+mel block and frame-to-block mapping are
+Xk = xkB:(k+1)B−1,
+q(i) =
+ i
+B
+
+.
+(13)
+The aligned token block is used as the conditioning input for the
+same acoustic interval.
+At DiT layer ℓ, we assign a past-block budget Pℓand a
+future-block budget Fℓ. The additive attention mask is
+M (ℓ)
+ij =
+(
+0,
+−Pℓ≤q(j) −q(i) ≤Fℓ,
+−∞,
+otherwise,
+(14)
+and is added to the self-attention logits before softmax. The
+setting (Pℓ, Fℓ) = (0, 0) restricts attention to the current block.
+A positive Pℓexposes historical blocks, while a positive Fℓin-
+troduces bounded future context. These budgets are assigned
+selectively across the DiT depth, allowing most layers to refine
+local acoustic structure while a subset exchanges information
+across block boundaries. Figure 3 illustrates the resulting local,
+history, and future masks.
+The directly visible acoustic span at layer ℓis
+Rdir
+ℓ
+= (Pℓ+ 1 + Fℓ)B.
+(15)
+
+
+Because information can propagate through multiple masked
+layers, this quantity does not by itself bound the complete net-
+work receptive field. We therefore perform packet-level infer-
+ence within a fixed sliding window
+Wk = {Xk−H, . . . , Xk, . . . , Xk+F },
+(16)
+where H and F are the available historical and future blocks.
+Frames outside Wk are never presented to the decoder, which
+provides a strict upper bound on context, memory, and per-
+packet computation.
+4. Experiments
+4.1. Experimental Setup
+Training Setup. We train the acoustic decoder on the Emilia
+corpus [34].
+Speech is represented by S3Tokenizer v2 to-
+kens with a CosyVoice2 BPE vocabulary of 6,563 entries at
+25 Hz. The target representation is an 80-bin mel-spectrogram
+extracted at 16 kHz with a 160-sample hop and a 1,024-point
+FFT. The same fixed HiFi-GAN vocoder is used for all systems.
+We use AdamW with a peak learning rate of 7.5 × 10−5, 20k
+warmup updates, gradient accumulation of 2, and a frame-based
+batch size of 2,000 per GPU.
+Model Details. We denote the 16-layer, 159M-parameter DiT
+with hidden size 768 and 16 attention heads as Small, and
+the 22-layer, 341M-parameter DiT with hidden size 1,024 as
+Base. Within each model scale, Direct-u and X-Pred use the
+same backbone, data, block-mask configuration, optimizer, and
+2.0M-update training budget. X-Pred uses a CFG-aware train-
+ing target with a guidance scale of 2.0, while all reported infer-
+ence is performed with CFG = 0.
+Evaluation Metrics. Evaluation uses 100 randomly selected
+sentences from unseen speakers. We report UTMOS [35], word
+error rate (WER), and speaker similarity (SIM). WER and SIM
+are computed using the official SEED-TTS evaluation toolkit.2
+4.2. Few-Step Acoustic Quality
+Table 1 compares the generation quality between Direct-u and
+X-Pred.
+Under stringent low-step constraints, X-Pred con-
+sistently outperforms the Direct-u baseline across all met-
+rics for both Small and Base configurations, confirming that
+the mel-space parameterization effectively accelerates high-
+quality acoustic convergence. Notably, the Small X-Pred model
+achieves higher overall speech quality than the Base Direct-u
+variant at identical steps, while maintaining highly competi-
+tive similarity and intelligibility, demonstrating significant pa-
+rameter efficiency. While extending the inference to 10 NFEs
+provides a reliable quality upper bound, the foundational per-
+formance advantages of X-Pred are already firmly established
+within the 2 to 3 NFE range, making it highly optimal for de-
+manding streaming applications.
+4.3. Streaming Quality and Runtime
+Table 2 evaluates the impact of various context schedules on
+generation quality and system efficiency. While independently
+decoding short blocks under the Local configuration yields the
+lowest computational overhead, it severely degrades acoustic
+quality and boundary continuity, indicating that isolated gen-
+eration is insufficient for continuous speech. Applying a uni-
+form bounded mask across all layers recovers a significant por-
+tion of this quality loss but introduces high processing latency.
+2https://github.com/BytedanceSpeech/seed-tts-eval
+Table 1: Few-step token-to-mel generation quality (2.0M up-
+dates, CFG = 0). Bold indicates the better result; 10-NFE
+serves as a quality reference.
+Model
+NFE
+UTMOS ↑
+SIM ↑
+WER (%) ↓
+Small
+Direct-u
+2
+2.910
+0.638
+8.19
+Direct-u
+3
+3.051
+0.649
+7.79
+X-Pred (Ours)
+2
+3.189
+0.661
+6.89
+X-Pred (Ours)
+3
+3.310
+0.670
+6.28
+X-Pred (Ours)
+10
+3.464
+0.697
+5.54
+Base
+Direct-u
+2
+2.867
+0.669
+6.58
+Direct-u
+3
+3.076
+0.671
+6.30
+X-Pred (Ours)
+2
+3.247
+0.678
+6.23
+X-Pred (Ours)
+3
+3.382
+0.684
+5.89
+Table 2: Streaming quality and runtime under various context
+schedules. Full represents the non-streaming B-CMOS refer-
+ence. LS denotes layer-selective attention. First/Startup indi-
+cates initial packet computation and estimated system startup
+latency. Bold text highlights the optimal streaming performance
+at 3 NFEs.
+Config.
+NFE UTMOS ↑B-CMOS ↑RTF ↓
+First/Startup
+(ms) ↓
+Full
+3
+3.356
+0.00
+–
+–
+Local
+3
+3.084
+-0.42
+0.352
+98.0/338.0
+Uniform
+3
+3.273
+-0.15
+0.618
+160.0/640.0
+LS-Strict
+3
+3.238
+-0.23
+0.446
+118.0/358.0
+LS-Bounded
+2
+3.189
+-0.10
+0.401
+106.9/586.9
+LS-Bounded
+3
+3.310
+-0.07
+0.543
+141.0/621.0
+By restricting cross-block communication to specific layers and
+incorporating bounded future look-ahead, the LS-Bounded ap-
+proach achieves an optimal balance. Compared to the Uniform
+baseline, LS-Bounded simultaneously improves overall speech
+quality and boundary smoothness while effectively reducing the
+real-time factor and estimated startup latency. Extensive run-
+time evaluations over hundreds of seconds of audio confirm the
+stability of this approach; at both 2 and 3 NFEs, LS-Bounded
+operates comfortably within the strict playback budget, exhibit-
+ing zero deadline misses and maintaining highly stable steady-
+packet latencies for robust real-time acoustic decoding..
+5. Conclusion
+We present X-Pred MeanFlow, a few-step streaming token-to-
+mel decoder with mel-space MeanFlow parameterization and
+layer-selective block-masked attention. X-Pred predicts a gen-
+eralized mel field and analytically derives the corresponding av-
+erage velocity, preserving the MeanFlow sampler while giving
+the decoder a direct acoustic prediction target.
+Experiments
+show that X-Pred consistently improves few-step UTMOS,
+SIM, and WER over Direct-u MeanFlow at both Small and
+Base scales. The Small X-Pred decoder also outperforms the
+Base Direct-u model in low-NFE naturalness while maintain-
+ing comparable speaker similarity and intelligibility, showing
+favorable parameter efficiency. For streaming inference, layer-
+selective bounded context provides the best quality-efficiency
+trade-off among the evaluated context schedules, and packet-
+level measurements confirm stable real-time acoustic decoding
+under both 2-NFE and 3-NFE settings.
+
+
+6. References
+[1] J. Shen, R. Pang, R. J. Weiss, M. Schuster, N. Jaitly, Z. Yang,
+Z. Chen, Y. Zhang, Y. Wang, R. Skerrv-Ryan et al., “Natural
+tts synthesis by conditioning wavenet on mel spectrogram pre-
+dictions,” in 2018 IEEE international conference on acoustics,
+speech and signal processing (ICASSP).
+IEEE, 2018, pp. 4779–
+4783.
+[2] W. Ping, K. Peng, A. Gibiansky, S. O. Arik, A. Kannan,
+S. Narang, J. Raiman, and J. Miller, “Deep voice 3: Scaling text-
+to-speech with convolutional sequence learning,” arXiv preprint
+arXiv:1710.07654, 2017.
+[3] J. Kim, S. Kim, J. Kong, and S. Yoon, “Glow-tts: A genera-
+tive flow for text-to-speech via monotonic alignment search,” Ad-
+vances in Neural Information Processing Systems, vol. 33, pp.
+8067–8077, 2020.
+[4] C. Wang, S. Chen, Y. Wu, Z. Zhang, L. Zhou, S. Liu, Z. Chen,
+Y. Liu, H. Wang, J. Li, L. He, S. Zhao, and F. Wei, “Neural codec
+language models are zero-shot text to speech synthesizers,” arXiv
+preprint arXiv:2301.02111, 2023.
+[5] P. Anastassiou, J. Chen, J. Chen, Y. Chen, Z. Chen, Z. Chen,
+J. Cong, L. Deng, C. Ding, L. Gao et al., “Seed-tts: A family of
+high-quality versatile speech generation models,” arXiv preprint
+arXiv:2406.02430, 2024.
+[6] A. D´efossez, J. Copet, G. Synnaeve, and Y. Adi, “High fidelity
+neural audio compression,” arXiv preprint arXiv:2210.13438,
+2022.
+[7] N.
+Zeghidour,
+A.
+Luebs,
+A.
+Omran,
+J.
+Skoglund,
+and
+M. Tagliasacchi, “Soundstream:
+An end-to-end neural audio
+codec,” IEEE/ACM Transactions on Audio, Speech, and Lan-
+guage Processing, vol. 30, pp. 495–507, 2021.
+[8] A. Polyak, Y. Adi, J. Copet, E. Kharitonov, K. Lakhotia, W.-N.
+Hsu, A. Mohamed, and E. Dupoux, “Speech resynthesis from dis-
+crete disentangled self-supervised representations,” arXiv preprint
+arXiv:2104.00355, 2021.
+[9] Z. Borsos, R. Marinier, D. Vincent, E. Kharitonov, O. Pietquin,
+M. Sharifi, D. Roblek, O. Teboul, D. Grangier, M. Tagliasacchi
+et al., “Audiolm: a language modeling approach to audio gener-
+ation,” IEEE/ACM transactions on audio, speech, and language
+processing, vol. 31, pp. 2523–2533, 2023.
+[10] E. Kharitonov, D. Vincent, Z. Borsos, R. Marinier, S. Girgin,
+O. Pietquin, M. Sharifi, M. Tagliasacchi, and N. Zeghidour,
+“Speak, read and prompt: High-fidelity text-to-speech with min-
+imal supervision,” Transactions of the Association for Computa-
+tional Linguistics, vol. 11, pp. 1703–1718, 2023.
+[11] J. Betker, “Better speech synthesis through scaling,” arXiv
+preprint arXiv:2305.07243, 2023.
+[12] E. Casanova, K. Davis, E. G¨olge, G. G¨oknar, I. Gulea, L. Hart,
+A. Aljafari, J. Meyer, R. Morais, S. Olayemi et al., “Xtts: a
+massively multilingual zero-shot text-to-speech model,” arXiv
+preprint arXiv:2406.04904, 2024.
+[13] Z. Ye, X. Zhu, C.-M. Chan, X. Wang, X. Tan, J. Lei, Y. Peng,
+H. Liu, Y. Jin, Z. Dai et al., “Llasa: Scaling train-time and
+inference-time compute for llama-based speech synthesis,” arXiv
+preprint arXiv:2502.04128, 2025.
+[14] Y. Wang, H. Zhan, L. Liu, R. Zeng, H. Guo, J. Zheng, Q. Zhang,
+X. Zhang, S. Zhang, and Z. Wu, “Maskgct: Zero-shot text-to-
+speech with masked generative codec transformer,” in Interna-
+tional Conference on Learning Representations, vol. 2025, 2025,
+pp. 47 127–47 150.
+[15] Z. Du, Q. Chen, S. Zhang, K. Hu, H. Lu, Y. Yang, H. Hu,
+S. Zheng, Y. Gu, Z. Ma, Z. Gao, and Z. Yan, “Cosyvoice: A scal-
+able multilingual zero-shot text-to-speech synthesizer based on
+supervised semantic tokens,” CoRR, vol. abs/2407.05407, 2024.
+[16] Z. Du, C. Gao, Y. Wang, F. Yu, T. Zhao, H. Wang, X. Lv,
+H. Wang, C. Ni, X. Shi et al., “Cosyvoice 3: Towards in-the-
+wild speech generation via scaling-up and post-training,” arXiv
+preprint arXiv:2505.17589, 2025.
+[17] Y. Lipman, R. T. Q. Chen, H. Ben-Hamu, M. Nickel, and M. Le,
+“Flow matching for generative modeling,” in ICLR.
+OpenRe-
+view.net, 2023.
+[18] M. Le, A. Vyas, B. Shi, B. Karrer, L. Sari, R. Moritz,
+M. Williamson, V. Manohar, Y. Adi, J. Mahadeokar et al.,
+“Voicebox: Text-guided multilingual universal speech generation
+at scale,” Advances in neural information processing systems,
+vol. 36, pp. 14 005–14 034, 2023.
+[19] Y. Chen, Z. Niu, Z. Ma, K. Deng, C. Wang, J. Zhao, K. Yu, and
+X. Chen, “F5-tts: A fairytaler that fakes fluent and faithful speech
+with flow matching,” arXiv preprint arXiv:2410.06885, 2024.
+[20] H. Zhu, W. Kang, Z. Yao, L. Guo, F. Kuang, Z. Li, W. Zhuang,
+L. Lin,
+and D. Povey,
+“Zipvoice:
+Fast and high-quality
+zero-shot text-to-speech with flow matching,” arXiv preprint
+arXiv:2506.13053, 2025.
+[21] H. Wang, S. Shan, Y. Guo, and Y. Wang, “Prosodyflow: High-
+fidelity text-to-speech through conditional flow matching and
+prosody modeling with large speech language models,” in Pro-
+ceedings of the 31st International Conference on Computational
+Linguistics, 2025, pp. 7748–7753.
+[22] J. Song, C. Meng, and S. Ermon, “Denoising diffusion implicit
+models,” arXiv preprint arXiv:2010.02502, 2020.
+[23] T. Karras, M. Aittala, T. Aila, and S. Laine, “Elucidating the
+design space of diffusion-based generative models,” Advances
+in neural information processing systems, vol. 35, pp. 26 565–
+26 577, 2022.
+[24] S. Mehta, R. Tu, J. Beskow, ´E. Sz´ekely, and G. E. Henter,
+“Matcha-tts: A fast tts architecture with conditional flow match-
+ing,” in ICASSP 2024-2024 IEEE International Conference on
+Acoustics, Speech and Signal Processing (ICASSP). IEEE, 2024,
+pp. 11 341–11 345.
+[25] Z. Geng,
+M. Deng,
+X. Bai,
+J. Z. Kolter,
+and K. He,
+“Mean flows for one-step generative modeling,” arXiv preprint
+arXiv:2505.13447, 2025.
+[26] W. Wang, R. Cao, Y. Guo, Z. Chen, K. Chen, and Y. Huo, “Int-
+meanflow: Few-step speech generation with integral velocity dis-
+tillation,” arXiv preprint arXiv:2510.07979, 2025.
+[27] T. Li and K. He, “Back to basics: Let denoising generative models
+denoise,” in Proceedings of the IEEE/CVF Conference on Com-
+puter Vision and Pattern Recognition, 2026, pp. 36 115–36 125.
+[28] Z. Du, Y. Wang, Q. Chen, X. Shi, X. Lv, T. Zhao, Z. Gao,
+Y. Yang, C. Gao, H. Wang et al., “Cosyvoice 2: Scalable stream-
+ing speech synthesis with large language models,” arXiv preprint
+arXiv:2412.10117, 2024.
+[29] D. Guo, J. Yao, L. Ma, H. Wang, and L. Xie, “Streamflow:
+Streaming flow matching with block-wise guided attention mask
+for speech token decoding,” in National Conference on Man-
+Machine Speech Communication.
+Springer, 2025, pp. 75–86.
+[30] W. Peebles and S. Xie, “Scalable diffusion models with transform-
+ers,” in IEEE/CVF International Conference on Computer Vision
+(ICCV), 2023.
+[31] T. A. Nguyen, E. Kharitonov, J. Copet, Y. Adi, W. Hsu,
+A. Elkahky, P. Tomasello, R. Algayres, B. Sagot, A. Mohamed,
+and E. Dupoux, “Generative spoken dialogue language model-
+ing,” Trans. Assoc. Comput. Linguistics, vol. 11, pp. 250–266,
+2023.
+[32] Z. Geng, M. Deng, X. Bai, J. Z. Kolter, and K. He, “Mean flows
+for one-step generative modeling,” CoRR, vol. abs/2505.13447,
+2025.
+[33] Y. Lu, S. Lu, Q. Sun, H. Zhao, Z. Jiang, X. Wang, T. Li, Z. Geng,
+and K. He, “One-step latent-free image generation with pixel
+mean flows,” arXiv preprint arXiv:2601.22158, 2026.
+[34] H. He, Z. Shang, C. Wang, X. Li et al., “Emilia: An extensive,
+multilingual, and diverse speech dataset for large-scale speech
+generation,” arXiv preprint arXiv:2407.05361, 2024.
+[35] T. Saeki, D. Xin, W. Nakata, T. Koriyama, S. Takamichi, and
+H. Saruwatari, “Utmos: Utokyo-sarulab system for voicemos
+challenge 2022,” arXiv preprint arXiv:2204.02152, 2022.

@@ -1,0 +1,3112 @@
+TokenMapper: A Step Toward Interoperable Speech Token Translation
+Tal Kozakov1
+Tal Rosenwein
+Eliya Nachmani1
+1Department of Electrical and Computer Engineering, Ben-Gurion University of the Negev
+talkoz@post.bgu.ac.il, talrosenwein@gmail.com, eliyanac@bgu.ac.il
+Abstract
+Neural audio codecs discretize speech into to-
+ken sequences, but the resulting token spaces
+differ in vocabulary and codebook structure,
+preventing direct communication across mod-
+els. This limitation affects applications such
+as conversational voice agents and speech
+to speech translation systems where multiple
+speech models must interact. As a result, trans-
+ferring information between speech systems
+typically requires decoding to waveform au-
+dio and re-encoding with a second tokenizer,
+increasing latency and introducing potential in-
+formation loss. To address these limitations,
+we present TokenMapper1, a direction aware
+framework for direct token to token translation
+between heterogeneous speech tokenizers in
+the discrete domain. TokenMapper supports
+structurally mismatched token spaces, includ-
+ing mappings between single codebook and
+multi codebook representations, under a shared
+effective token rate. Experiments on GLM-4-
+Voice, MiMi and DualCodec show consistent
+cross model performance. Specifically, trans-
+lation WER approaches native reconstructions
+within 2.5-6.8% absolute WER, human MOS
+for TokenMapper outputs ranges from 2.29 to
+4.39, following the same direction level trends
+as UTMOS and end to end latency is reduced
+by 4.8-94.5% relative to waveform bridging,
+reaching up to 972 ms per utterance. These
+results provide a practical step toward cross
+model speech token interoperability without
+intermediate waveform reconstruction.
+1
+Introduction
+Discrete audio tokenization has become a central
+component of modern neural audio frameworks,
+enabling efficient compression and compatibility
+with language modeling.
+Early works such as
+VQ-VAE (van den Oord et al., 2018), vq-wav2vec
+(Baevski et al., 2020), and HuBERT (Hsu et al.,
+1Project page with audio examples: https://talkov.
+github.io/TokenMapper.github.io/
+2021) demonstrated the effectiveness of discrete
+representations for speech and audio modeling.
+A major advance followed with SoundStream
+(Zeghidour et al., 2021), which introduced Resid-
+ual Vector Quantization (RVQ) to hierarchically
+encode audio using multiple residual codebooks,
+a paradigm later refined by EnCodec (Défossez
+et al., 2022). RVQ based codecs typically expose
+multiple token streams operating at different infor-
+mation scales, enabling flexible conditioning and
+efficient generation. This design has been adopted
+or extended by a wide range of models and tasks,
+including GSLM (Lakhotia et al., 2021), AudioLM
+(Borsos et al., 2023), VioLA (Wang et al., 2023),
+SpeechTokenizer (Zhang et al., 2024), NanoCodec
+(Casanova et al., 2025), as well as recent Speech
+LLM codecs such as Moshi’s Mimi (Défossez
+et al., 2024), DualCodec (Li et al., 2025a), and
+XY Tokenizer (Gong et al., 2025). Neural audio
+codecs have consequently diverged substantially
+in their tokenization strategies. Variants modify
+the quantization mechanism itself e.g., Group
+RVQ or complex spectral modeling in HiFi-Codec
+(Yang et al., 2023a), AudioDec (Wu et al., 2023),
+and ComplexDec (Wu et al., 2025b), explicitly
+disentangle semantic and acoustic representations,
+SpeechTokenizer (Zhang et al., 2024), RepCodec
+(Huang et al., 2024b), SAC (Chen et al., 2025), or
+introduce adaptive temporal resolutions ,SNAC
+(Siuzdak et al., 2024), FlexiCodec (Li et al.,
+2025b). Beyond RVQ based designs, alternative
+tokenization schemes have also emerged, such as
+the unified tokenizer used in CosyVoice (Du et al.,
+2024a,b) and GLM-4-Voice (Zeng et al., 2024).
+While these advances enable applications ranging
+from real time conversational agents (Wang et al.,
+2024) to speech to speech translation pipelines
+(Tran et al., 2022), the resulting fragmentation of
+discrete token spaces prevents direct interaction
+across models.
+Today, information transfer
+between models typically requires decoding
+arXiv:2609.12563v1  [cs.LG]  11 Sep 2026
+
+
+Audio
+Decoder A
+Audio
+Encoder A
+Output
+Audio
+Speech LM A
+Audio
+Tokens A
+Audio
+Decoder B
+Audio
+Tokens A
+Speech to speech model B
+Input Audio
+Model A
+Speech to speech model A
+Input Audio
+Model B
+Speech LM B
+Audio
+Encoder B
+Audio
+Tokens B
+Audio
+Tokens B
+(a) Conventional waveform bridged communication
+Speech to speech model B
+Speech to speech model A
+Audio
+Tokens A
+Input Audio
+Model A
+Output
+Audio
+Audio
+Tokens B
+Audio
+Tokens B
+Audio
+Tokens A
+Audio
+Encoder A
+Audio
+Decoder B
+Speech LM B
+Speech LM A
+(b) TokenMapper: Direct Token to Token Translation
+Figure 1: Comparison between conventional waveform bridging and the proposed TokenMapper framework for
+cross model speech communication. (a) Conventional waveform bridging: tokens produced by model A (illustrated
+as apples) must first be decoded to waveform audio and then re-encoded by model B (whose tokens are illustrated
+as oranges). (b) TokenMapper: direct translation from apples to oranges, i.e., from the token space of model A to
+the token space of model B, eliminating intermediate waveform reconstruction.
+tokens to waveforms and re-encoding them,
+introducing
+additional
+latency
+and
+potential
+information loss. In other words, tokens produced
+by one model cannot be directly interpreted by
+another, even when both operate over the same
+underlying speech signal. As illustrated in Fig. 1,
+this mismatch resembles an ”apples to oranges”
+problem: tokens produced by one tokenizer must
+first be converted back to waveform audio before
+they can be re-encoded by another model.
+To
+address this interoperability problem, we propose
+TokenMapper, a framework for direct token to
+token translation between heterogeneous audio
+tokenizers.
+TokenMapper operates entirely in
+the discrete domain and is designed to bridge
+structurally mismatched token spaces, including
+mappings between single codebook and multi
+codebook RVQ representations. In this work, we
+focus on same-rate tokenizers as a first feasibility
+study:
+the source and target token sequences
+have a shared effective temporal rate, while their
+vocabulary sizes and codebook structures may
+differ. We evaluate TokenMapper on three same
+rate but structurally distinct speech tokenizers:
+Moshi (Mimi), GLM-4-Voice, and DualCodec.
+Our results demonstrate that direct token level
+translation is feasible and preserves intelligibility
+to a meaningful degree, providing evidence that
+some transferable structure can be aligned across
+independently trained speech tokenizers.
+In
+summary, our main contributions are:
+• TokenMapper Framework: Direct token to
+token translation that eliminates waveform de-
+coding and re-encoding, reducing latency and
+computational overhead, achieving 4.8-94.5%
+end to end latency reduction, up to 972 ms per
+utterance.
+• Structural Mismatch Handling: A direction
+aware mapping strategy that bridges incompat-
+ible token spaces, including single codebook
+and multi codebook (RVQ) representations
+with differing vocabulary sizes and depths.
+• Cross tokenizer transfer: Empirical evi-
+dence that direct token space translation pre-
+serves intelligibility across three same-rate
+but structurally different tokenizers, achieving
+5.85-9.98% WER while remaining within 2.5-
+6.8% absolute WER of native reconstructions.
+1.1
+Related work
+Discrete audio representations have become cen-
+tral to speech enabled and multimodal language
+models, supporting universal audio understanding
+(Chu et al., 2023), end to end spoken interaction
+(Li et al., 2025c; Zhang et al., 2023a; Mitsui et al.,
+2024), interleaved speech text modeling (Nguyen
+et al., 2024), and real time spoken agents (Fang
+et al., 2025a,b). In parallel, extensive work on
+
+
+Input Audio
+Output Audio
+....
+....
+....
+....
+Tokenizer   A
+Detokenizer B
+Output Heads
+TokenMapper
+Transformer
+Encoder
+Figure 2: Overview of the TokenMapper pipeline. Input audio is tokenized by source tokenizer A, encoded by a
+Transformer encoder with routing to codebook specific output heads, and projected into the token space of tokenizer
+B. Tokens are denoted tj
+i, where j indexes the codebook and i indexes the timestep.
+neural audio codecs explores diverse discretiza-
+tion strategies, including diffusion and transformer
+based models (Yang et al., 2023b; Shen et al., 2023;
+Ju et al., 2024; Ziv et al., 2024), low bitrate and
+high fidelity designs (Jenrungrot et al., 2023; Niu
+et al., 2024; Ren et al., 2024; Jiang et al., 2025; Shi
+et al., 2025; Ahn et al., 2024; Wu et al., 2024; Ai
+et al., 2024; Xin et al., 2024; Parker et al., 2024; Wu
+et al., 2025a), semantic and disentangled represen-
+tations (Liu et al., 2024; Zhang et al., 2025b; Jiang
+et al., 2022; Pan et al., 2024; Huang et al., 2024a),
+variable rate and structured token streams (Chae
+et al., 2025; Zhang et al., 2025a; Li et al., 2024;
+Tang et al., 2024; Guo et al., 2024; Shi et al., 2024;
+Har-Tuv et al., 2025), and practical toolkits (Du
+et al., 2023; Jiang et al., 2024). Discrete tokens are
+further used for downstream speech and language
+modeling, including self supervised learning (SSL)
+based tokenization and automatic speech recogni-
+tion (ASR) (Cui et al., 2024; Bai et al., 2024), large
+scale multilingual modeling (Zhang et al., 2023b;
+Chen et al., 2024), codec based audio language
+models (Ye et al., 2024; Casanova et al., 2024; Ji
+et al., 2025b,a; Yang et al., 2024), and high qual-
+ity reconstruction (Siuzdak, 2024). While discrete
+tokenization has proven effective within individ-
+ual models, from early music generation (Dhariwal
+et al., 2020) to modern speech codecs, these rep-
+resentations remain incompatible across models,
+TokenMapper addresses this gap by translating di-
+rectly between heterogeneous discrete token spaces
+without waveform reconstruction.
+2
+Method
+TokenMapper performs direction aware translation
+between heterogeneous discrete token spaces, as
+illustrated in Fig. 2, enabling mappings between
+single codebook and multi codebook tokenizers
+without leaving the token domain.
+2.1
+Problem Formulation
+We consider supervised token to token translation
+between heterogeneous speech tokenizers. Let A
+and B denote a source and target tokenizer, re-
+spectively. Let X = {xc[t]}CA,T
+c=1,t=1 denote the
+discrete token sequence produced by tokenizer A,
+and let Y = {yc′[t]}CB,T
+c′=1,t=1 denote the correspond-
+ing token sequence produced by tokenizer B for
+the same utterance. Here, CA and CB denote the
+number of codebooks of tokenizers A and B, re-
+spectively, and T is the sequence length. The cur-
+rent formulation assumes a shared effective token
+rate, so each source timestep is supervised against
+the corresponding target timestep. Extending the
+formulation to CA × TA →CB × TB for different
+or variable rate tokenizers requires an additional
+temporal alignment module, we discuss this limi-
+tation and possible extensions in Appendix F. Our
+objective is to learn a conditional mapping
+fθ : (NCA×T , ωA→B) →NCB×T .
+(1)
+where ωA→B is a learned direction embedding that
+specifies the source to target tokenizer pair. To-
+kenMapper is trained such that the predicted se-
+quence ˆY = fθ(X, ωA→B) matches the distribu-
+tion of token sequences produced by the original
+tokenizer of the target model. Fig. 3 illustrates To-
+kenMapper’s direction aware routing mechanism.
+By defining the translation directly between dis-
+crete spaces with potentially different number of
+codebooks (CA̸ = CB) and vocabulary structures,
+this formulation naturally supports mappings be-
+tween single codebook and multi codebook tok-
+enizers.
+2.2
+Model Architecture
+2.2.1
+Input Representation
+Each discrete token xc[t] is first mapped to a
+learned token embedding etok(xc[t]) ∈RD, where
+
+
+Broadcast
+(a) Single→Multi routing
+(b) Multi→Single routing
+Context  concat
+(c) Multi→Multi routing
+Figure 3: Direction conditioned encoder to codebook routing schemes. (a) Single→Multi: a single encoder stream is
+broadcast to all target codebooks. (b) Multi→Single: multiple encoder streams are aggregated via attention pooling.
+(c) Multi→Multi: each target codebook receives a concatenation of a shared base stream and its corresponding
+encoder stream.
+D denotes the embedding dimensionality of the
+encoder backbone and is shared across all token,
+positional, codebook, and direction embeddings.
+This embedding is then summed with three addi-
+tional embeddings: a positional embedding epos(t),
+a codebook embedding ecb(c), and a direction em-
+bedding edir(ωA→B):
+hc,t = etok(xc[t])+epos(t)+ecb(c)+edir(ωA→B)
+(2)
+Stacking all token embeddings yields H
+∈
+RCA×T×D
+2.2.2
+Encoder Backbone
+Encoding is performed independently for each
+codebook channel, with self attention restricted
+to the temporal axis.
+˜H = ENC(H),
+˜H ∈RCA×T×D
+(3)
+2.2.3
+Direction Specific Output Heads
+We define the post encoder processing as a rout-
+ing function ϕA→B(ωA→B, ˜H), which maps the
+encoder output ˜H to the inputs of the direction
+specific output heads Z:
+Z = ϕA→B(ωA→B, ˜H),
+Z ∈RCB×T×DZ
+(4)
+where DZ depends on the routing case below. The
+resulting stream is passed to a one layer Trans-
+former output head followed by a linear projection
+to the target vocabulary. The following subsections
+describe the different possible routing configura-
+tions for realizing this mapping.
+2.2.4
+Single to Single Output Head
+When both the source and target tokenizers consist
+of a single codebook (CA = CB = 1), the routing
+function is the identity:
+Z = ˜H,
+Z ∈RT×D
+(5)
+2.2.5
+Multi to Single Output Head
+When the source tokenizer has multiple codebooks
+and the target tokenizer has a single codebook, the
+routing function ϕA→B performs learned attention
+pooling across the codebook axis Fig. 3(b), as de-
+scribed in (dos Santos et al., 2016):
+Z[t] =
+CA
+X
+c=1
+αc,t(θ) ˜Hc,t,
+CA
+X
+c=1
+αc,t(θ) = 1
+(6)
+where αc,t(θ) are learned attention weights.
+2.2.6
+Multi to Multi Output Head
+When both the source and target tokenizers have
+multiple codebooks, the routing function ϕA→B
+constructs a separate input stream for each target
+codebook Fig. 3(c) by concatenating a shared base
+stream, meaning the first source codebook channel
+with the corresponding encoded channel:
+Zc′ = concat
+
+˜H1, ˜Hc′
+
+,
+Zc′ ∈RT×2D
+(7)
+This design choice is motivated by hierarchical neu-
+ral audio codecs, where the first codebook is typ-
+ically associated with higher level semantic struc-
+ture.
+2.2.7
+Single to Multi Output Head
+For single codebook sources, ϕA→B serves as a
+broadcast by duplication to all CB target codebooks
+
+
+Fig. 3(a):
+Z = ( ˜H, ˜H, . . . , ˜H),
+Z ∈RCB×T×D
+(8)
+2.3
+Training Objective
+Training uses token level cross-entropy over all
+target codebooks and timesteps. Given a target
+tokenizer with CB codebooks, the loss is defined:
+LCE =
+CB
+X
+c′=1
+T
+X
+t=1
+CE
+ fθ,c′(X, ωA→B)[t], yc′[t]
+
+(9)
+where yc′[t] is the ground truth token, and
+fθ,c′(X, ωA→B)[t] denotes the predicted logits for
+that codebook. All directions share a conditioned
+encoder, with direction specific output heads.
+3
+Experiments
+3.1
+Experimental Setup
+We evaluate cross-model token translation across
+heterogeneous audio tokenizers. Given an utter-
+ance, audio is encoded using a source tokenizer,
+translated into the target token space by the pro-
+posed model, and decoded using the target tok-
+enizer’s native decoder. We evaluate all ordered
+source→target pairs among GLM-4-Voice, which
+uses a single codebook (C = 1), and Moshi (MiMi)
+and DualCodec, both of which use eight code-
+books (C = 8). For brevity, we refer to GLM-
+4-Voice as GLM and to Moshi (MiMi) as Moshi
+throughout.
+These experiments use tokenizers
+with a shared effective token rate, allowing one-
+to-one temporal supervision while still testing sub-
+stantial codebook and vocabulary mismatch. Au-
+dio examples of native reconstructions and cross
+model translations are available in the online sup-
+plementary material at https://talkov.github.
+io/TokenMapper.github.io/.
+3.2
+Datasets
+3.2.1
+LibriSpeech
+The first dataset is LibriSpeech, a large-scale En-
+glish speech corpus derived from audiobook record-
+ings (Panayotov et al., 2015).
+Training is per-
+formed on the train subset, while evaluation is
+conducted on the test-clean subset. LibriSpeech
+provides high-quality, well-segmented speech with
+relatively consistent recording conditions, making
+it a standard benchmark for evaluating speech rep-
+resentation learning and reconstruction quality.
+3.2.2
+VCTK
+To assess generalization beyond audiobook speech,
+we additionally evaluate on VCTK, a multi-speaker
+English corpus containing speech from 110 speak-
+ers with diverse accents (Yamagishi et al., 2019).
+Each speaker reads approximately 400 utterances
+recorded under controlled conditions. Compared
+to LibriSpeech, VCTK introduces greater speaker
+diversity and accent variability, making it a use-
+ful complementary benchmark for evaluating the
+robustness of cross-tokenizer translation across dif-
+ferent speaking styles and speaker characteristics.
+3.3
+Evaluation Metrics
+We use complementary metrics to assess intelligi-
+bility and perceptual speech quality. In addition to
+these quantitative metrics, we include qualitative
+mel-spectrogram residual analysis in Appendix G
+to examine acoustic reconstruction behavior across
+translation directions.
+3.3.1
+Word Error Rate (WER)
+WER is computed from ASR transcripts and com-
+pared against the corresponding ground truth tran-
+scripts. ASR decoding is performed using Whisper
+large-v3 (Radford et al., 2022), allowing WER to
+serve as a proxy for semantic and linguistic preser-
+vation under token translation. Before computing
+WER, both hypotheses and references are normal-
+ized by removing punctuation and standardizing
+whitespace to match the LibriSpeech transcription
+format.
+3.3.2
+Perceptual quality: MOS and UTMOS
+Perceptual speech quality is evaluated using both
+human mean opinion score (MOS) and automatic
+MOS prediction. MOS is a subjective listening
+evaluation in which human listeners rate audio qual-
+ity on a 1-5 scale, where higher scores indicate
+better perceived speech quality. Since full human
+evaluation is costly, we use UTMOS as the main
+automatic perceptual metric. UTMOS is a neural
+MOS predictor trained to estimate perceived speech
+naturalness and correlate with human MOS judg-
+ments (Saeki et al., 2022). We report UTMOS-v2
+scores as estimated speech quality, and additionally
+conduct a human MOS listening study with 32 par-
+ticipants, who were instructed to listen in a quiet
+environment using headphones or earphones. The
+human evaluation protocol and results are provided
+in Appendix B.
+
+
+Table 1:
+Cross model WER (%) on LibriSpeech
+(lower is better). Diagonal entries correspond to na-
+tive reconstructions, off diagonal entries denote source
+(rows)→target (columns) token translation.
+WER (%) (↓)
+GLM
+Moshi
+DualCodec
+GLM
+4.75
+9.31
+5.85
+Moshi
+8.55
+4.02
+7.91
+DualCodec
+8.34
+9.98
+3.29
+Table 2: Cross model WER (%) on VCTK (lower is bet-
+ter). Diagonal entries correspond to native reconstruc-
+tions, off diagonal entries denote source (rows)→target
+(columns) token translation.
+WER (%) (↓)
+GLM
+Moshi
+DualCodec
+GLM
+5.32
+9.49
+7.95
+Moshi
+8.79
+4.39
+9.18
+DualCodec
+8.28
+9.92
+2.35
+4
+Results
+We now present the empirical performance of To-
+kenMapper on cross model token translation. Re-
+sults are reported on LibriSpeech test-clean and
+VCTK to evaluate robustness across datasets with
+different speaker distributions and recording condi-
+tions.
+4.1
+Semantic preservation (WER)
+Semantic metric results shown in Table 1 sug-
+gest that cross model WER remains close to na-
+tive reconstruction performance on LibriSpeech.
+While native WER ranges between 3.29-4.75%,
+cross model translation remains within 5.85-
+9.98%, corresponding to a modest degradation
+of only 2.56-5.96%.
+The strongest direction
+is GLM→DualCodec with 5.85%, representing
+only a 2.56% increase over native DualCodec re-
+construction. The most challenging direction is
+DualCodec→Moshi with WER of 9.98%, indicat-
+ing increased difficulty when translating between
+multi codebook, RVQ based, tokenizers. Table 2
+shows a similar trend on VCTK, where cross model
+WER remains within 2.96-6.83% of native perfor-
+mance despite increased speaker and accent vari-
+ability. This consistency across datasets suggests
+that TokenMapper captures tokenizer level linguis-
+tic structure rather than dataset specific acoustic
+properties. Together, these results indicate that To-
+kenMapper preserves semantic content with only
+limited degradation relative to native reconstruc-
+Table 3: Cross model UTMOS on LibriSpeech (higher
+is better). Diagonal entries correspond to native recon-
+structions, off diagonal entries denote source→target
+token translation.
+UTMOS (↑)
+GLM
+Moshi
+DualCodec
+GLM
+3.27
+2.10
+2.70
+Moshi
+3.24
+2.93
+2.85
+DualCodec
+3.16
+1.98
+3.32
+Table 4: Cross model UTMOS on VCTK (higher is
+better). Diagonal entries correspond to native recon-
+structions, off diagonal entries denote source→target
+token translation.
+UTMOS (↑)
+GLM
+Moshi
+DualCodec
+GLM
+3.39
+2.01
+2.80
+Moshi
+3.38
+3.01
+2.85
+DualCodec
+3.33
+1.95
+3.38
+tion. Performance remains stable across both single
+stream and multi codebook tokenizers, suggesting
+that the linguistic information encoded in these rep-
+resentations is largely transferable.
+4.2
+Acoustic quality (UTMOS)
+Table 3 shows that perceptual quality remains
+reasonably close to native reconstruction on Lib-
+riSpeech.
+Native scores range from 2.93-3.32,
+while cross model translation achieves 1.98-3.24,
+corresponding to a degradation of 0.03-0.95. Trans-
+lations into GLM remain particularly strong, reach-
+ing 3.24 and 3.16 compared to a native score of
+3.27. For RVQ based targets, perceptual quality is
+more variable, with the lowest score observed for
+DualCodec→Moshi of 1.98. This again highlights
+the increased difficulty of reconstructing hierarchi-
+cal acoustic detail across heterogeneous multi code-
+book token spaces. Table 4 shows a similar pattern
+on VCTK. Translations into GLM achieve the high-
+est perceptual quality with UTMOS of 3.38 and
+3.33, closely approaching the native GLM score of
+3.39, while DualCodec→Moshi remains the most
+challenging direction with a score of 1.95. These
+results suggest that while semantic content trans-
+fers reliably, reconstructing fine acoustic structure
+remains more sensitive to tokenizer mismatch.
+4.3
+Human perceptual evaluation (MOS)
+To complement the automatic UTMOS evaluation,
+we conduct a human mean opinion score (MOS) lis-
+tening study with 32 participants. Each participant
+
+
+Table 5:
+Human MOS evaluation with 32 partici-
+pants (higher is better). Diagonal entries correspond
+to native reconstructions, off diagonal entries denote
+source→target token translation.
+MOS (↑)
+GLM
+Moshi
+DualCodec
+GLM
+4.50
+2.93
+3.03
+Moshi
+4.39
+3.08
+3.01
+DualCodec
+4.36
+2.29
+3.76
+rates audio quality on a 1-5 scale, where higher
+scores indicate better perceived quality. For each
+target tokenizer, TokenMapper outputs are com-
+pared against the corresponding native target tok-
+enizer reconstruction.
+Table 5 shows that the human ratings follow
+the same trend as the automatic perceptual met-
+rics. Translations into GLM remain close to native
+GLM reconstruction, with MOS scores of 4.39 and
+4.36 compared to the native score of 4.50. Transla-
+tions into Moshi are more challenging, especially
+DualCodec→Moshi, which decreases from 3.08
+to 2.29. Translations into DualCodec are inter-
+mediate, reaching 3.03 and 3.01 compared to the
+native score of 3.76. These results suggest that
+TokenMapper preserves a substantial fraction of
+target tokenizer perceptual quality in some direc-
+tions, especially into GLM, while quality degra-
+dation remains more pronounced for structurally
+mismatched RVQ based targets.
+4.4
+Latency reduction
+We evaluate offline utterance level latency for cross
+tokenizer transfer. Table 6 reports the mean end to
+end transfer path latency of waveform bridging and
+TokenMapper for each translation direction. For
+the waveform bridging baseline, latency is com-
+puted over the full path encodesrc →decodesrc →
+encodetgt →decodetgt. For TokenMapper, latency
+is computed over encodesrc →TokenMapper →
+decodetgt. All measurements were performed on
+an NVIDIA RTX 6000 GPU. Additional protocol
+details and module level TokenMapper statistics
+are provided in Appendix D. As shown in Table 6,
+latency reduction is strongly direction dependent.
+When the waveform bridging baseline is dominated
+by neural decoding, such as GLM→DualCodec,
+TokenMapper reduces latency by up to 94.5%. In
+directions where the source and target tokenizer
+runtimes are more balanced, the gains are more
+modest, ranging from 4.8% to 10.4%. These im-
+Table 6: Mean offline end to end transfer path latency
+comparison between waveform bridging (Base) and To-
+kenMapper (TM). Time saved is reported in millisec-
+onds and relative percentage.
+Direction
+Base
+TM
+∆ms
+∆%
+Moshi→GLM
+800.9
+755.3
+45.6
+5.7
+GLM→Moshi
+802.4
+52.0
+750.4
+93.5
+Moshi→DualCodec
+280.6
+35.3
+245.3
+87.4
+GLM→DualCodec
+1029.2
+56.9
+972.3
+94.5
+DualCodec→Moshi
+283.4
+253.9
+29.5
+10.4
+DualCodec→GLM
+1027.6
+978.8
+48.8
+4.8
+provements arise because TokenMapper bypasses
+intermediate source side waveform synthesis and
+target side re-tokenization, highlighting the prac-
+tical benefit of performing cross model transfer
+directly in the token domain.
+5
+Ablations
+To better understand the contribution of individ-
+ual architectural components and assess the effect
+of different design choices, we perform a set of
+targeted ablation studies on the proposed model.
+Specifically, we evaluate the following modifica-
+tions:
+• No direction conditioning. We remove the
+direction embedding that informs the model
+about the source→target mapping and instead
+use a shared representation across all transla-
+tion directions.
+• Single shared output head. We replace direc-
+tion specific output heads with a single shared
+projection head used for all translation direc-
+tions.
+• MLP projection head. We replace the Trans-
+former based output heads in the proposed
+model with a simple fully connected MLP
+projection heads (4 layers).
+• Cross codebook attention in the encoder.
+We ablate the original design by enabling self
+attention across both time and codebook di-
+mensions, allowing interactions between code-
+book channels within the encoder.
+• Full
+context
+concatenation.
+For
+multi→multi
+mappings,
+the
+proposed
+model concatenates a shared base stream
+(codebook 1) with the corresponding target
+codebook channel. We ablate this design by
+
+
+concatenating all source codebook represen-
+tations and feeding the full context to each
+target projection head.
+These ablations are evaluated across represen-
+tative translation directions covering the main
+structural cases: single→multi (GLM→Moshi),
+multi→single (Moshi→GLM), and multi→multi
+(Moshi→DualCodec). The ablation results in Ta-
+ble 7 confirm that direction conditioning and di-
+rection specific projection heads are critical for ac-
+curate token translation. Removing direction con-
+ditioning increases WER from 9.31% to 57.62%
+for GLM→Moshi and from 7.91% to 77.21% for
+Moshi→DualCodec. Using a single shared output
+head leads to even larger degradation from WER
+8.55% to 83.01% for Moshi→GLM. Replacing
+the Transformer based output head with a simple
+MLP also degrades performance e.g., WER 9.31%
+to 74.23%, showing the importance of sequence
+modeling in the output stage. Preserving codebook
+structure is similarly important: cross codebook at-
+tention increases WER from 8.55% to 18.86% and
+from 7.91% to 22.83% while also adding signifi-
+cant computational overhead. Full context concate-
+nation further degrades multi→multi translation,
+WER from 7.91% to 26.79%. Overall, these re-
+sults validate the proposed architectural choices
+and highlight the importance of direction aware-
+ness, structural alignment, and sequence aware out-
+put modeling. We also include a simple supervised
+token domain baseline in Appendix E, which re-
+moves TokenMapper’s direction aware shared en-
+coder, structured routing, and Transformer output
+heads, its near failure performance further indicates
+that local token correspondences alone are insuffi-
+cient.
+6
+Conclusion
+We introduced TokenMapper, a direction aware
+framework for direct token to token translation be-
+tween heterogeneous speech tokenizers, avoiding
+intermediate waveform reconstruction. Across Lib-
+riSpeech and VCTK, TokenMapper preserves se-
+mantic content with only modest degradation rel-
+ative to native target tokenizer reconstruction. On
+LibriSpeech, cross model WER increases by 2.56-
+5.96% absolute compared to native reconstruction,
+and on VCTK the gap remains similarly limited at
+2.96-6.83%, suggesting that the learned mappings
+capture transferable tokenizer level structure rather
+than only dataset specific acoustics.
+Perceptual quality follows the same overall pat-
+tern. UTMOS and human MOS results show that
+translations into GLM remain close to native GLM
+reconstruction, while translations into RVQ based
+targets, especially Moshi, are more challenging.
+This indicates that semantic information transfers
+more readily across token spaces than fine acoustic
+detail encoded across multiple residual codebooks.
+TokenMapper also provides substantial effi-
+ciency benefits. By bypassing source side wave-
+form synthesis and target side re-tokenization, it
+reduces offline transfer path latency by up to 94.5%,
+with the largest gains in directions where waveform
+bridging is dominated by neural decoding.
+Overall, these results show that direct token do-
+main interoperability is feasible in the studied same
+rate setting. TokenMapper provides a concrete
+step toward modular speech systems that commu-
+nicate through discrete tokens rather than wave-
+form bridging. Future work should extend the ap-
+proach to additional tokenizer families, different or
+variable token rates, weaker pairing assumptions,
+stronger acoustic detail recovery, and streaming
+deployment.
+7
+Limitations
+The current experiments cover three same rate
+speech tokenizers and six ordered directions, in-
+cluding one single codebook tokenizer and two 8
+codebook RVQ tokenizers. The formulation as-
+sumes paired same utterance token sequences with
+a shared effective token rate, mapping CA × T
+to CB × T. It therefore does not directly handle
+tokenizer pairs with different frame rates. Extend-
+ing the method to CA × TA →CB × TB would
+require an additional temporal alignment module,
+Appendix F discusses possible extensions. The
+method also depends on supervised paired token
+data obtained by encoding the same utterances with
+each tokenizer. This does not require retraining the
+original tokenizers or speech models, but it does as-
+sume access to the relevant tokenizer checkpoints
+and may require adaptation when tokenizer ver-
+sions change or when adding new target tokenizers.
+The current evaluation also does not cover strong
+domain shifts such as music to speech tokenizer
+mismatch. Finally, perceptual quality remains more
+challenging for structurally mismatched multi code-
+book targets. For example, DualCodec→Moshi
+remains below native Moshi reconstruction in both
+UTMOS and human MOS, suggesting that recov-
+
+
+Table 7: Ablation results for representative translation directions. Lower WER is better, higher UTMOS is better.
+Direction
+Model variant
+WER (%) (↓)
+UTMOS (↑)
+GLM→Moshi
+Full model
+9.31
+2.10
+No direction conditioning
+57.62
+1.68
+Single shared output head
+88.82
+1.71
+MLP output head (4 layers)
+74.23
+1.66
+Moshi→GLM
+Full model
+8.55
+3.24
+No direction conditioning
+33.52
+3.11
+Single shared output head
+83.01
+2.47
+MLP output head (4 layers)
+67.52
+2.52
+Cross codebook attention
+18.86
+3.26
+Moshi→DualCodec
+Full model
+7.91
+2.85
+No direction conditioning
+77.21
+1.61
+Single shared output head
+96.75
+1.96
+MLP output head (4 layers)
+99.46
+1.53
+Cross codebook attention
+22.83
+2.36
+Full context concatenation
+26.79
+2.12
+ering fine grained residual acoustic detail across
+heterogeneous RVQ hierarchies is harder than pre-
+serving semantic content. The VCTK results sug-
+gest robustness beyond LibriSpeech speakers and
+audiobook conditions, but they do not establish full
+out of distribution robustness.
+8
+Generative AI Use Disclosure
+Generative AI tools were utilized to edit and polish
+the phrasing of this manuscript.
+References
+Sunghwan Ahn, Beom Jun Woo, Min Hyun Han,
+Chanyeong Moon, and Nam Soo Kim. 2024.
+Hilcodec: High-fidelity and lightweight neural au-
+dio codec. Preprint, arXiv:2405.04752.
+Yang Ai, Xiao-Hang Jiang, Ye-Xin Lu, Hui-Peng Du,
+and Zhen-Hua Ling. 2024. Apcodec: A neural audio
+codec with parallel amplitude and phase spectrum
+encoding and decoding. Preprint, arXiv:2402.10533.
+Alexei Baevski, Steffen Schneider, and Michael
+Auli. 2020.
+vq-wav2vec: Self-supervised learn-
+ing of discrete speech representations.
+Preprint,
+arXiv:1910.05453.
+He Bai, Tatiana Likhomanenko, Ruixiang Zhang,
+Zijin Gu, Zakaria Aldeneh, and Navdeep Jaitly.
+2024.
+dmel: Speech tokenization made simple.
+arXiv:2407.15835v2.
+Zalán Borsos, Raphaël Marinier, Damien Vincent, Eu-
+gene Kharitonov, Olivier Pietquin, Matt Sharifi,
+Dominik Roblek, Olivier Teboul, David Grangier,
+Marco Tagliasacchi, and Neil Zeghidour. 2023. Au-
+diolm: a language modeling approach to audio gen-
+eration. Preprint, arXiv:2209.03143.
+Edresson Casanova, Ryan Langman, Paarth Neekhara,
+Shehzeen Hussain, Jason Li, Subhankar Ghosh,
+Ante Juki´c, and Sang gil Lee. 2024. Low frame-
+rate speech codec: a codec designed for fast high-
+quality speech llm training and inference. Preprint,
+arXiv:2409.12117.
+Edresson Casanova, Paarth Neekhara, Ryan Langman,
+Shehzeen Hussain, Subhankar Ghosh, Xuesong Yang,
+Ante Juki´c, Jason Li, and Boris Ginsburg. 2025.
+Nanocodec: Towards high-quality ultra fast speech
+llm inference. Preprint, arXiv:2508.05835.
+Yunkee Chae, Woosung Choi, Yuhta Takida, Junghyun
+Koo, Yukara Ikemiya, Zhi Zhong, Kin Wai Cheuk,
+Marco A. Martínez-Ramírez, Kyogu Lee, Wei-
+Hsiang Liao, and Yuki Mitsufuji. 2025. Variable
+bitrate residual vector quantization for audio coding.
+Preprint, arXiv:2410.06016.
+Wenxi Chen, Xinsheng Wang, Ruiqi Yan, Yushen
+Chen, Zhikang Niu, Ziyang Ma, Xiquan Li, Yuzhe
+Liang, Hanlin Wen, Shunshun Yin, Ming Tao,
+and Xie Chen. 2025.
+Sac: Neural speech codec
+with semantic-acoustic dual-stream quantization.
+Preprint, arXiv:2510.16841.
+William Chen, Wangyou Zhang, Yifan Peng, Xinjian Li,
+Jinchuan Tian, Jiatong Shi, Xuankai Chang, Soumi
+Maiti, Karen Livescu, and Shinji Watanabe. 2024.
+Towards robust speech representation learning for
+thousands of languages. Preprint, arXiv:2407.00837.
+Yunfei Chu, Jin Xu, Xiaohuan Zhou, Qian Yang, Shil-
+iang Zhang, Zhijie Yan, Chang Zhou, and Jingren
+Zhou. 2023.
+Qwen-audio: Advancing universal
+audio understanding via unified large-scale audio-
+language models. Preprint, arXiv:2311.07919.
+Mingyu Cui, Daxin Tan, Yifan Yang, Dingdong Wang,
+Huimeng Wang, Xiao Chen, Xie Chen, and Xunying
+Liu. 2024. Exploring ssl discrete tokens for multilin-
+gual asr. Preprint, arXiv:2409.08805.
+Prafulla Dhariwal, Heewoo Jun, Christine Payne,
+Jong Wook Kim, Alec Radford, and Ilya Sutskever.
+2020.
+Jukebox: A generative model for music.
+Preprint, arXiv:2005.00341.
+
+
+Cicero dos Santos, Ming Tan, Bing Xiang, and Bowen
+Zhou. 2016. Attentive pooling networks. Preprint,
+arXiv:1602.03609.
+Zhihao Du, Qian Chen, Shiliang Zhang, Kai Hu, Heng
+Lu, Yexin Yang, Hangrui Hu, Siqi Zheng, Yue
+Gu, Ziyang Ma, Zhifu Gao, and Zhijie Yan. 2024a.
+Cosyvoice: A scalable multilingual zero-shot text-
+to-speech synthesizer based on supervised semantic
+tokens. Preprint, arXiv:2407.05407.
+Zhihao Du, Yuxuan Wang, Qian Chen, Xian Shi,
+Xiang Lv, Tianyu Zhao, Zhifu Gao, Yexin Yang,
+Changfeng Gao, Hui Wang, Fan Yu, Huadai Liu,
+Zhengyan Sheng, Yue Gu, Chong Deng, Wen Wang,
+Shiliang Zhang, Zhijie Yan, and Jingren Zhou.
+2024b.
+Cosyvoice 2: Scalable streaming speech
+synthesis with large language models.
+Preprint,
+arXiv:2412.10117.
+Zhihao Du, Shiliang Zhang, Kai Hu, and Siqi Zheng.
+2023.
+Funcodec: A fundamental, reproducible
+and integrable open-source toolkit for neural speech
+codec. arXiv:2309.07405.
+Alexandre Défossez, Jade Copet, Gabriel Synnaeve, and
+Yossi Adi. 2022. High fidelity neural audio compres-
+sion. Preprint, arXiv:2210.13438.
+Alexandre Défossez, Laurent Mazaré, Manu Orsini,
+Amélie Royer, Patrick Pérez, Hervé Jégou, Edouard
+Grave, and Neil Zeghidour. 2024.
+Moshi:
+a
+speech-text foundation model for real-time dialogue.
+Preprint, arXiv:2410.00037.
+Qingkai Fang, Shoutao Guo, Yan Zhou, Zhengrui Ma,
+Shaolei Zhang, and Yang Feng. 2025a. Llama-omni:
+Seamless speech interaction with large language mod-
+els. Preprint, arXiv:2409.06666.
+Qingkai Fang, Yan Zhou, Shoutao Guo, Shaolei Zhang,
+and Yang Feng. 2025b. Llama-omni2: Llm-based
+real-time spoken chatbot with autoregressive stream-
+ing speech synthesis. Preprint, arXiv:2505.02625.
+Yitian Gong, Luozhijie Jin, Ruifan Deng, Dong Zhang,
+Xin Zhang, Qinyuan Cheng, Zhaoye Fei, Shimin Li,
+and Xipeng Qiu. 2025. Xy-tokenizer: Mitigating
+the semantic-acoustic conflict in low-bitrate speech
+codecs. Preprint, arXiv:2506.23325.
+Haohan Guo, Fenglong Xie, Kun Xie, Dongchao
+Yang, Dake Guo, Xixin Wu, and Helen Meng. 2024.
+Socodec: A semantic-ordered multi-stream speech
+codec for efficient language model based text-to-
+speech synthesis. Preprint, arXiv:2409.00933.
+Nadav Har-Tuv,
+Or Tal,
+and Yossi Adi. 2025.
+Past:
+Phonetic-acoustic
+speech
+tokenizer.
+arXiv:2505.14470v1.
+Wei-Ning Hsu, Benjamin Bolte, Yao-Hung Hubert Tsai,
+Kushal Lakhotia, Ruslan Salakhutdinov, and Abdel-
+rahman Mohamed. 2021. Hubert: Self-supervised
+speech representation learning by masked prediction
+of hidden units. Preprint, arXiv:2106.07447.
+Lun Huang, Qiang Qiu, and Guillermo Sapiro. 2024a.
+Pq-vae: Learning hierarchical discrete representa-
+tions with progressive quantization. In Proceedings
+of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition Workshops (CVPRW).
+Zhichao Huang, Chutong Meng, and Tom Ko. 2024b.
+Repcodec: A speech representation codec for speech
+tokenization. Preprint, arXiv:2309.00169.
+Teerapat Jenrungrot, Michael Chinen, W. Bastiaan
+Kleijn, Jan Skoglund, Zalán Borsos, Neil Zeghidour,
+and Marco Tagliasacchi. 2023. Lmcodec: A low bi-
+trate speech codec with causal transformer models.
+Preprint, arXiv:2303.12984.
+Shengpeng Ji, Minghui Fang, Jialong Zuo, Ziyue Jiang,
+Dingdong Wang, Hanting Wang, Hai Huang, and
+Zhou Zhao. 2025a. Language-codec: Bridging dis-
+crete codec representations and speech language mod-
+els. Preprint, arXiv:2402.12208.
+Shengpeng Ji, Ziyue Jiang, Wen Wang, Yifu Chen,
+Minghui Fang, Jialong Zuo, Qian Yang, Xize Cheng,
+Zehan Wang, Ruiqi Li, Ziang Zhang, Xiaoda Yang,
+Rongjie Huang, Yidi Jiang, Qian Chen, Siqi Zheng,
+and Zhou Zhao. 2025b. Wavtokenizer: an efficient
+acoustic discrete codec tokenizer for audio language
+modeling. Preprint, arXiv:2408.16532.
+Jiawei Jiang, Linping Xu, Dejun Zhang, Qingbo Huang,
+Xianjun Xia, and Yijian Xiao. 2025. Ldcodec: A
+high quality neural audio codec with low-complexity
+decoder. Preprint, arXiv:2510.15364.
+Xiao-Hang Jiang, Yang Ai, Rui-Chen Zheng, Hui-Peng
+Du, Ye-Xin Lu, and Zhen-Hua Ling. 2024. Mdct-
+codec: A lightweight mdct-based neural audio codec
+towards high sampling rate and low bitrate scenarios.
+Preprint, arXiv:2411.00464.
+Xue Jiang, Xiulian Peng, Yuan Zhang, and Yan Lu.
+2022. Disentangled feature learning for real-time
+neural speech coding. arXiv:2211.11960.
+Zeqian Ju, Yuancheng Wang, Kai Shen, Xu Tan, De-
+tai Xin, Dongchao Yang, Yanqing Liu, Yichong
+Leng, Kaitao Song, Siliang Tang, Zhizheng Wu,
+Tao Qin, Xiang-Yang Li, Wei Ye, Shikun Zhang,
+Jiang Bian, Lei He, Jinyu Li, and Sheng Zhao. 2024.
+Naturalspeech 3: Zero-shot speech synthesis with
+factorized codec and diffusion models.
+Preprint,
+arXiv:2403.03100.
+Kushal Lakhotia, Eugene Kharitonov, Wei-Ning Hsu,
+Yossi Adi, Adam Polyak, Benjamin Bolte, Tu-Anh
+Nguyen, Jade Copet, Alexei Baevski, Abdelrahman
+Mohamed, and Emmanuel Dupoux. 2021. On gen-
+erative spoken language modeling from raw audio.
+Transactions of the Association for Computational
+Linguistics, 9:1336–1354.
+Hanzhao Li, Liumeng Xue, Haohan Guo, Xinfa Zhu,
+Yuanjun Lv, Lei Xie, Yunlin Chen, Hao Yin, and
+Zhifei Li. 2024.
+Single-codec: Single-codebook
+speech codec towards high-performance speech gen-
+eration. Preprint, arXiv:2406.07422.
+
+
+Jiaqi Li, Xiaolong Lin, Zhekai Li, Shixi Huang,
+Yuancheng Wang, Chaoren Wang, Zhenpeng Zhan,
+and Zhizheng Wu. 2025a. Dualcodec: A low-frame-
+rate, semantically-enhanced neural audio codec for
+speech generation. Preprint, arXiv:2505.13000.
+Jiaqi Li, Yao Qian, Yuxuan Hu, Leying Zhang, Xi-
+aofei Wang, Heng Lu, Manthan Thakker, Jinyu Li,
+Sheng Zhao, and Zhizheng Wu. 2025b. Flexicodec:
+A dynamic neural audio codec for low frame rates.
+Preprint, arXiv:2510.00981.
+Tianpeng Li, Jun Liu, Tao Zhang, Yuanbo Fang, Da Pan,
+Mingrui Wang, Zheng Liang, Zehuan Li, Mingan
+Lin, Guosheng Dong, Jianhua Xu, Haoze Sun, Zenan
+Zhou, and Weipeng Chen. 2025c. Baichuan-audio: A
+unified framework for end-to-end speech interaction.
+Preprint, arXiv:2502.17239.
+Haohe Liu, Xuenan Xu, Yi Yuan, Mengyue Wu, Wenwu
+Wang, and Mark D. Plumbley. 2024. Semanticodec:
+An ultra low bitrate semantic audio codec for general
+sound. IEEE Journal of Selected Topics in Signal
+Processing, 18(8):1448–1461.
+Kentaro Mitsui, Koh Mitsuda, Toshiaki Wakatsuki,
+Yukiya Hono, and Kei Sawada. 2024. Pslm: Par-
+allel generation of text and speech with llms for
+low-latency spoken dialogue systems.
+Preprint,
+arXiv:2406.12428.
+Tu Anh Nguyen,
+Benjamin Muller,
+Bokai Yu,
+Marta R. Costa-jussa, Maha Elbayad, Sravya Pop-
+uri, Christophe Ropers, Paul-Ambroise Duquenne,
+Robin Algayres, Ruslan Mavlyutov, Itai Gat, Mary
+Williamson, Gabriel Synnaeve, Juan Pino, Benoit
+Sagot, and Emmanuel Dupoux. 2024.
+Spirit lm:
+Interleaved spoken and written language model.
+Preprint, arXiv:2402.05755.
+Zhikang Niu, Sanyuan Chen, Long Zhou, Ziyang Ma,
+Xie Chen, and Shujie Liu. 2024. Ndvq: Robust neu-
+ral audio codec with normal distribution-based vector
+quantization. Preprint, arXiv:2409.12717.
+Yu Pan, Lei Ma, and Jianjun Zhao. 2024. Promptcodec:
+High-fidelity neural speech codec using disentangled
+representation learning based adaptive feature-aware
+prompt encoders. arXiv:2404.02702v2.
+Vassil Panayotov, Guoguo Chen, Daniel Povey, and San-
+jeev Khudanpur. 2015. Librispeech: An asr corpus
+based on public domain audio books. In 2015 IEEE
+International Conference on Acoustics, Speech and
+Signal Processing (ICASSP), pages 5206–5210.
+Julian D. Parker, Anton Smirnov, Jordi Pons, C. J.
+Carr, Zack Zukowski, Zach Evans, and Xubo Liu.
+2024.
+Scaling transformers for low-bitrate high-
+quality speech coding. arXiv:2411.19842.
+Alec Radford, Jong Wook Kim, Tao Xu, Greg Brock-
+man, Christine McLeavey, and Ilya Sutskever. 2022.
+Robust speech recognition via large-scale weak su-
+pervision. Preprint, arXiv:2212.04356.
+Yong Ren, Tao Wang, Jiangyan Yi, Le Xu, Jianhua Tao,
+Chuyuan Zhang, and Junzuo Zhou. 2024. Fewer-
+token neural speech codec with time-invariant codes.
+Preprint, arXiv:2310.00014.
+Takaaki Saeki, Detai Xin, Wataru Nakata, Tomoki
+Koriyama, Shinnosuke Takamichi, and Hiroshi
+Saruwatari. 2022.
+Utmos:
+Utokyo-sarulab sys-
+tem for voicemos challenge 2022.
+Preprint,
+arXiv:2204.02152.
+Kai Shen, Zeqian Ju, Xu Tan, Yanqing Liu, Yichong
+Leng, Lei He, Tao Qin, Sheng Zhao, and Jiang Bian.
+2023. Naturalspeech 2: Latent diffusion models are
+natural and zero-shot speech and singing synthesizers.
+Preprint, arXiv:2304.09116.
+Jiatong Shi, Xutai Ma, Hirofumi Inaguma, Anna
+Sun, and Shinji Watanabe. 2024.
+Mmm: Multi-
+layer multi-residual multi-stream discrete speech
+representation from self-supervised learning model.
+arXiv:2406.09869v1.
+Jiatong Shi, Haoran Wang, William Chen, Chenda
+Li, Wangyou Zhang, Jinchuan Tian, and Shinji
+Watanabe. 2025. Pure codec: Progressive unfold-
+ing of residual entropy for speech codec learning.
+arXiv:2511.22687.
+Hubert Siuzdak. 2024.
+Vocos:
+Closing the gap
+between time-domain and fourier-based neural
+vocoders for high-quality audio synthesis. Preprint,
+arXiv:2306.00814.
+Hubert Siuzdak, Florian Grötschla, and Luca A.
+Lanzendörfer. 2024. Snac: Multi-scale neural au-
+dio codec. Preprint, arXiv:2410.14411.
+Yuxun Tang, Yuning Wu, Jiatong Shi, and Qin Jin. 2024.
+Singomd:
+Singing oriented multi-resolution dis-
+crete representation construction from speech models.
+Preprint, arXiv:2406.08905.
+Viet Anh Khoa Tran, David Thulke, Yingbo Gao, Chris-
+tian Herold, and Hermann Ney. 2022. Does joint
+training really help cascaded speech translation?
+Preprint, arXiv:2210.13700.
+Aaron van den Oord, Oriol Vinyals, and Koray
+Kavukcuoglu. 2018. Neural discrete representation
+learning. Preprint, arXiv:1711.00937.
+Lei Wang, Chen Ma, Xueyang Feng, Zeyu Zhang, Hao
+Yang, Jingsen Zhang, Zhiyuan Chen, Jiakai Tang,
+Xu Chen, Yankai Lin, Wayne Xin Zhao, Zhewei Wei,
+and Jirong Wen. 2024. A survey on large language
+model based autonomous agents. Frontiers of Com-
+puter Science, 18(6).
+Tianrui Wang, Long Zhou, Ziqiang Zhang, Yu Wu, Shu-
+jie Liu, Yashesh Gaur, Zhuo Chen, Jinyu Li, and
+Furu Wei. 2023. Viola: Unified codec language mod-
+els for speech recognition, synthesis, and translation.
+Preprint, arXiv:2305.16107.
+
+
+Haibin Wu, Naoyuki Kanda, Sefik Emre Eskimez,
+and Jinyu Li. 2025a.
+Ts3-codec:
+Transformer-
+based simple streaming single codec.
+Preprint,
+arXiv:2411.18803.
+Yi-Chiao Wu, Israel D. Gebru, Dejan Markovi´c, and
+Alexander Richard. 2023.
+Audiodec: An open-
+source streaming high-fidelity neural audio codec.
+In ICASSP 2023 - 2023 IEEE International Confer-
+ence on Acoustics, Speech and Signal Processing
+(ICASSP), page 1–5. IEEE.
+Yi-Chiao Wu, Dejan Markovi´c, Steven Krenn, Is-
+rael D. Gebru, and Alexander Richard. 2024. Score-
+dec: A phase-preserving high-fidelity audio codec
+with a generalized score-based diffusion post-filter.
+Preprint, arXiv:2401.12160.
+Yi-Chiao Wu, Dejan Markovi´c, Steven Krenn, Is-
+rael D. Gebru, and Alexander Richard. 2025b. Com-
+plexdec: A domain-robust high-fidelity neural audio
+codec with complex spectrum modeling. Preprint,
+arXiv:2502.02019.
+Detai Xin, Xu Tan, Shinnosuke Takamichi, and Hi-
+roshi Saruwatari. 2024. Bigcodec: Pushing the lim-
+its of low-bitrate neural speech codec.
+Preprint,
+arXiv:2409.05377.
+Junichi Yamagishi, Christophe Veaux, and Kirsten Mac-
+Donald. 2019.
+Cstr vctk corpus: English multi-
+speaker corpus for cstr voice cloning toolkit (version
+0.92).
+Dongchao Yang, Haohan Guo, Yuanyuan Wang,
+Rongjie Huang, Xiang Li, Xu Tan, Xixin Wu, and
+Helen Meng. 2024. Uniaudio 1.5: Large language
+model-driven audio codec is a few-shot audio task
+learner. Preprint, arXiv:2406.10056.
+Dongchao Yang, Songxiang Liu, Rongjie Huang,
+Jinchuan Tian, Chao Weng, and Yuexian Zou.
+2023a.
+Hifi-codec: Group-residual vector quan-
+tization for high fidelity audio codec.
+Preprint,
+arXiv:2305.02765.
+Dongchao Yang, Jianwei Yu, Helin Wang, Wen Wang,
+Chao Weng, Yuexian Zou, and Dong Yu. 2023b. Diff-
+sound: Discrete diffusion model for text-to-sound
+generation. Preprint, arXiv:2207.09983.
+Zhen Ye, Peiwen Sun, Jiahe Lei, Hongzhan Lin, Xu Tan,
+Zheqi Dai, Qiuqiang Kong, Jianyi Chen, Jiahao
+Pan, Qifeng Liu, Yike Guo, and Wei Xue. 2024.
+Codec does matter: Exploring the semantic short-
+coming of codec for audio language model. Preprint,
+arXiv:2408.17175.
+Neil Zeghidour, Alejandro Luebs, Ahmed Omran, Jan
+Skoglund, and Marco Tagliasacchi. 2021. Sound-
+stream: An end-to-end neural audio codec. Preprint,
+arXiv:2107.03312.
+Aohan Zeng, Zhengxiao Du, Mingdao Liu, Kedong
+Wang, Shengmin Jiang, Lei Zhao, Yuxiao Dong, and
+Jie Tang. 2024. Glm-4-voice: Towards intelligent
+and human-like end-to-end spoken chatbot. Preprint,
+arXiv:2412.02612.
+Dong Zhang, Shimin Li, Xin Zhang, Jun Zhan,
+Pengyu Wang, Yaqian Zhou, and Xipeng Qiu. 2023a.
+Speechgpt:
+Empowering large language models
+with intrinsic cross-modal conversational abilities.
+Preprint, arXiv:2305.11000.
+Hanglei Zhang, Yiwei Guo, Zhihan Li, Xiang Hao, Xie
+Chen, and Kai Yu. 2025a. Unlocking temporal flexi-
+bility: Neural speech codec with variable frame rate.
+arXiv:2505.16845.
+Ruonan Zhang, Xiaoyang Hao, Yichen Han, Jun-
+jie Cao, Yue Liu, and Kai Zhang. 2025b.
+Mb-
+codec:thorough disentangle for high-fidelity audio
+compression. Preprint, arXiv:2509.17006.
+Xin Zhang, Dong Zhang, Shimin Li, Yaqian Zhou, and
+Xipeng Qiu. 2024. Speechtokenizer: Unified speech
+tokenizer for speech large language models. Preprint,
+arXiv:2308.16692.
+Yu Zhang, Wei Han, James Qin, Yongqiang Wang,
+Ankur Bapna, Zhehuai Chen, Nanxin Chen, Bo Li,
+Vera Axelrod, Gary Wang, Zhong Meng, Ke Hu, An-
+drew Rosenberg, Rohit Prabhavalkar, Daniel S. Park,
+Parisa Haghani, Jason Riesa, Ginger Perng, Hagen
+Soltau, and 8 others. 2023b. Google usm: Scaling
+automatic speech recognition beyond 100 languages.
+Preprint, arXiv:2303.01037.
+Alon Ziv, Itai Gat, Gael Le Lan, Tal Remez, Felix Kreuk,
+Jade Copet, Alexandre Défossez, Gabriel Synnaeve,
+and Yossi Adi. 2024. Masked audio generation us-
+ing a single non-autoregressive transformer. In In-
+ternational Conference on Representation Learning,
+volume 2024, pages 43249–43268.
+A
+Additional Reproducibility Details
+Paired token construction.
+For each utterance,
+we independently encode the same waveform with
+each tokenizer and match the resulting token ten-
+sors by utterance or file ID. This produces super-
+vised pairs (X, Y ) for each source target direc-
+tion. GLM produces a single codebook sequence
+X ∈N1×T , while Moshi and DualCodec produce
+8 codebook RVQ sequences X ∈N8×T . Padding
+masks are constructed over the temporal axis and
+are applied consistently to the token level cross
+entropy loss so that padded positions do not con-
+tribute to training or evaluation.
+Training and checkpoint selection.
+Unless oth-
+erwise stated, all directions use the same config-
+uration: a 4-layer shared Transformer encoder
+with hidden size D = 256, 8 attention heads,
+one-layer Transformer output heads, Adam opti-
+mization, batch size 32, learning rate 5 × 10−4,
+
+
+and 600 training epochs. We reserve 10% of the
+LibriSpeech training utterances as a fixed valida-
+tion set and use the remaining 90% for training.
+Checkpoints are selected according to the lowest
+validation cross-entropy, computed with the same
+padding mask as the training loss so that padded po-
+sitions do not contribute to model selection. The se-
+lected checkpoint is then evaluated on LibriSpeech
+test-clean and VCTK.
+Evaluation.
+For WER, decoded waveforms are
+transcribed using Whisper large-v3 and compared
+to normalized references after punctuation removal
+and whitespace normalization. UTMOS is com-
+puted with UTMOS-v2. Human MOS and latency
+protocols are described in Appendices B and D,
+respectively.
+Tokenizer and preprocessing details.
+We use
+the public tokenizer/decoder configurations cor-
+responding to GLM-4-Voice, Moshi/MiMi, and
+DualCodec.
+All tokenizers are applied to the
+same utterance set for paired-token construction.
+Any tokenizer-specific sample-rate conversion and
+waveform normalization follow the corresponding
+tokenizer inference pipeline.
+B
+Human MOS Evaluation
+We conducted a human mean opinion score (MOS)
+listening study with 32 participants. Each partic-
+ipant was asked to listen to audio samples using
+headphones or earphones, preferably in a quiet en-
+vironment, and rate the perceived speech quality
+on a 1-5 scale, where higher scores indicate better
+perceived quality. The form instructions stated that
+all samples within each question correspond to the
+same spoken utterance but may have been gener-
+ated by different anonymized speech processing
+systems, and that participants should judge only
+the audio quality they hear. There were no right or
+wrong answers.
+The evaluation used 15 audio samples in total:
+12 TokenMapper outputs and 3 native target tok-
+enizer reconstructions. The 12 TokenMapper sam-
+ples cover all six translation directions, with two
+utterances per direction. The native samples corre-
+spond to the reconstruction quality of the three tar-
+get tokenizers (GLM, Moshi, and DualCodec) and
+serve as target tokenizer reference points. The pur-
+pose of this evaluation is not to compare TokenMap-
+per outputs against the original clean waveform, but
+rather to compare each translated output against
+the reconstruction quality achievable by the corre-
+sponding target tokenizer. Therefore, in the MOS
+matrix reported in Table 5, diagonal entries denote
+native target tokenizer reconstructions, while off di-
+agonal entries denote TokenMapper source→target
+translations. This presentation matches the WER
+and UTMOS matrices used in the main results.
+The MOS results follow the same trend as the
+automatic perceptual metrics. Translations into
+GLM are rated close to native GLM reconstruc-
+tion, Moshi-targeted translations remain the most
+challenging, especially DualCodec→Moshi, and
+DualCodec-targeted translations are intermediate.
+These results support the interpretation that Token-
+Mapper preserves much of the perceptual quality
+achievable by the target tokenizer, while quality
+degradation is more pronounced when the target
+representation requires recovering multi codebook
+residual acoustic detail.
+C
+Adaptation to an Additional Target
+Tokenizer
+To examine whether adding a target tokenizer re-
+quires retraining the full model, we conducted a
+preliminary experiment with the XY tokenizer. We
+froze the encoder trained in the original TokenMap-
+per setup and trained only new XY output heads
+for 30 epochs using the same training parameters.
+The native XY reconstruction serves as the target
+baseline.
+Table 8: Preliminary adaptation experiment into XY.
+The TokenMapper encoder is frozen and only new XY
+output heads are trained for 30 epochs. Lower WER is
+better and higher UTMOS is better.
+Direction
+Metric
+Native XY
+TokenMapper
+GLM→XY
+WER (%)
+3.03
+6.23
+Moshi→XY
+WER (%)
+3.03
+8.21
+DualCodec→XY
+WER (%)
+3.03
+8.95
+GLM→XY
+UTMOS
+3.31
+2.82
+Moshi→XY
+UTMOS
+3.31
+2.97
+DualCodec→XY
+UTMOS
+3.31
+3.01
+Although preliminary, these results suggest that
+adding a new target tokenizer may be approached
+through lightweight output head adaptation rather
+than retraining the full model. This does not prove
+universal scalability, but it supports the architec-
+tural distinction between the shared direction con-
+ditioned encoder and the comparatively smaller
+target specific output heads.
+
+
+D
+Latency Protocol and Module Level
+Timing
+The main latency comparison in Table 6 is an of-
+fline utterance level transfer path comparison be-
+tween waveform bridging and TokenMapper. The
+waveform bridging baseline includes the full trans-
+fer path
+encodesrc →decodesrc →encodetgt →decodetgt.
+The TokenMapper transfer path includes
+encodesrc →TokenMapper →decodetgt.
+Thus, TokenMapper excludes intermediate source
+side waveform synthesis and target side re-
+tokenization. The reported main paper latency val-
+ues are computed from the measured latency of
+the corresponding stages in each path. All latency
+measurements were performed on an NVIDIA
+RTX 6000 GPU. This protocol is intended to quan-
+tify offline transfer path latency, not streaming or
+real time deployment latency. In addition to the
+end to end transfer path comparison, we report
+isolated module level TokenMapper latency in Ta-
+ble 9. This benchmark measures only the learned
+TokenMapper module, excluding tokenizer encod-
+ing, tokenizer decoding, and disk I/O. Source token
+tensors are pre-extracted and preloaded on CPU.
+The timed path includes moving source tokens to
+GPU, constructing the padding mask and direction
+tensor, running the TokenMapper forward pass, and
+converting output logits to token IDs using argmax.
+Timing uses warm up iterations and CUDA syn-
+chronization before and after each measured run.
+For each translation direction, module level la-
+tency is measured over 128 utterances, with three
+repeated measurements per utterance. The repeated
+measurements are averaged at the utterance level
+before computing summary statistics. We report
+mean, standard deviation, median (P50), P90, P95,
+and tokens per second. Tokens per second is com-
+puted over discrete codebook token elements, so
+multi codebook tokenizers naturally contain more
+token elements per timestep than single codebook
+tokenizers.
+E
+Token domain Baseline
+We evaluate a simple supervised token domain
+baseline using the same paired source target to-
+ken data. This baseline removes TokenMapper’s
+direction aware shared encoder, structured rout-
+ing, and Transformer output heads, and instead
+Table 9: Module level TokenMapper inference latency
+per direction. Values are in milliseconds except Tok/s.
+Direction
+Mean
+Std
+P50
+P90
+P95
+Tok/s
+Moshi→GLM
+2.66 0.42 2.49 3.17 3.54 328188
+GLM→Moshi
+3.96 0.10 3.94 3.99 4.05
+27641
+Moshi→DualCodec
+4.50 0.43 4.32 5.01 5.37 194288
+GLM→DualCodec
+4.02 0.08 4.00 4.07 4.10
+27220
+DualCodec→Moshi
+4.45 0.41 4.27 4.94 5.31 194751
+DualCodec→GLM
+2.65 0.41 2.47 3.08 3.52 327339
+uses a lightweight local token mapping setup to
+test whether direct token correspondences are suffi-
+cient. The resulting audio is extremely noisy, with
+WER close to 100% and severely degraded UT-
+MOS. This supports the need for sequence aware,
+direction conditioned, and codebook aware model-
+ing rather than simple local token replacement.
+Table 10: Supervised token domain baseline.
+Direction
+WER (%)
+UTMOS
+GLM→Moshi
+100
+0.71
+GLM→DualCodec
+99.9
+1.23
+Moshi→GLM
+97.6
+1.64
+Moshi→DualCodec
+99.9
+0.98
+DualCodec→GLM
+98.4
+1.68
+DualCodec→Moshi
+100
+0.85
+F
+Scope, Data Dependence, and Rate
+Mismatch
+The current formulation assumes paired same utter-
+ance token sequences and a shared effective token
+rate, CA × T →CB × T. This enables direct su-
+pervision at corresponding timesteps, but it does
+not address tokenizers with different frame rates
+or variable rate token streams. A natural extension
+would add an explicit temporal alignment mod-
+ule, enabling mappings CA × TA →CB × TB.
+Possible approaches include temporal resampling
+or interpolation, monotonic attention, CTC-based
+ASR alignment, source target cross attention over
+unequal token timelines, or duration and variance
+adaptor modules similar to FastSpeech2 style TTS
+systems. The supervised setup also requires paired
+tokenized data. In the present experiments, this
+pairing is obtained by encoding the same utterances
+with each tokenizer and matching the resulting to-
+ken tensors by utterance or file identity. This re-
+quirement may require adaptation when tokenizer
+versions change or when a new target tokenizer is
+introduced. The VCTK results suggest robustness
+beyond LibriSpeech speakers and audiobook con-
+ditions, but they do not establish robustness to full
+domain shift. Stronger mismatch may arise when
+
+
+tokenizers are trained on different data domains,
+such as music versus speech, because their token
+spaces may encode substantially different acous-
+tic and semantic factors. Semi supervised, weakly
+paired, or alignment based training objectives are
+promising directions for reducing this dependence.
+F.1
+Direction Embedding Analysis
+To further inspect the learned direction condition-
+ing mechanism, we analyze the learned direction
+embeddings ωA→B after training. For each of the
+six main translation directions among GLM, Moshi,
+and DualCodec, we extract the corresponding di-
+rection embedding from the trained TokenMapper
+model and project the embeddings to two dimen-
+sions using PCA. The resulting visualization is
+shown in Figure 4. The PCA projection shows
+that the learned direction embeddings occupy a rel-
+atively compact region, indicating that the direction
+conditioning vectors remain close in the learned
+embedding space. However, they are not collapsed
+to a single point. The observed separation sug-
+gests that even small differences between direction
+embeddings encode information that is useful for
+distinguishing source target transformations. Direc-
+tions with the same source or target tokenizer also
+exhibit visible structure. For example, the GLM
+source directions are located on the positive side of
+the first principal component, while the directions
+into GLM are separated along the second principal
+component. Multi codebook directions involving
+Moshi and DualCodec are also separated from the
+single codebook GLM source mappings. This sug-
+gests that the direction embeddings capture part of
+the structural asymmetry between single codebook
+and multi codebook token spaces. This analysis
+should be interpreted as a diagnostic rather than
+as proof of a universal shared token space. The
+direction embedding is only one component of the
+conditioning mechanism, together with the shared
+encoder, routing function, and direction specific
+output heads. Nevertheless, the observed separa-
+tion supports the claim that TokenMapper learns di-
+rection dependent transformations rather than treat-
+ing the direction ID as an unused or uninformative
+label.
+G
+Qualitative Spectrogram Analysis
+To complement the WER, UTMOS, and MOS re-
+sults, we include a qualitative mel-spectrogram
+analysis for all six cross tokenizer translation direc-
+0.10
+0.05
+0.00
+0.05
+0.10
+PC1
+0.08
+0.06
+0.04
+0.02
+0.00
+0.02
+0.04
+PC2
+  Moshi->GLM
+  GLM->Moshi
+  Moshi->DualCodec
+  GLM->DualCodec
+  DualCodec->Moshi
+  DualCodec->GLM
+PCA of learned direction embeddings
+Figure 4: PCA projection of the learned direction em-
+beddings for the six main TokenMapper directions.
+Each point corresponds to a learned source target di-
+rection embedding ωA→B. Although the embeddings
+occupy a compact region, their non-collapsed structure
+indicates that the model learns distinct conditioning vec-
+tors for different tokenizer pair transformations, with
+visible organization related to source and target tok-
+enizer type.
+tions. For each direction, three utterances are visu-
+alized over the 0-8000 Hz frequency range. Each
+row presents the TokenMapper reconstruction, the
+native target tokenizer reconstruction, and the orig-
+inal ground truth audio. The WER and UTMOS
+values of each signal are also displayed above the
+corresponding spectrogram.
+The final column shows the frequency wise
+mean absolute difference between the log mel-
+spectrograms, averaged over time. The three curves
+compare the native target reconstruction with the
+ground truth, the TokenMapper reconstruction with
+the ground truth, and the TokenMapper reconstruc-
+tion with the native target reconstruction. The last
+comparison helps isolate the additional acoustic
+difference introduced by the token to token map-
+ping from the reconstruction characteristics of the
+target tokenizer itself.
+Across the evaluated directions, TokenMapper
+generally preserves the main temporal organization
+of the utterances. Speech active regions, silence
+intervals, and the dominant harmonic patterns re-
+main aligned with the native target reconstruction
+and the ground truth. The mappings into GLM
+show particularly close visual agreement between
+the TokenMapper and native target spectrograms.
+This is also reflected in the relatively small Token-
+Mapper to target spectral difference across much
+
+
+of the frequency range.
+For mappings into the multi codebook Moshi
+and DualCodec targets, the broad speech structure
+is still retained, but the differences in fine spec-
+tral texture are more visible. These differences are
+most apparent in the high frequency regions and in
+the sharpness and intensity of individual harmonic
+components. Nevertheless, TokenMapper’s recon-
+struction usually remains closer in structure to the
+native target reconstruction than to an unrelated
+acoustic representation, indicating that the mapped
+tokens are decoded according to the expected target
+tokenizer characteristics.
+Overall, the spectrograms support the quantita-
+tive results. The remaining differences are con-
+centrated mainly in finer acoustic detail, which is
+more sensitive to the structure and reconstruction
+behavior of the target tokenizer.
+
+
+0
+5
+10
+15
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+TokenMapper
+WER=6.25% | UTMOS=2.2180
+0
+5
+10
+15
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Native target
+WER=6.25% | UTMOS=2.2461
+0
+5
+10
+15
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Ground truth
+WER=6.25% | UTMOS=2.3281
+0 5121024
+2048
+4000
+8000
+Frequency [Hz]
+4
+6
+8
+10
+12
+14
+16
+Mean absolute difference [dB]
+Spectral difference
+4970-29095-0021
+|Target baseline - GT|
+|Mapped - GT|
+|Mapped - Target baseline|
+0
+5
+10
+15
+20
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+TokenMapper
+WER=4.08% | UTMOS=3.0482
+0
+5
+10
+15
+20
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Native target
+WER=0.00% | UTMOS=3.0605
+0
+5
+10
+15
+20
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Ground truth
+WER=0.00% | UTMOS=3.1895
+0 5121024
+2048
+4000
+8000
+Frequency [Hz]
+5
+10
+15
+20
+25
+Mean absolute difference [dB]
+Spectral difference
+2094-142345-0000
+|Target baseline - GT|
+|Mapped - GT|
+|Mapped - Target baseline|
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+TokenMapper
+WER=3.33% | UTMOS=3.2567
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Native target
+WER=3.33% | UTMOS=3.2617
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Ground truth
+WER=3.33% | UTMOS=3.5312
+0 5121024
+2048
+4000
+8000
+Frequency [Hz]
+5
+10
+15
+20
+25
+Mean absolute difference [dB]
+Spectral difference
+7729-102255-0043
+|Target baseline - GT|
+|Mapped - GT|
+|Mapped - Target baseline|
+-80 dB
+-60 dB
+-40 dB
+-20 dB
++0 dB
++20 dB
+Mel power [dB]
+Spectrogram examples: DualCodec to GLM
+Figure 5: Qualitative mel-spectrogram analysis for DualCodec→GLM over the 0-8000 Hz frequency range. Each
+row shows one example utterance. The first three columns show the TokenMapper reconstruction, native GLM
+reconstruction, and ground truth audio. The final column shows the frequency wise mean absolute log mel-
+spectrogram differences between the three signals.
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+12
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+TokenMapper
+WER=0.00% | UTMOS=3.5078
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+12
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Native target
+WER=0.00% | UTMOS=3.5332
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+12
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Ground truth
+WER=0.00% | UTMOS=3.9004
+0 5121024
+2048
+4000
+8000
+Frequency [Hz]
+4
+5
+6
+7
+8
+Mean absolute difference [dB]
+Spectral difference
+7729-102255-0041
+|Target baseline - GT|
+|Mapped - GT|
+|Mapped - Target baseline|
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+TokenMapper
+WER=3.33% | UTMOS=3.5637
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Native target
+WER=3.33% | UTMOS=3.7148
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Ground truth
+WER=3.33% | UTMOS=3.5312
+0 5121024
+2048
+4000
+8000
+Frequency [Hz]
+4
+5
+6
+7
+8
+Mean absolute difference [dB]
+Spectral difference
+7729-102255-0043
+|Target baseline - GT|
+|Mapped - GT|
+|Mapped - Target baseline|
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+12
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+TokenMapper
+WER=2.70% | UTMOS=3.1992
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+12
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Native target
+WER=0.00% | UTMOS=3.1543
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+12
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Ground truth
+WER=0.00% | UTMOS=3.9609
+0 5121024
+2048
+4000
+8000
+Frequency [Hz]
+5
+10
+15
+20
+25
+Mean absolute difference [dB]
+Spectral difference
+1221-135766-0000
+|Target baseline - GT|
+|Mapped - GT|
+|Mapped - Target baseline|
+-80 dB
+-60 dB
+-40 dB
+-20 dB
++0 dB
++20 dB
+Mel power [dB]
+Spectrogram examples: DualCodec to Moshi
+Figure 6: Qualitative mel-spectrogram analysis for DualCodec→Moshi over the 0-8000 Hz frequency range.
+Each row shows one example utterance. The first three columns show the TokenMapper reconstruction, native
+Moshi reconstruction, and ground truth audio. The final column shows the frequency wise mean absolute log
+mel-spectrogram differences between the three signals.
+
+
+0
+5
+10
+15
+20
+25
+30
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+TokenMapper
+WER=6.32% | UTMOS=3.4137
+0
+5
+10
+15
+20
+25
+30
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Native target
+WER=4.55% | UTMOS=3.4688
+0
+5
+10
+15
+20
+25
+30
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Ground truth
+WER=3.33% | UTMOS=3.5273
+0 5121024
+2048
+4000
+8000
+Frequency [Hz]
+2.5
+5.0
+7.5
+10.0
+12.5
+15.0
+17.5
+20.0
+Mean absolute difference [dB]
+Spectral difference
+2094-142345-0008
+|Target baseline - GT|
+|Mapped - GT|
+|Mapped - Target baseline|
+0
+5
+10
+15
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+TokenMapper
+WER=5.00% | UTMOS=3.4277
+0
+5
+10
+15
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Native target
+WER=5.00% | UTMOS=3.5215
+0
+5
+10
+15
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Ground truth
+WER=5.00% | UTMOS=3.5410
+0 5121024
+2048
+4000
+8000
+Frequency [Hz]
+5
+10
+15
+20
+25
+Mean absolute difference [dB]
+Spectral difference
+1221-135767-0016
+|Target baseline - GT|
+|Mapped - GT|
+|Mapped - Target baseline|
+0
+5
+10
+15
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+TokenMapper
+WER=0.00% | UTMOS=3.0652
+0
+5
+10
+15
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Native target
+WER=0.00% | UTMOS=3.0176
+0
+5
+10
+15
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Ground truth
+WER=0.00% | UTMOS=3.2832
+0 5121024
+2048
+4000
+8000
+Frequency [Hz]
+5
+10
+15
+20
+Mean absolute difference [dB]
+Spectral difference
+4077-13751-0007
+|Target baseline - GT|
+|Mapped - GT|
+|Mapped - Target baseline|
+-80 dB
+-60 dB
+-40 dB
+-20 dB
++0 dB
++20 dB
+Mel power [dB]
+Spectrogram examples: GLM to DualCodec
+Figure 7: Qualitative mel-spectrogram analysis for GLM→DualCodec over the 0-8000 Hz frequency range. Each
+row shows one example utterance. The first three columns show the TokenMapper reconstruction, native DualCodec
+reconstruction, and ground truth audio. The final column shows the frequency wise mean absolute log mel-
+spectrogram differences between the three signals.
+0
+5
+10
+15
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+TokenMapper
+WER=0.00% | UTMOS=2.3910
+0
+5
+10
+15
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Native target
+WER=0.00% | UTMOS=2.3984
+0
+5
+10
+15
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Ground truth
+WER=0.00% | UTMOS=2.5918
+0 5121024
+2048
+4000
+8000
+Frequency [Hz]
+4
+6
+8
+10
+12
+14
+Mean absolute difference [dB]
+Spectral difference
+7127-75946-0028
+|Target baseline - GT|
+|Mapped - GT|
+|Mapped - Target baseline|
+0
+5
+10
+15
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+TokenMapper
+WER=2.70% | UTMOS=2.2263
+0
+5
+10
+15
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Native target
+WER=0.00% | UTMOS=2.2500
+0
+5
+10
+15
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Ground truth
+WER=0.00% | UTMOS=3.6992
+0 5121024
+2048
+4000
+8000
+Frequency [Hz]
+4
+6
+8
+10
+12
+14
+16
+18
+Mean absolute difference [dB]
+Spectral difference
+1284-134647-0002
+|Target baseline - GT|
+|Mapped - GT|
+|Mapped - Target baseline|
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+12
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+TokenMapper
+WER=7.69% | UTMOS=2.2984
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+12
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Native target
+WER=7.69% | UTMOS=2.2988
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+12
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Ground truth
+WER=3.85% | UTMOS=3.1211
+0 5121024
+2048
+4000
+8000
+Frequency [Hz]
+4
+6
+8
+10
+12
+14
+16
+Mean absolute difference [dB]
+Spectral difference
+4077-13751-0012
+|Target baseline - GT|
+|Mapped - GT|
+|Mapped - Target baseline|
+-80 dB
+-60 dB
+-40 dB
+-20 dB
++0 dB
++20 dB
+Mel power [dB]
+Spectrogram examples: GLM to Moshi
+Figure 8: Qualitative mel-spectrogram analysis for GLM→Moshi over the 0-8000 Hz frequency range. Each
+row shows one example utterance. The first three columns show the TokenMapper reconstruction, native Moshi
+reconstruction, and ground truth audio. The final column shows the frequency wise mean absolute log mel-
+spectrogram differences between the three signals.
+
+
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+12
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+TokenMapper
+WER=3.65% | UTMOS=3.6160
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+12
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Native target
+WER=2.94% | UTMOS=3.6367
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+12
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Ground truth
+WER=0.00% | UTMOS=2.4082
+0 5121024
+2048
+4000
+8000
+Frequency [Hz]
+2
+4
+6
+8
+10
+12
+14
+16
+Mean absolute difference [dB]
+Spectral difference
+4970-29095-0020
+|Target baseline - GT|
+|Mapped - GT|
+|Mapped - Target baseline|
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+12
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+TokenMapper
+WER=3.33% | UTMOS=3.3477
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+12
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Native target
+WER=3.33% | UTMOS=3.3516
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+12
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Ground truth
+WER=0.00% | UTMOS=3.0508
+0 5121024
+2048
+4000
+8000
+Frequency [Hz]
+2.5
+5.0
+7.5
+10.0
+12.5
+15.0
+17.5
+Mean absolute difference [dB]
+Spectral difference
+7127-75947-0022
+|Target baseline - GT|
+|Mapped - GT|
+|Mapped - Target baseline|
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+TokenMapper
+WER=3.23% | UTMOS=3.1008
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Native target
+WER=3.23% | UTMOS=3.1816
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Ground truth
+WER=3.23% | UTMOS=2.6836
+0 5121024
+2048
+4000
+8000
+Frequency [Hz]
+2.5
+5.0
+7.5
+10.0
+12.5
+15.0
+17.5
+Mean absolute difference [dB]
+Spectral difference
+4970-29093-0011
+|Target baseline - GT|
+|Mapped - GT|
+|Mapped - Target baseline|
+-80 dB
+-60 dB
+-40 dB
+-20 dB
++0 dB
++20 dB
+Mel power [dB]
+Spectrogram examples: Moshi to GLM
+Figure 9: Qualitative mel-spectrogram analysis for Moshi→GLM over the 0-8000 Hz frequency range. Each
+row shows one example utterance. The first three columns show the TokenMapper reconstruction, native GLM
+reconstruction, and ground truth audio. The final column shows the frequency wise mean absolute log mel-
+spectrogram differences between the three signals.
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+12
+14
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+TokenMapper
+WER=4.88% | UTMOS=3.7217
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+12
+14
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Native target
+WER=4.88% | UTMOS=3.7285
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+12
+14
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Ground truth
+WER=2.44% | UTMOS=2.5254
+0 5121024
+2048
+4000
+8000
+Frequency [Hz]
+2.5
+5.0
+7.5
+10.0
+12.5
+15.0
+17.5
+20.0
+Mean absolute difference [dB]
+Spectral difference
+121-127105-0020
+|Target baseline - GT|
+|Mapped - GT|
+|Mapped - Target baseline|
+0
+5
+10
+15
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+TokenMapper
+WER=0.00% | UTMOS=3.5441
+0
+5
+10
+15
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Native target
+WER=0.00% | UTMOS=3.6660
+0
+5
+10
+15
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Ground truth
+WER=0.00% | UTMOS=3.5527
+0 5121024
+2048
+4000
+8000
+Frequency [Hz]
+2.5
+5.0
+7.5
+10.0
+12.5
+15.0
+17.5
+Mean absolute difference [dB]
+Spectral difference
+1221-135767-0002
+|Target baseline - GT|
+|Mapped - GT|
+|Mapped - Target baseline|
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+TokenMapper
+WER=7.41% | UTMOS=3.0070
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Native target
+WER=7.41% | UTMOS=3.1738
+0
+1.5
+3
+4.5
+6
+7.5
+9
+10
+Time [s]
+0
+512
+1024
+2048
+4000
+8000
+Frequency [Hz]
+Ground truth
+WER=7.41% | UTMOS=3.6094
+0 5121024
+2048
+4000
+8000
+Frequency [Hz]
+2
+4
+6
+8
+Mean absolute difference [dB]
+Spectral difference
+2961-961-0004
+|Target baseline - GT|
+|Mapped - GT|
+|Mapped - Target baseline|
+-80 dB
+-60 dB
+-40 dB
+-20 dB
++0 dB
++20 dB
+Mel power [dB]
+Spectrogram examples: Moshi to DualCodec
+Figure 10: Qualitative mel-spectrogram analysis for Moshi→DualCodec over the 0-8000 Hz frequency range.
+Each row shows one example utterance. The first three columns show the TokenMapper reconstruction, native
+DualCodec reconstruction, and ground truth audio. The final column shows the frequency wise mean absolute log
+mel-spectrogram differences between the three signals.
