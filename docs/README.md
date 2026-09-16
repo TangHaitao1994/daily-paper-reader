@@ -1,76 +1,116 @@
-<div class="dpr-home-notice-card">
-  <h3 class="dpr-home-notice-title">🚀 Start Here</h3>
-  <ul class="dpr-home-notice-list">
-    <li><a href="#/tutorial/README">使用教程</a></li>
-  </ul>
+<div class="dpr-home-notice-card dpr-home-panel">
+  <div class="dpr-home-notice-header dpr-home-panel-header">
+    <h3 class="dpr-home-notice-title">公告与更新</h3>
+    <a class="dpr-home-notice-tutorial" href="#/tutorial/README">使用教程 <span aria-hidden="true">›</span></a>
+  </div>
+  <div class="dpr-home-notice-entry">
+    <time class="dpr-home-notice-date" datetime="2026-09-09">09.09</time>
+    <div>
+      <strong class="dpr-home-notice-entry-title">90天/365天 arXiv 专题回溯</strong>
+      <span class="dpr-home-notice-entry-summary">支持分片召回、断点评审与分页查看，核心论文与待复核结果分开展示。DeepSeek 费用按实际用量计算，不下载全量 PDF。</span>
+    </div>
+  </div>
+  <div class="dpr-home-notice-entry">
+    <time class="dpr-home-notice-date" datetime="2026-09-09">09.09</time>
+    <div>
+      <strong class="dpr-home-notice-entry-title">ECCV 2026 已更新</strong>
+      <span class="dpr-home-notice-entry-summary">已收录 2,834 篇论文，摘要与 PDF 链接齐全，可按会议年份检索。EMNLP 2026 暂待可信官方数据开放。</span>
+    </div>
+  </div>
+  <div class="dpr-home-notice-entry">
+    <time class="dpr-home-notice-date" datetime="2026-09-05">09.05</time>
+    <div>
+      <strong class="dpr-home-notice-entry-title">CVPR 2026 已更新</strong>
+      <span class="dpr-home-notice-entry-summary">已收录 CVPR 2026 官方 Open Access 论文 4,042 篇，可在会议检索中查看。EMNLP 2026 预计于 10 月中下旬更新，具体以官方论文集开放时间为准。</span>
+    </div>
+  </div>
+  <div class="dpr-home-site-stats" data-dpr-site-stats hidden aria-live="polite">
+    <span>今天有 <strong class="dpr-home-site-stat-value" data-dpr-daily-readers>--</strong> 人在看论文</span>
+    <span class="dpr-home-site-stat-separator" aria-hidden="true">·</span>
+    <span>昨天有 <strong class="dpr-home-site-stat-value" data-dpr-yesterday-readers>--</strong> 人在看论文</span>
+    <span class="dpr-home-site-stat-separator" aria-hidden="true">·</span>
+    <span>已有 <strong class="dpr-home-site-stat-value" data-dpr-fork-count>--</strong> 人加入 Daily Paper Reader</span>
+    <span class="dpr-home-history">
+      <button type="button" class="dpr-home-history-trigger" data-dpr-history-trigger aria-label="查看最近 14 天阅读趋势"><span aria-hidden="true">🔍</span></button>
+      <span class="dpr-home-history-popover" data-dpr-history-popover role="tooltip">
+        <span class="dpr-home-history-header">近 14 天阅读趋势</span>
+        <span class="dpr-home-history-meta">
+          <span data-dpr-history-range>--</span>
+          <span>峰值 <strong data-dpr-history-peak>--</strong></span>
+        </span>
+        <span class="dpr-home-history-chart" data-dpr-history-chart></span>
+      </span>
+    </span>
+  </div>
 </div>
 
-## 每次日报
-- 最新运行日期：2026-09-15
-- 运行时间：2026-09-15 21:56:35 UTC
-- 运行状态：成功
-- 本次总论文数：14
-- 精读区：3
-- 速读区：11
+<div class="dpr-home-dashboard-grid">
+<section class="dpr-home-dashboard-card dpr-home-report-card">
+  <div class="dpr-home-dashboard-header">
+    <div>
+      <span class="dpr-home-dashboard-kicker">2026-09-16</span>
+      <h3 class="dpr-home-dashboard-title">今日汇总</h3>
+    </div>
+    <strong class="dpr-home-dashboard-count">共 5 篇</strong>
+  </div>
+  <dl class="dpr-home-dashboard-stats">
+    <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>1</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>4</dd></div>
+  </dl>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-16 21:51:52 UTC<br>状态：成功</p>
+</section>
+<section class="dpr-home-dashboard-card dpr-home-brief-card">
+  <div class="dpr-home-dashboard-header">
+    <div>
+      <span class="dpr-home-dashboard-kicker">合并后生成</span>
+      <h3 class="dpr-home-dashboard-title">今日简报</h3>
+    </div>
+    <strong class="dpr-home-dashboard-count">AI</strong>
+  </div>
+  <div class="dpr-home-dashboard-body">
+<p>今日共生成 5 篇推荐（精读 1 篇，速读 4 篇）</p>
+<p>精读：《Reducing the Output-Mode Gap in Speech Language Models via Joint-Output On-Policy Distillation》（8.0/10）</p>
+<p>速读：《Candor-LR: A Dyadic Conversational Dataset for Audio-Visual Speech Recognition》（6.0/10）, 《SWRouter: Similarity-Contractive Window Routing for Multi-Turn Large Language Model Conversations》（6.0/10）, 《Optimizing Sparse Outcomes Through Dense Behavioral Signals via Value-Guided Preference Distillation》（6.0/10）</p>
+<p>这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。</p>
+  </div>
+</section>
+<section class="dpr-home-dashboard-card dpr-home-deep-card">
+  <div class="dpr-home-dashboard-header">
+    <div>
+      <span class="dpr-home-dashboard-kicker">今日累计</span>
+      <h3 class="dpr-home-dashboard-title">精读推荐</h3>
+    </div>
+    <strong class="dpr-home-dashboard-count">1 篇</strong>
+  </div>
+  <div class="dpr-home-dashboard-body">
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Reducing the Output-Mode Gap in Speech Language Models via Joint-Output On-Policy Distillation">Reducing the Output-Mode Gap in Speech Language Models via Joint-Output On-Policy Distillation</span></li></ul>
+  </div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">duplex-agent <strong>1</strong></span></div>
+</section>
+<section class="dpr-home-dashboard-card dpr-home-skim-card">
+  <div class="dpr-home-dashboard-header">
+    <div>
+      <span class="dpr-home-dashboard-kicker">今日累计</span>
+      <h3 class="dpr-home-dashboard-title">速读推荐</h3>
+    </div>
+    <strong class="dpr-home-dashboard-count">4 篇</strong>
+  </div>
+  <div class="dpr-home-dashboard-body">
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Candor-LR: A Dyadic Conversational Dataset for Audio-Visual Speech Recognition">Candor-LR: A Dyadic Conversational Dataset for Audio-Visual Speech Recognition</span></li><li><span class="dpr-home-dashboard-paper-title" title="SWRouter: Similarity-Contractive Window Routing for Multi-Turn Large Language Model Conversations">SWRouter: Similarity-Contractive Window Routing for Multi-Turn Large Language Model Conversations</span></li><li><span class="dpr-home-dashboard-paper-title" title="Optimizing Sparse Outcomes Through Dense Behavioral Signals via Value-Guided Preference Distillation">Optimizing Sparse Outcomes Through Dense Behavioral Signals via Value-Guided Preference Distillation</span></li></ul>
+  </div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">duplex-agent <strong>4</strong></span></div>
+</section>
+</div>
 
-### 今日简报（AI）
-- 今日共生成 14 篇推荐（精读 3 篇，速读 11 篇）
-- 精读：《Realtime-Venus: A full-duplex interaction system with asynchronous delegation》（10.0/10）, 《StepAudio 3 Realtime Technical Report》（10.0/10）
-- 速读：《PACE: Perceived-Latency-Aware Cascading Service Routing and Filler Control for QoE-Efficient Retrieval-Augmented Dialogue Serving》（7.0/10）, 《Low-Latency State Space Voice Activity Detection with Robust Onset Time Evaluation》（7.0/10）, 《Xiaomi-CocktailASR-1 Technical Report》（7.0/10）
-- 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
-- 详情：[/202609/15/README](/202609/15/README)
-
-### 精读区论文标签
-1. [Realtime-Venus: A full-duplex interaction system with asynchronous delegation](/202609/15/2609.13814v1-realtime-venus-a-full-duplex-interaction-system-with-asynchronous-delegation)  
-   标签：评分：10.0/10、query:duplex-agent
-   evidence：具备口语交互模型、对话控制和原生语音生成的全双工交互系统
-2. [StepAudio 3 Realtime Technical Report](/202609/15/2609.14005v1-stepaudio-3-realtime-technical-report)  
-   标签：评分：10.0/10、query:duplex-agent
-   evidence：具备无缝双工处理打断和话轮转换的实时音频语言模型
-3. [Enabling Streaming User Transcription in Full-Duplex Speech-to-Speech Models](/202609/15/2609.15759v1-enabling-streaming-user-transcription-in-full-duplex-speech-to-speech-models)  
-   标签：评分：9.0/10、query:duplex-agent
-   evidence：在全双工语音到语音模型中添加流式ASR并保留打断处理
-
-### 速读区论文标签
-1. [PACE: Perceived-Latency-Aware Cascading Service Routing and Filler Control for QoE-Efficient Retrieval-Augmented Dialogue Serving](/202609/15/2609.10372v2-pace-perceived-latency-aware-cascading-service-routing-and-filler-control-for-qoe-efficient-retrieval-augmented-dialogue-serving)  
-   标签：评分：7.0/10、query:duplex-agent
-   evidence：通过级联路由和填充控制优化检索增强对话服务中的感知延迟
-2. [Low-Latency State Space Voice Activity Detection with Robust Onset Time Evaluation](/202609/15/2609.11110v1-low-latency-state-space-voice-activity-detection-with-robust-onset-time-evaluation)  
-   标签：评分：7.0/10、query:duplex-agent
-   evidence：低延迟VAD起始时间在噪声标签下的稳健评估
-3. [Xiaomi-CocktailASR-1 Technical Report](/202609/15/2609.11274v1-xiaomi-cocktailasr-1-technical-report)  
-   标签：评分：7.0/10、query:duplex-agent
-   evidence：基于LLM的目标说话人ASR处理多人重叠语音
-4. [X-Pred MeanFlow for Streaming Token-to-Mel Speech Decoding](/202609/15/2609.12728v1-x-pred-meanflow-for-streaming-token-to-mel-speech-decoding)  
-   标签：评分：7.0/10、query:duplex-agent
-   evidence：低延迟语音合成的少步流式token到mel解码器
-5. [$τ$-Elicitation: Benchmarking multi-turn entity extraction in voice agents](/202609/15/2609.13602v1--elicitation-benchmarking-multi-turn-entity-extraction-in-voice-agents)  
-   标签：评分：7.0/10、query:duplex-agent
-   evidence：语音代理中的多轮实体提取基准
-6. [Exploring Multimodal Turn-Taking Cues in Face-to-Face Conversation using Voice Activity Projection](/202609/15/2609.14666v1-exploring-multimodal-turn-taking-cues-in-face-to-face-conversation-using-voice-activity-projection)  
-   标签：评分：7.0/10、query:duplex-agent
-   evidence：多模态轮流说话线索用于语音交互
-7. [Typhoon ASR Streaming: Steerable Low-Latency Thai Speech Recognition with Real-Time Shallow Fusion](/202609/15/2609.14991v1-typhoon-asr-streaming-steerable-low-latency-thai-speech-recognition-with-real-time-shallow-fusion)  
-   标签：评分：7.0/10、query:duplex-agent
-   evidence：面向语音代理的低延迟流式泰语ASR，带实时浅层融合
-8. [Qwen-Audio-3.0-ASR Technical Report](/202609/15/2609.07549v1-qwen-audio-30-asr-technical-report)  
-   标签：评分：6.0/10、query:duplex-agent
-   evidence：基于LLM的ASR处理真实复杂语音
-9. [TokenMapper: A Step Toward Interoperable Speech Token Translation](/202609/15/2609.12563v1-tokenmapper-a-step-toward-interoperable-speech-token-translation)  
-   标签：评分：6.0/10、query:duplex-agent
-   evidence：通过语音令牌翻译降低会话语音代理的延迟
-10. [A Low-Latency Interactive System for Real-Time Video Understanding Based on VLMs](/202609/15/2609.13986v1-a-low-latency-interactive-system-for-real-time-video-understanding-based-on-vlms)  
-   标签：评分：6.0/10、query:duplex-agent
-   evidence：提出包含自动语音识别/语音合成和会话编排的低延迟实时多模态交互系统
-11. [ER-EDF: A Psychology-Grounded Emotion Regulation Framework for Speech Empathetic Dialogue Generation in Large Audio-Language Models](/202609/15/2609.15089v1-er-edf-a-psychology-grounded-emotion-regulation-framework-for-speech-empathetic-dialogue-generation-in-large-audio-language-models)  
-   标签：评分：6.0/10、query:duplex-agent
-   evidence：大音频语言模型共情语音对话生成
-
-
-<div class="dpr-home-promo-card">
-  <h3 class="dpr-home-promo-title">💬 社区与支持</h3>
-  <ul class="dpr-home-promo-list">
-    <li>欢迎 Star / Fork / Issue / PR</li>
-    <li>QQ群：583867967（欢迎交流，已有：1151人）</li>
-  </ul>
+<div class="dpr-home-promo-card dpr-home-panel">
+  <div class="dpr-home-panel-header">
+    <h3 class="dpr-home-promo-title">社区与支持</h3>
+  </div>
+  <p class="dpr-home-promo-copy">欢迎通过 Star、Fork、Issue 或 PR 一起完善 Daily Paper Reader。</p>
+  <div class="dpr-home-promo-meta">
+    <span>QQ群 <strong>583867967</strong></span>
+    <span class="dpr-home-promo-separator" aria-hidden="true">·</span>
+    <span>已有 <strong>1,491</strong> 人参与交流</span>
+  </div>
 </div>

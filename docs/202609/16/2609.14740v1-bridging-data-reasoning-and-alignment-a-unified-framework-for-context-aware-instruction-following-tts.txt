@@ -1,0 +1,246 @@
+Title: Bridging Data, Reasoning, and Alignment: A Unified Framework for Context-Aware Instruction-Following TTS
+
+URL Source: https://arxiv.org/pdf/2609.14740v1
+
+Published Time: Tue, 15 Sep 2026 01:35:55 GMT
+
+Number of Pages: 6
+
+Markdown Content:
+# Bridging Data, Reasoning, and Alignment: A Unified Framework for Context-Aware Instruction-Following TTS 
+
+# Jingbin Hu 1, Luyu Wang 1, Wenjie Tian 1, Kangxiang Xia 1, Qirui Zhan 1,Haoyu Zhang 1, Yunxiang Chen 2, Houdun Liu 2, Lei Xie 1,⋆ , Liumeng Xue 3,4,⋆ 
+
+> 1
+
+# Audio, Speech and Language Processing Group (ASLP@NPU), School of Computer Science, Northwestern Polytechnical University, Xi’an, China  
+
+> 2
+
+# Shenzhen Pimei Technology Co., Ltd., Guangdong, China  
+
+> 3
+
+# School of Intelligence Science and Technology, Nanjing University, Suzhou, China  
+
+> 4
+
+# State Key Laboratory of Novel Software Technology, Nanjing University, Nanjing, China 
+
+jingbin.hu@mail.nwpu.edu.cn, lxie@nwpu.edu.cn, lmxue@nju.edu.cn, 
+
+# Abstract 
+
+The ISCSLP 2026 CoT-TTS Challenge requires TTS systems to generate Chain-of-Thought (CoT) reasoning from dialogue history before synthesizing contextually appropriate speech. While the official baseline establishes a unified architecture, it remains constrained by limited contextual comprehension, weak instruction fidelity, and suboptimal audio quality. We present a systematic optimization pipeline to address these lim-itations. First, we develop a data process framework that cleans raw data via FullSubNet denoising, Qwen3-ASR re-transcription, and Qwen3.5-35B-A3B-based history-CoT con-sistency analysis, while distilling 545K high-fidelity instruction samples using Qwen3-TTS and Seed-VC under strict quality filtration. Second, we propose a Context-Aware Direct Prefer-ence Optimization (CA-DPO) method. By employing a cas-caded filtering strategy, ASR prescreening, LLM tournament ranking, and speaker similarity verification, we obtain high-confidence preference pairs that significantly enhance holis-tic “Context →CoT →Speech” consistency during DPO train-ing. Third, we establish an evaluation method featuring a 500-sample test set and an LLM-as-Judge framework to indepen-dently assess reasoning and execution fidelity. Experiments demonstrate that our system significantly outperforms the base-line across all objective and subjective metrics, validating our data governance and alignment strategies. Speech samples are available 1.
+
+Index Terms : Speech Generation, Context-Aware, Instruction-Following TTS. 1. Introduction 
+
+In recent years, with the advancements in large language mod-els (LLMs) and representation learning, Text-to-speech (TTS) technology has transitioned from traditional models such as VITS [1] to autoregressive TTS systems dominated by large language models, such as the CosyVoice series [2, 3, 4], In-dexTTS series [5, 6], VoxCPM series [7, 8], Qwen3-TTS se-ries [9], and MOSS-TTS series [10, 11], as well as non-autoregressive TTS systems based on Flow Matching, such as F5-TTS [12], MaskGCT [13], and OmniVoice [14]. While the aforementioned systems have significantly ad-vanced speech naturalness and intelligibility, a prominent re-cent trend is the pursuit of fine-grained controllability, i.e., Instruction-Following TTS (IF-TTS). The evolution of IF-TTS can be broadly categorized into three stages. The first stage 
+
+> ∗Corresponding author.
+> 1Demo:https://hujingbin1.github.io/CoT-TTS-Demo-Page/
+
+relies on explicit prompt engineering or learned latent represen-tations [15, 16, 17], limited by fixed templates and restricted attribute spaces. The second stage frames controllable gener-ation as a cross-modal alignment problem [18, 19, 20], com-pressing textual or acoustic cues into a single continuous latent vector. However, this entangled, low-bandwidth control signal lacks explicit factorization, making fine-grained control coarse and difficult to interpret. The third and most recent stage lever-ages the sequence modeling capabilities of LLMs to process free-form natural language instructions [21, 22, 23, 9, 24, 25, 11, 14, 8]. Rather than compressing style descriptions into con-tinuous vectors, these systems incorporate high-level linguis-tic intents directly into the language model’s conditioning con-text, learning the intricate relationship between textual instruc-tions and discrete audio tokens over massive, stylistically di-verse datasets, thereby achieving highly flexible control over both speaker timbre and style. Despite the remarkable controllability achieved in this third stage, existing LLM-based IF-TTS systems predominantly op-erate in a single-turn, explicit-instruction paradigm, assum-ing that the desired speaking style is directly specified by the user. In authentic conversational settings, however, the ap-propriate vocal style is implicitly dictated by dialogue history, speaker motivation, and situational dynamics rather than stated explicitly. This gap motivates the transition toward Context-Aware TTS. To bridge it, the ISCSLP 2026 CoT-TTS Chal-lenge [26] introduces a novel formulation requiring the model to first generate a Chain-of-Thought (CoT) analysis, deducing the speaker’s intent, emotional state, and situational context from the dialogue history, before synthesizing the target speech. By making the pragmatic reasoning process explicit through inter-mediate text generation, this paradigm unifies contextual com-prehension and controllable speech generation into a seamless end-to-end process, where the CoT serves simultaneously as the output of contextual reasoning and the conditioning signal for stylistic synthesis. While the CoT-TTS framework establishes a compelling architecture, building a high-performance system within this paradigm presents three critical challenges. 
+
+First , context-rich training data sourced from movies ex-hibits strong expressiveness but suffers from severe background noise and inaccurate annotations, including transcription errors, CoT-history inconsistencies, and ambiguous semantic descrip-tions, which collectively degrade the baseline model’s semantic comprehension and audio fidelity. arXiv:2609.14740v1 [eess.AS] 13 Sep 2026 Second , the complexity of multi-modal conditioning in-puts leads to high generation variance that SFT alone cannot resolve, often yielding inaccurate CoT reasoning, poor intelli-gibility, and speaker identity drift. This necessitates preference-based alignment to enforce holistic “Context →CoT →Speech” consistency. 
+
+Third , the absence of a public context-specific benchmark and the limited granularity of conventional metrics hinder the diagnosis of reasoning-to-speech failures, necessitating a dedi-cated framework to independently assess contextual reasoning (Context →Instruct), instruction execution (Instruct →TTS), and end-to-end consistency. In this work, we present a systematic optimization pipeline built upon the official ISCSLP 2026 CoT-TTS Challenge base-line, addressing the aforementioned challenges through three key contributions: 1. A comprehensive data processing pipeline for Context-Aware TTS. For raw data curation, we inte-grate FullSubNet [27] denoising, Qwen3-ASR [28] re-transcription, and history context and CoT consistency analysis by Qwen3.5-35B-A3B 2 to filter out semanti-cally misaligned samples. For synthetic data augmen-tation, we leverage Qwen3-TTS Voice Design [9] and Seed-VC [29] to synthesize 545K instruction samples, refined through a multi-model quality filtration pipeline to yield a high-fidelity training subset. 2. A Context-Aware Direct Preference Optimization (CA-DPO) post-training method. Through multi-candidate rollout sampling and a cascaded filtering strat-egy, ASR-based prescreening, Gemini 3.1 3 tournament-based ranking on Context-CoT-Speech consistency, and speaker similarity verification 4, we obtain high-confidence preference pairs. Training with these pairs via DPO [30] augmented by an SFT anchor loss signif-icantly improves contextual reasoning accuracy, output intelligibility, and speaker consistency. 3. A holistic evaluation method for Context-Aware TTS. 
+
+We establish a bilingual (Chinese and English) 500-sample test set and an automated LLM-as-Judge frame-work that independently assesses Context-to-Instruct (C2I) reasoning quality, Instruct-to-TTS (I2T) execu-tion fidelity, and end-to-end consistency, providing fine-grained diagnostic capability beyond conventional ob-jective metrics (WER, SIM, UTMOS 5). Extensive experiments on our benchmark demonstrate that our optimized system significantly outperforms the official ISC-SLP 2026 CoT-TTS Challenge Track 1 baseline across all eval-uation dimensions, including objective metrics, LLM-as-Judge scores, and subjective MOS ratings, validating the effective-ness of systematic data governance and preference alignment for context-sensitive speech synthesis. 
+
+# 2. Method 2.1. Overview 
+
+Figure 2 illustrates the overall architecture of this baseline sys-tem. While the baseline establishes a functional architecture, it suffers from limited contextual comprehension and suboptimal 
+
+> 2
+
+https://qwen.ai/blog?id=qwen3.5 
+
+> 3
+
+https://ai.google.dev/gemini-api/docs/ models/gemini-3.1-pro-preview?hl=zh-cn 
+
+> 4
+
+https://github.com/BytedanceSpeech/ seed-tts-eval 
+
+> 5
+
+https://github.com/sarulab-speech/UTMOSv2 
+
+instruction fidelity due to noisy training data and the absence of preference-based alignment. We address these limitations through a systematic three-stage optimization pipeline: (i) con-tinued pre-training on cleaned data, (ii) distillation-based super-vised fine-tuning and (iii) Context-Aware preference optimiza-tion. Figure 1 and Figure 3 illustrates the overall framework. CoT Text & 
+
+> Target Text
+> Instruction
+> Qwen3-TTS-12Hz-1.7B-
+> VoiceDesign
+> Target
+> Speaker
+> Target Text
+> Seed-VC
+> Qwen3Omni
+> Instruction Control
+> Evaluation
+> Qwen3ASR
+> Evaluation of audio
+> intelligibility and content
+> UTMOS-v2
+> Evaluation of naturalness
+> and audio quality
+> WavLM-large fine-tuned
+> Evaluation of audio
+> speaker similarity
+> Data quality inspection pipeline
+> High-quality
+> distilled data
+
+Figure 1: Synthetic Data Generation Pipeline. 
+
+2.2. Stage 1: Continued Pre-training with Cleaned Data 
+
+2.2.1. Motivation 
+
+The official challenge data comprises approximately 16,000 hours of conversational speech (movie domain, English and Chinese). However, raw recordings exhibit substantial back-ground noise, transcription inconsistencies, and variable audio quality, which degrade the performance of the base model. 
+
+2.2.2. Data Cleaning Pipeline 
+
+We design a three-stage cleaning pipeline to establish a high-quality pre-training corpus: We design a three-stage cleaning pipeline: (i) FullSub-Net [27] denoising to mitigate acoustic degradation from com-plex movie recording environments; (ii) Qwen3-ASR [28] re-transcription to correct erroneous text labels and ensure reliable text-audio alignment; and (iii) Qwen3.5-35B-A3B-based con-sistency verification between dialogue history and CoT annota-tions, discarding samples with semantic contradictions or logi-cally incoherent reasoning. Through this cascaded strategy, we progressively eliminate acoustic noise, textual errors, and se-mantic inconsistencies, yielding a high-fidelity corpus for con-tinued pre-training. Through this cascaded cleaning strategy, we progressively eliminate acoustic noise (Stage 1), textual errors (Stage 2), and semantic inconsistencies (Stage 3), yielding a stratified, high-fidelity corpus that serves as the foundation for subsequent con-tinued pre-training. 
+
+2.2.3. Continued Pre-training 
+
+The cleaned dataset is used for continued pre-training of the baseline model. We observe that full-parameter fine-tuning sig-nificantly outperforms LoRA [31] at this stage, as the model requires substantial capacity to adapt its acoustic representa-tions to the improved data distribution. The resulting check-point serves as the foundation for all subsequent stages. 
+
+2.3. Stage 2: Distillation-Based Supervised Fine-Tuning 
+
+2.3.1. Motivation 
+
+High-quality instruction-following TTS data with explicit CoT annotations is extremely scarce. To bridge this gap, we leverage knowledge distillation: a powerful teacher model generates syn-thetic training samples with rich stylistic control, from which the student model learns to replicate contextually appropriate speech generation. Qwen3-0.6B    
+
+> History Text for Context
+> Speaker-1
+> ：That's actually kind of funny.
+> ......
+> Target Text
+> Speaker-2
+> ：Tell me
+> about it. So stressful.
+> Reference Wav
+> Global Tokens
+> CoT Tokens Global Tokens Semantic Tokens
+
+LoRA 
+
+adapter Figure 2: A Context-Aware Instruction-Following TTS Framework Based on the Official Baseline. 2.3.2. Teacher Model and Data Synthesis 
+
+We employ the open-source Qwen3-TTS Voice Design model [9] as the teacher. Given target text and style instruc-tions derived from the dialogue context, the teacher synthesizes 545K speech samples with diverse emotional and prosodic char-acteristics. However, since the teacher model generates speech by instruction, a timbre conversion step is required to align the synthesized audio with the target speaker identity. 
+
+2.3.3. Timbre Transfer via Seed-VC 
+
+We apply Seed-VC [29] to transfer the speaker timbre of teacher-generated samples to the target speaker while preserv-ing the rich stylistic information encoded in the original syn-thesis. This step ensures that the distilled training data main-tains both the target speaker’s acoustic identity and the teacher model’s expressive control, providing the student model with high-fidelity, speaker-consistent supervision signals. 
+
+2.3.4. Multi-Model Quality Filtration 
+
+Not all teacher-generated and timbre-transferred samples are suitable for training. We apply a strict multi-model cascaded filtration pipeline: (i) Intelligibility : Qwen3-ASR [28] tran-scribes each utterance, discarding samples with WER ≥ 1%; (ii) Speaker Consistency : a WavLM-based speaker verifica-tion model [32] verifies that timbre-transferred audio maintains identity consistency with the target speaker; (iii) Audio Qual-ity : UTMOS-v2 [33] scores perceptual quality, removing sam-ples with conversion artifacts; (iv) Style-Content Alignment :Qwen3-Omni [34] assesses whether the acoustic realization is semantically consistent with the text content and intended style instruction. Through this cascaded filtration, we progressively eliminate samples with intelligibility errors, speaker identity drift, acous-tic degradation, and style-content inconsistencies, ultimately yielding a high-fidelity distilled training subset. 
+
+2.3.5. Supervised Fine-Tuning 
+
+We investigate both LoRA and full-parameter fine-tuning for this stage. LoRA achieves superior performance by effectively balancing the benefits of synthetic distillation data with those of authentic training data, preventing excessive adaptation to the teacher-generated distribution. 
+
+2.4. Stage 3: Context-Aware Direct Preference Optimiza-tion 
+
+2.4.1. Motivation 
+
+The complexity of multi-modal conditioning inputs leads to high generation variance that SFT alone cannot resolve, as its token-level loss fails to distinguish globally contextu-ally appropriate outputs from locally plausible ones. This necessitates preference-based alignment to enforce holistic “Context →CoT →Speech” consistency. LLM  LLM 
+
+> Rollout
+> candidates
+> Evaluation
+> model
+> Semantic and
+> Instruction-Following
+> Joint Judge
+> Content
+> Consistency
+> Judge
+> Speaker
+> Consistency
+> Judge
+> Winner
+> Loser
+> CA-DPO
+> data pairs
+
+Figure 3: Context-Aware DPO. 2.4.2. Multi-Candidate Rollout 
+
+For each prompt in our training set, we generate K = 10 can-didate responses through sampling, yielding diverse candidates in terms of CoT reasoning, prosodic realization, and acoustic quality. Each candidate is decoded into waveform audio for subsequent evaluation. 
+
+2.4.3. Cascaded Filtering for Preference Pair Construction 
+
+Constructing reliable preference pairs is critical for effective DPO training. We apply a three-stage cascaded filtering strat-egy: (i) WER pre-screening via Qwen3-ASR to eliminate unin-telligible candidates; (ii) Gemini tournament ranking to iden-tify the best candidate per group; and (iii) speaker similar-ity verification against the reference speaker to reject timbre-inconsistent champions. The core of our filtering strategy is the Gemini tourna-ment ranking . For each prompt group, surviving candidates participate in a pairwise “king-of-the-hill” tournament judged by Gemini 3.1 6. In each round, the current champion faces a new challenger, and the judge evaluates both candidates along the full “Context →CoT →Speech” chain, assessing whether the CoT reasoning correctly interprets the dialogue history and whether the synthesized speech faithfully executes the reason-ing conclusions. The winner advances as the new champion un-til all candidates have been compared, producing a single group champion. Final preference pairs are constructed as (champion, non-champion), with losers rotated across training epochs for improved generalization. 
+
+2.4.4. DPO Training with SFT Anchor 
+
+We optimize the policy model πθ by maximizing the preference reward while constraining it to remain close to the frozen ref-erence model πref . The overall training objective combines two 
+
+> 6
+
+https://ai.google.dev/gemini-api/docs/ models/gemini-3.1-pro-preview?hl=zh-cn Table 1: Ablation study of the progressive training pipeline. We compare LoRA and full-parameter tuning at each stage, advancing the best variant. Objective (WER, SIM, UTMOS), LLM-as-Judge (1–5), and subjective scores (mean ± std) are reported, with best results in bold .                                                                                  
+
+> Model Stage Objective Metrics Gemini Evaluation (1–5) Subjective Test (1–5) WER ↓SIM ↑UTMOS ↑C2I ↑I2T ↑Overall ↑N-MOS ↑S-MOS ↑C2I-SC ↑I2T-MOS ↑
+> Official Baseline 3.47 0.365 2.59 2.80 4.41 3.61 3.12 ±0.21 2.05 ±0.18 1.90 ±0.15 2.72 ±0.13
+> Stage 1: Continued Pre-training
+> w/ LoRA 3.39 0.364 2.64 2.87 4.52 3.70 3.15 ±0.36 2.08 ±0.14 1.95 ±0.17 2.90 ±0.19 w/ Full 3.31 0.371 2.66 2.83 4.56 3.73 3.18 ±0.23 2.12 ±0.11 2.02 ±0.08 2.85 ±0.17
+> Stage 2: Distillation SFT (on best Stage 1)
+> w/ LoRA 3.03 0.362 3.00 2.87 4.55 3.79 3.22 ±0.28 2.19 ±0.16 2.08 ±0.23 3.15 ±0.14 w/ Full 3.18 0.357 3.02 2.86 4.58 3.74 3.19 ±0.30 2.01 ±0.29 2.12 ±0.14 3.12 ±0.11
+> Stage 3: Context-Aware DPO (on best Stage 2)
+> CA-DPO 2.98 0.378 3.01 2.88 4.59 3.81 3.21 ±0.24 2.15 ±0.23 2.02 ±0.16 3.22 ±0.07 CA-DPO + SFT anchor 2.71 0.373 3.05 2.90 4.61 3.82 3.25 ±0.19 2.08 ±0.18 2.14 ±0.21 3.30 ±0.20
+
+terms: 
+
+L = LDPO + λ · L NLL (yw ) (1) The DPO loss encourages the policy to assign higher prob-ability to the preferred response yw over the dispreferred re-sponse yl:
+
+LDPO = −E(x,y w ,y l)
+
+h
+
+log σ
+
+
+
+β  log πθ (yw |x) 
+
+> πref (yw|x)
+
+− log πθ (yl|x)
+
+> πref (yl|x)
+
+i (2) Finally, to anchor the generation quality and prevent reward hacking during preference optimization, we include an SFT loss on the preferred response: 
+
+LNLL (yw ) = −E(x,y w ) [log πθ (yw |x)] (3) 
+
+# 3. Experiments 3.1. Dataset 
+
+Our training pipeline utilizes three distinct datasets correspond-ing to each optimization stage: • Stage 1 : The cleaned official challenge dataset, filtered by our three-stage pipeline, retaining approximately 82% of the original samples. • Stage 2 : A high-fidelity distillation dataset refined by our multi-model cascaded filtration to yield 127K high-quality training samples. • Stage 3 : A preference dataset constructed from multi-candidate rollouts, filtered by our cascaded strategy, yielding 9K high-confidence pairs. 
+
+3.2. Evaluation Setup 
+
+We construct a bilingual (Chinese and English) 500-sample test set covering diverse dialogue scenarios. Each sample consists of a dialogue history, up to 5 turns, a target sentence, and a ref-erence speaker audio. We report conventional objective metrics alongside human subjective scores (N-MOS, S-MOS, C2I-SC, I2T-MOS). The core of our evaluation protocol is an automated LLM-as-Judge framework using Gemini 3.1, which independently assesses generation quality along three dimensions (scored 1– 5): • C2I (Context →Instruct) : Whether the CoT reasoning correctly interprets the dialogue history and derives ap-propriate speaking instructions. • I2T (Instruct →TTS) : Whether the synthesized speech faithfully executes the reasoning conclusions. • Overall : End-to-end consistency of the entire “Context →CoT →Speech” chain. This multi-dimensional assessment provides fine-grained diag-nostic capability for pinpointing failures in the reasoning-to-speech pipeline, complementing conventional isolated metrics. 
+
+3.3. Main Results 
+
+Table 1 presents the progressive ablation results across all train-ing stages. Each stage builds upon the best-performing variant of the previous one. We observe a clear progressive improvement from the offi-cial baseline through each optimization stage: 
+
+Stage 1: Full-parameter fine-tuning significantly outper-forms LoRA, as the model requires substantial capacity to adapt its acoustic representations to the cleaned data distribution. 
+
+Stage 2: LoRA achieves superior performance over full-parameter tuning, as it effectively balances the gains from syn-thetic distillation data against the capabilities established on authentic data during continued pre-training. C2I and Over-all scores improve substantially, indicating enhanced contextual reasoning and instruction execution. 
+
+Stage 3: The addition of SFT anchor loss to CA-DPO fur-ther improves all metrics. Without the anchor, pure DPO ex-hibits slight degradation in UTMOS and WER due to reward hacking; the anchor stabilizes generation quality while still im-proving contextual alignment. 
+
+# 4. Conclusion 
+
+In this work, we presented a systematic optimization pipeline for Context-Aware instruction-following speech synthesis, built upon the official ISCSLP 2026 CoT-TTS Challenge Track 1 baseline. We addressed three critical challenges through a uni-fied framework: a comprehensive data processing pipeline in-tegrating audio denoising, ASR re-transcription, LLM-based history-CoT consistency filtering, and large-scale distillation; a Context-Aware Direct Preference Optimization (CA-DPO) method that constructs high-confidence preference pairs via cascaded filtering to enforce holistic “Context →CoT →Speech” consistency; and a bilingual evaluation protocol with an LLM-as-Judge framework for fine-grained diagnosis of reasoning and execution fidelity. Extensive experiments demonstrate that each stage contributes complementary gains, with the final system significantly outperforming the official baseline across all ob-jective and subjective metrics. 5. References 
+
+[1] J. Kim, J. Kong, and J. Son, “Conditional variational autoencoder with adversarial learning for end-to-end text-to-speech,” in 
+
+Proceedings of the 38th International Conference on Machine Learning, ICML 2021, 18-24 July 2021, Virtual Event ,ser. Proceedings of Machine Learning Research, M. Meila and T. Zhang, Eds., vol. 139. PMLR, 2021, pp. 5530–5540. [Online]. Available: http://proceedings.mlr.press/v139/kim21f.html [2] Z. Du, Q. Chen, S. Zhang, K. Hu, H. Lu, Y. Yang, H. Hu, S. Zheng, Y. Gu, Z. Ma, Z. Gao, and Z. Yan, “Cosyvoice: Ascalable multilingual zero-shot text-to-speech synthesizer based on supervised semantic tokens,” CoRR , vol. abs/2407.05407, 2024. [Online]. Available: https://doi.org/10.48550/arXiv.2407. 05407 [3] Z. Du, Y. Wang, Q. Chen, X. Shi, X. Lv, T. Zhao, Z. Gao, Y. Yang, C. Gao, H. Wang, F. Yu, H. Liu, Z. Sheng, Y. Gu, C. Deng, W. Wang, S. Zhang, Z. Yan, and J. Zhou, “Cosyvoice 2: Scalable streaming speech synthesis with large language models,” CoRR , vol. abs/2412.10117, 2024. [Online]. Available: https://doi.org/10.48550/arXiv.2412.10117 [4] Z. Du, C. Gao, Y. Wang, F. Yu, T. Zhao, H. Wang, X. Lv, H. Wang, C. Ni, X. Shi, K. An, G. Yang, Y. Li, Y. Chen, Z. Gao, Q. Chen, Y. Gu, M. Chen, Y. Chen, S. Zhang, W. Wang, and J. Ye, “Cosyvoice 3: Towards in-the-wild speech generation via scaling-up and post-training,” CoRR , vol. abs/2505.17589, 2025. [Online]. Available: https://doi.org/10.48550/arXiv.2505.17589 [5] W. Deng, S. Zhou, J. Shu, J. Wang, and L. Wang, “Indextts: An industrial-level controllable and efficient zero-shot text-to-speech system,” CoRR , vol. abs/2502.05512, 2025. [Online]. Available: https://doi.org/10.48550/arXiv.2502.05512 [6] S. Zhou, Y. Zhou, Y. He, X. Zhou, J. Wang, W. Deng, and J. Shu, “Indextts2: A breakthrough in emotionally expressive and duration-controlled auto-regressive zero-shot text-to-speech,” in Fortieth AAAI Conference on Artificial Intelligence, Thirty-Eighth Conference on Innovative Applications of Artificial Intelligence, Sixteenth Symposium on Educational Advances in Artificial Intelligence, AAAI 2026, Singapore, January 20-27, 2026 , S. Koenig, C. Jenkins, and M. E. Taylor, Eds. AAAI Press, 2026, pp. 35 139–35 148. [Online]. Available: https://doi.org/10.1609/aaai.v40i41.40820 [7] Y. Zhou, G. Zeng, X. Liu, X. Li, R. Yu, Z. Wang, R. Ye, W. Sun, J. Gui, K. Li, Z. Wu, and Z. Liu, “Voxcpm: Tokenizer-free TTS for context-aware speech generation and true-to-life voice cloning,” CoRR , vol. abs/2509.24650, 2025. [Online]. Available: https://doi.org/10.48550/arXiv.2509.24650 [8] Y. Zhou, G. Zeng, X. Liu, X. Li, R. Yu, J. Gui, J. Wu, Z. Wang, X. Shen, R. Ye, Z. Zhang, J. Zhou, B. Bai, W. Sun, M. Deng, Q. Shi, Z. Wu, and Z. Liu, “Voxcpm2 technical report,” CoRR , vol. abs/2606.06928, 2026. [Online]. Available: https://doi.org/10.48550/arXiv.2606.06928 [9] Q. Team, “Qwen3-tts technical report,” CoRR , vol. abs/2601.15621, 2026. [Online]. Available: https://doi.org/ 10.48550/arXiv.2601.15621 [10] Y. Zhang, D. Yu, Z. Lin, B. Jiang, M. Chen, Y. Jiang, Y. Zhao, Y. Zhang, Y. Yuan, H. Chen, K. Huang, J. Zhan, C. Chang, Z. Fei, S. Li, X. Yang, Q. Cheng, and X. Qiu, “MOSS-TTSD: text to spoken dialogue generation,” CoRR , vol. abs/2603.19739, 2026. [Online]. Available: https://doi.org/10.48550/arXiv.2603.19739 [11] K. Huang, L. Fan, B. Jiang, Y. Jiang, Q. Tu, J. Zhu, Y. Zhang, Y. Zhao, C. Yang, Z. Fei, S. Li, X. Yang, Q. Cheng, and X. Qiu, “Moss-voicegenerator: Create realistic voices with natural language descriptions,” CoRR , vol. abs/2603.28086, 2026. [Online]. Available: https://doi.org/10.48550/arXiv.2603.28086 [12] Y. Chen, Z. Niu, Z. Ma, K. Deng, C. Wang, J. Zhao, K. Yu, and X. Chen, “F5-TTS: A fairytaler that fakes fluent and faithful speech with flow matching,” in Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), ACL 2025, Vienna, Austria, July 27 - August 1, 2025 , W. Che, J. Nabende, E. Shutova, and M. T. Pilehvar, Eds. Association for Computational Linguistics, 2025, pp. 6255–6271. [Online]. Available: https://doi.org/10.18653/v1/2025.acl-long.313 [13] Y. Wang, H. Zhan, L. Liu, R. Zeng, H. Guo, J. Zheng, Q. Zhang, X. Zhang, S. Zhang, and Z. Wu, “Maskgct: Zero-shot text-to-speech with masked generative codec trans-former,” in The Thirteenth International Conference on Learning Representations, ICLR 2025, Singapore, April 24-28, 2025 . OpenReview.net, 2025. [Online]. Available: https://openreview.net/forum?id=ExuBFYtCQU [14] H. Zhu, L. Ye, W. Kang, Z. Yao, L. Guo, F. Kuang, Z. Han, W. Zhuang, L. Lin, and D. Povey, “Omnivoice: Towards omnilingual zero-shot text-to-speech with diffusion language models,” CoRR , vol. abs/2604.00688, 2026. [Online]. Available: https://doi.org/10.48550/arXiv.2604.00688 [15] Y. Zhang, G. Liu, Y. Lei, Y. Chen, H. Yin, L. Xie, and Z. Li, “Promptspeaker: Speaker generation based on text descriptions,” in IEEE Automatic Speech Recognition and Understanding Workshop, ASRU 2023, Taipei, Taiwan, December 16-20, 2023 . IEEE, 2023, pp. 1–7. [Online]. Available: https://doi.org/10.1109/ASRU57964.2023.10389772 [16] G. Liu, Y. Zhang, Y. Lei, Y. Chen, R. Wang, L. Xie, and Z. Li, “Promptstyle: Controllable style transfer for text-to-speech with natural language descriptions,” in 24th Annual Conference of the International Speech Communication Association, Interspeech 2023, Dublin, Ireland, August 20-24, 2023 , N. Harte, J. Carson-Berndsen, and G. Jones, Eds. ISCA, 2023, pp. 4888–4892. [Online]. Available: https: //doi.org/10.21437/Interspeech.2023-1779 [17] Z. Guo, Y. Leng, Y. Wu, S. Zhao, and X. Tan, “Prompttts: Controllable text-to-speech with text descriptions,” in IEEE International Conference on Acoustics, Speech and Signal Processing ICASSP 2023, Rhodes Island, Greece, June 4-10, 2023 . IEEE, 2023, pp. 1–5. [Online]. Available: https: //doi.org/10.1109/ICASSP49357.2023.10096285 [18] X. Zhu, W. Tian, X. Wang, L. He, Y. Xiao, X. Wang, X. Tan, S. Zhao, and L. Xie, “Unistyle: Unified style modeling for speaking style captioning and stylistic speech synthesis,” in Proceedings of the 32nd ACM International Conference on Multimedia, MM 2024, Melbourne, VIC, Australia, 28 October 2024 - 1 November 2024 , J. Cai, M. S. Kankanhalli, B. Prabhakaran, S. Boll, R. Subramanian, L. Zheng, V. K. Singh, P. C´ esar, L. Xie, and D. Xu, Eds. ACM, 2024, pp. 7513–7522. [Online]. Available: https://doi.org/10.1145/3664647.3681465 [19] H. Li, Y. Li, X. Wang, J. Hu, Q. Xie, S. Yang, and L. Xie, “Flespeech: Flexibly controllable speech generation with various prompts,” CoRR , vol. abs/2501.04644, 2025. [Online]. Available: https://doi.org/10.48550/arXiv.2501.04644 [20] Z. Zhang, H. Li, J. Hu, W. Li, and L. Xie, “Histyle: Hierarchical style embedding predictor for text-prompt-guided controllable speech synthesis,” CoRR , vol. abs/2509.25842, 2025. [Online]. Available: https://doi.org/10.48550/arXiv.2509.25842 [21] Y. Zhou, X. Qin, Z. Jin, S. Zhou, S. Lei, S. Zhou, Z. Wu, and J. Jia, “Voxinstruct: Expressive human instruction-to-speech generation with unified multilingual codec language modelling,” in Proceedings of the 32nd ACM International Conference on Multimedia , ser. MM ’24. ACM, Oct. 2024, p. 554–563. [Online]. Available: http://dx.doi.org/10.1145/3664647.3681680 [22] C. Team, D. Zhang, G. Wang, J. Xue, K. Fang, L. Zhao, R. Ma, S. Ren, S. Liu, T. Guo, W. Zhuang, X. Zhang, X. Song, Y. Yan, Y. He, Cici, B. Shen, C. Zhu, C. Ma, C. Chen, H. Chen, J. Li, L. Li, M. Zhu, P. Li, Q. Wang, S. Deng, W. Xiong, W. Huang, W. Yang, Y. Jiang, Y. Yang, Y. Tian, Y. Ma, Y. Yu, Z. Zhang, Z. Yue, B. Xiao, B. Xia, B. Gao, B. Ye, C. Cai, C. Liu, C. He, C. Li, D. Zhu, D. Zhang, F. Shi, G. Wang, H. Zhang, H. Lv, H. Li, H. Tian, H. Qu, H. Xu, H. Zhang, H. Liu, J. Duo, J. Zuo, J. Wei, J. Xiao, J. Dong, J. Shi, J. Hu, K. Bao, K. Zhou, L. Zhang, M. Chen, N. Chen, P. Zhang, Q. Chen, Q. Wang, R. Li, S. Liu, S. Wang, S. Li, S. Yu, S. Cao, S. Chen, S. Gu, W. Wang, W. Ma, X. Deng, X. Yong, X. Zhang, X. Wang, Y. Song, Y. Zhao, Y. Zhao, Y. Gao, Y. Cheng, Y. Tu, Y. Wang, Z. Huang, Z. Tang, Z. Lin, Z. Song, Z. Xu, Z. Zheng, and Z. Jiang, “Mimo-audio: Audio language models are few-shot learners,” 2025. [Online]. Available: https://arxiv.org/abs/2512.23808 [23] J. Hu, H. Chen, L. Ma, D. Guo, Q. Zhan, W. Li, H. Zhang, K. Xia, Z. Zhang, W. Tian, C. Wang, J. Liang, S. Guo, Z. Yang, B. Wu, B. Zhang, P. Zhu, P. Xie, C. Xie, Q. Zhang, J. Liu, and L. Xie, “Voicesculptor: Your voice, designed by you,” 2026. [Online]. Available: https://arxiv.org/abs/2601.10629 [24] Y. Ren, J. Yi, J. Tao, H. Sun, Z. Wen, H. Gu, L. Xu, and Y. Bai, “Ov-instructtts: Towards open-vocabulary instruct text-to-speech,” CoRR , vol. abs/2601.01459, 2026. [Online]. Available: https://doi.org/10.48550/arXiv.2601.01459 [25] D. Chen, X. Zhang, Y. Wang, K. Dai, L. Ma, and Z. Wu, “Flexivoice: Enabling flexible style control in zero-shot TTS with natural language instructions,” CoRR , vol. abs/2601.04656, 2026. [Online]. Available: https://doi.org/10.48550/arXiv.2601.04656 [26] W. Xue, J. Feng, S. Zhang, Y. Wang, R. Yang, B. Liu, L. Xue, S. Cheng, J. Pan, W. Bian, B. Kang, and B. Long, “Iscslp 2026 cot-tts challenge: Chain-of-thought reasoning for context-aware text-to-speech,” 2026. [Online]. Available: https://arxiv.org/abs/2606.21933 [27] X. Hao, X. Su, R. Horaud, and X. Li, “Fullsubnet: A full-band and sub-band fusion model for real-time single-channel speech enhancement,” in ICASSP 2021 - 2021 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) . IEEE, 2021, p. 6633–6637. [Online]. Available: http://dx.doi.org/10.1109/ICASSP39728.2021.9414177 [28] X. Shi, X. Wang, Z. Guo, Y. Wang, P. Zhang, X. Zhang, Z. Guo, H. Hao, Y. Xi, B. Yang, J. Xu, J. Zhou, and J. Lin, “Qwen3-asr technical report,” 2026. [Online]. Available: https://arxiv.org/abs/2601.21337 [29] S. Liu, “Zero-shot voice conversion with diffusion transformers,” 2024. [Online]. Available: https://arxiv.org/abs/2411.09943 [30] R. Rafailov, A. Sharma, E. Mitchell, S. Ermon, C. D. Manning, and C. Finn, “Direct preference optimization: Your language model is secretly a reward model,” 2024. [Online]. Available: https://arxiv.org/abs/2305.18290 [31] E. J. Hu, Y. Shen, P. Wallis, Z. Allen-Zhu, Y. Li, S. Wang, L. Wang, and W. Chen, “Lora: Low-rank adaptation of large language models,” 2021. [Online]. Available: https: //arxiv.org/abs/2106.09685 [32] S. Chen, C. Wang, Z. Chen, Y. Wu, S. Liu, Z. Chen, J. Li, N. Kanda, T. Yoshioka, X. Xiao, J. Wu, L. Zhou, S. Ren, Y. Qian, Y. Qian, J. Wu, M. Zeng, X. Yu, and F. Wei, “Wavlm: Large-scale self-supervised pre-training for full stack speech processing,” IEEE Journal of Selected Topics in Signal Processing , vol. 16, no. 6, p. 1505–1518, Oct. 2022. [Online]. Available: http://dx.doi.org/10.1109/JSTSP.2022.3188113 [33] K. Baba, W. Nakata, Y. Saito, and H. Saruwatari, “The t05 system for the voicemos challenge 2024: Transfer learning from deep image classifier to naturalness mos prediction of high-quality synthetic speech,” 2024. [Online]. Available: https://arxiv.org/abs/2409.09305 [34] J. Xu, Z. Guo, H. Hu, Y. Chu, X. Wang, J. He, Y. Wang, X. Shi, T. He, X. Zhu, Y. Lv, Y. Wang, D. Guo, H. Wang, L. Ma, P. Zhang, X. Zhang, H. Hao, Z. Guo, B. Yang, B. Zhang, Z. Ma, X. Wei, S. Bai, K. Chen, X. Liu, P. Wang, M. Yang, D. Liu, X. Ren, B. Zheng, R. Men, F. Zhou, B. Yu, J. Yang, L. Yu, J. Zhou, and J. Lin, “Qwen3-omni technical report,” 2025. [Online]. Available: https://arxiv.org/abs/2509.17765
