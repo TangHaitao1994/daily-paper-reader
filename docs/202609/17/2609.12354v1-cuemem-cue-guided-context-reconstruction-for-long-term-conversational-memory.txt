@@ -1,0 +1,205 @@
+Title: CueMem: Cue-Guided Context Reconstruction for Long-Term Conversational Memory
+
+URL Source: https://arxiv.org/pdf/2609.12354v1
+
+Published Time: Mon, 14 Sep 2026 00:26:15 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+# CueMem: Cue-Guided Context Reconstruction for Long-Term Conversational Memory 
+
+Changjian Wang 1,2 , Rongzhen Li 1, Weili Guan 2, Shuming Shi 1, Quan Lu 1, Ning Jiang 1
+
+> 1
+
+Mashang Consumer Finance Co., Ltd. 
+
+> 2
+
+Harbin Institute of Technology, Shenzhen 
+
+changjian.wang@msxf.com 
+
+Abstract 
+
+Long-term conversational agents must answer user queries by recalling information from ex-tended dialogue histories, yet directly using the full history is costly and often unreliable, while compressed memory units may lose fine-grained evidence needed for question answer-ing. Motivated by the reconstructive view of au-tobiographical memory, we propose CueMem, a cue-guided framework that treats extracted memory records as retrieval cues rather than self-contained evidence and reconstructs query-relevant dialogue context from their source turns. During memory construction, CueMem extracts fine-grained memory cues from dia-logue turns and links each cue to its source turn. At query time, it retrieves query-relevant cues, maps them to source-turn anchors, and expands from these anchors over a turn graph that captures temporal proximity and seman-tic relatedness, reconstructing a compact evi-dence context from the original dialogue for LLM answer generation. Experiments on Lo-CoMo and LongMemEval show that CueMem consistently outperforms representative long-term memory baselines. Further analyses show that graph-based context reconstruction helps recover supporting dialogue evidence while re-ducing query-time input tokens and latency compared with the full-history LLM setting. These results highlight retrieval cues as an ef-fective alternative to self-contained memory evidence for long-term conversational question answering. 
+
+1 Introduction 
+
+Large Language Models (LLMs) have developed rapidly in recent years (Achiam et al., 2023; Yang et al., 2025), leading to substantial improvements in the capabilities of LLM-powered conversational agents. In real-world scenarios, conversations are often long-running and multi-turn, requiring agents to answer user queries by effectively leveraging long-term dialogue history. Naively incorporating Fail          
+
+> Q: Which place we mentioned earlier would my mother prefer?
+> destination hotel budget
+> Memory Unit Travel planning ...
+> The trip is for the user's mother's birthday →T1
+> Succeed
+> The user's mother pre-fers calm places →T2 The user's budget is limited →T3
+> ... Memory Cues
+> [User]: My mother prefers calm places and likes walking near water. [Assistant]: Lakeside Town may fit her well because it is quiet and close to the lake.
+> T2
+> T1 T2 T3
+> ... History Turns
+
+Figure 1: An example comparison between memory units and memory cues. A coarse memory unit may lose fine-grained semantic information due to compres-sion or mixed semantic representations, e.g., a “travel planning” memory unit may merge destination, budget, and hotel preferences, making it difficult to obtain the evidence for the user’s query. In contrast, fine-grained memory cues linked to source turns provide focused retrieval targets, enabling the system to recover the rele-vant source turn T2 and reconstruct the dialogue context needed to answer Lakeside Town .
+
+the full interaction history is often ineffective due to context length limitations, noisy information, the “lost-in-the-middle” phenomenon (Liu et al., 2024), and increased inference latency. Therefore, how to model and utilize long-term conversational memory has become a major challenge for conver-sational agents. Existing methods typically construct retrievable memory units from dialogue history through seg-mentation, compression, summarization, or salient information extraction, and retrieve the most rele-vant units as context for generation (Zhong et al., 2024; Pan et al., 2025; Fang et al., 2026). However, such memory units often remain compressed or de-contextualized fragments of the original dialogue, and vector-based indexing may entangle multiple semantic signals within a single dense represen-tation. More importantly, many existing systems arXiv:2609.12354v1 [cs.CL] 11 Sep 2026 treat retrieved memory units as self-contained ev-idence for generation. This design contrasts with the reconstructive view of autobiographical mem-ory, which suggests that remembering is guided by cues and reconstructed from broader autobiograph-ical knowledge stores (Conway and Rubin, 1993; Conway and Pleydell-Pearce, 2000; Holland and Kensinger, 2010). For example, as shown in Figure 1, an existing memory system may group several turns about des-tination, budget, and hotel preference into a single memory unit about “travel planning”. However, a later query such as “Which place we mentioned ear-lier would my mother prefer?” targets only a fine-grained aspect of this topic, making retrieval chal-lenging because the relevant signal is mixed with multiple other semantics within the same retriev-able unit. In contrast, fine-grained cues such as “the user’s mother prefers calm places” provide more focused retrieval targets and can guide the system back to the original dialogue turns for context re-construction. Inspired by this cognitive perspective, we argue that long-term conversational memory should follow a similar retrieval-and-reconstruction process: first identifying fine-grained cues that match the current query, and then recovering the original dialogue context around these cues before generating the answer. In this paper, we propose CueMem, a simple and effective long-term memory system for agent conversations, inspired by the reconstructive view of autobiographical memory. CueMem first con-structs fine-grained memory cues from dialogue turns, with each cue serving as a semantically focused retrieval target linked to its source turn. Given a user query, CueMem retrieves the most rel-evant cues and uses their source turns as anchors for context reconstruction. To recover supporting evi-dence, CueMem builds a turn graph that connects dialogue turns based on temporal proximity and se-mantic similarity, and expands from the anchored turns over this graph to collect query-relevant di-alogue context. Finally, the reconstructed con-text is provided to the LLM as memory evidence for answer generation. We evaluate CueMem on two long-term conversational question answering benchmarks, LoCoMo (Maharana et al., 2024) and LongMemEval (Wu et al., 2025), and show that it consistently outperforms baseline memory mod-els. These results demonstrate the effectiveness of retrieving fine-grained memory cues and recon-structing dialogue context from anchored turns. Our contributions are summarized as follows: • We introduce a cue-centered view of long-term conversational memory, in which fine-grained memory cues guide the reconstruction of relevant dialogue context rather than serv-ing as self-contained evidence for generation. • We propose CueMem, a simple yet effective framework that constructs fine-grained mem-ory cues from dialogue turns, retrieves query-relevant cues, and recovers supporting dia-logue context by expanding from their source-turn anchors on a turn-level graph. • Experiments on two long-term conversational question answering benchmarks show that CueMem consistently outperforms strong long-term memory baselines, demonstrating the effectiveness of fine-grained cue retrieval and anchor-based context reconstruction. 
+
+2 Related Work 
+
+Retrieval-Augmented Generation (RAG) augments language models by retrieving relevant external context before generation (Lewis et al., 2020; Gao et al., 2023). In long-context and conversational settings, RAG is commonly used to retrieve dia-logue turns, chunks, summaries, or memory entries, reducing the need to process the full history and alleviating long-context issues such as the “lost-in-the-middle” problem (Liu et al., 2024). Recent work also explores more structured retrieval mech-anisms, such as graph-based RAG (Edge et al., 2024; Guo et al., 2024; Gutiérrez et al., 2024, 2025), which organizes documents or entities into graphs to support multi-hop or global information access. However, these RAG systems mainly target static external knowledge bases, and their fixed chunking and retrieval can suffer from granularity mismatch in dynamic long-term conversations. Long-term conversational memory aims to help LLM agents retain and use information from ex-tended interactions. Early agent memory systems store observations or dialogue histories as memory streams and retrieve relevant records for future rea-soning or response generation (Park et al., 2023; Zhong et al., 2024; Packer et al., 2023). More re-cent methods further organize memories through hierarchical modules, structured notes, graph links, or consolidation mechanisms to support scalable storage, updating, and retrieval (Kang et al., 2025; Chhikara et al., 2025; Xu et al., 2025; Fang et al., 2026). However, these methods often rely on com-pressed summaries or memory notes as the di-rect evidence for generation, which may lose fine-grained details and local dialogue context. More-over, merging multiple facts into one memory unit can entangle different semantic signals and reduce retrieval precision. Cognitive studies of autobiographical memory provide a useful perspective for addressing this issue. Autobiographical memory is commonly de-fined as “memory for the events of one’s life” (Con-way and Rubin, 1993). Although agent memory is not human memory, long-term conversational mem-ory plays a functionally analogous role: it records events from an agent’s interaction history and sup-ports later recall in response to user queries. Cogni-tive studies suggest that autobiographical memories are not stored as perfect records, but are recon-structed from broader autobiographical knowledge with the help of cues (Holland and Kensinger, 2010; Conway and Pleydell-Pearce, 2000). This perspec-tive motivates CueMem, which treats stored memo-ries as fine-grained retrieval cues for reconstructing evidence rather than as self-contained evidence. 
+
+3 Problem Formulation 
+
+We focus on long-term conversational question answering, where an agent answers a user query given a long dialogue history. Formally, let D =
+
+{u1, u 2, . . . , u T } denote a dialogue history consist-ing of T turns. The dialogue history may span multiple sessions, where each session is a tempo-rally contiguous block of turns, but we represent the entire history as a chronological sequence of turns. Each turn ui consists of a user utterance and the corresponding agent response, and may include associated metadata such as timestamp. Given a user query q, the goal is to generate an answer a
+
+that is both relevant to q and faithful to the infor-mation contained in D. Since D can be long, noisy, and only partially relevant to the current query, the system should identify a compact evidence context rather than rely on the entire dialogue history as input. We formulate the task as selecting a query-relevant evidence context Eq ⊆ D and generating the answer conditioned on both the query and this context: 
+
+a = LLM(Prompt( q, Eq)) ,
+
+where Eq contains the historical information neces-sary for answering q, and Prompt( ·) denotes the answer-generation prompt that formats the query and evidence context for the LLM. 
+
+4 Methodology 
+
+CueMem follows a cue-to-anchor-to-context mem-ory reconstruction pipeline, as illustrated in Fig-ure 2. Given a long dialogue history, CueMem first extracts fine-grained memory cues from in-dividual dialogue turns and links each cue to its source turn. It then builds a turn-level graph over the original dialogue history, where temporal edges preserve local conversational continuity and seman-tic edges connect turns based on cue-level semantic similarity. At query time, CueMem retrieves query-relevant cues, maps them to source-turn anchors, and expands from these anchors on the turn graph to reconstruct the evidence context. The recon-structed context is then provided to the LLM for answer generation. 
+
+4.1 Memory Cue Extraction 
+
+The first step of CueMem is to convert the dia-logue history into a set of fine-grained memory cues. Unlike segment- or summary-level memo-ries that compress multiple semantic signals into a single unit, each cue is designed to capture a relatively atomic piece of information from the dialogue. Memory cues can take various forms, such as natural language statements or structured relational records. For simplicity and interpretabil-ity, we instantiate each cue as a relational triple in this work. Formally, given the dialogue history D,we extract a cue set C = {c1, c 2, . . . , c N }. Each cue is represented as ci = ( ti, τ i), where ti de-notes a triple (subject , relation , object ) extracted from the dialogue and τi ∈ { 1, 2, . . . , T } denotes a pointer to the source turn in D. The triple provides a semantically focused representation for retrieval, while the pointer links the cue back to the original dialogue turn for later context reconstruction. In practice, we use an LLM to extract relational triples from each dialogue turn to construct memory cues. A turn may yield multiple cues if it contains several useful pieces of information, or no cue if it does not contain any. We further encode each triple ti with an embedding model to obtain its dense represen-tation ti = Enc( ti), which is used for subsequent retrieval and graph construction. 
+
+4.2 Turn Graph Construction 
+
+After extracting memory cues, CueMem builds a turn-level graph over the original dialogue history Memory Cue Extraction Enc Enc LLM  
+
+> Offline Online
+> Retrieval Context Reconstruction Graph Expansion Context ... Memory Cue Set
+> ...
+> Turns
+> ...
+> Turn Graph Query Answer
+
+Figure 2: Overview of CueMem. In the offline stage, CueMem extracts fine-grained memory cues from dialogue turns, links each cue to its source turn, encodes the cues into dense vectors for retrieval, and builds a turn graph with temporal and semantic edges. In the online stage, CueMem encodes the user query into the same vector space, retrieves query-relevant cues, maps them to source-turn anchors, expands over the turn graph to reconstruct supporting dialogue context, and feeds the reconstructed context to the LLM for answer generation. 
+
+to support later context reconstruction. The graph preserves dialogue structure beyond isolated cue matches, allowing the system to recover temporally and semantically related turns once a source turn is selected as an anchor. Formally, we construct a graph G = ( V, E), where each node vi ∈ V cor-responds to a dialogue turn ui ∈ D . The edge set 
+
+E consists of two types of edges: temporal edges 
+
+Etemp and semantic edges Esem . Temporal edges capture chronological continuity between dialogue turns, while semantic edges capture semantic asso-ciations between turns. We describe the construc-tion of these two edge types below. 
+
+Temporal edges. Temporal edges capture tem-poral proximity between dialogue turns. For each turn node vi, we define its temporal neighbors as the turns within a fixed chronological window: 
+
+Ntemp (vi) = {vj ∈ V | 0 < |i − j| ≤ w},
+
+where w is the window size. For each vj ∈Ntemp (vi), we add a directed temporal edge: 
+
+(vi, v j ) ∈ E temp .
+
+These edges help recover local context around an anchored turn, including turns that may be difficult to retrieve directly but are useful for the LLM to understand the conversational context and generate a faithful answer. 
+
+Semantic edges. Semantic edges are used to cap-ture non-local relations between turns that are se-mantically related but may be far apart in the dia-logue history. We construct these semantic edges by computing similarity at the cue level and then mapping similar cues back to their source turns. Compared with turn-level similarity, cue-level sim-ilarity relies on more atomic semantic representa-tions, reducing the interference of mixed seman-tics and making the resulting associations more focused and precise. More specifically, for each cue ci = ( ti, τ i), we retrieve its top-k nearest cues according to cosine similarity between cue embed-dings: 
+
+Nsem (ci) = TopK cj ∈C\{ ci} cos( ti, tj ).
+
+For each retrieved cue cj = ( tj , τ j ) ∈ N sem (ci),we map both cues to their source-turn nodes and add a directed semantic edge from vτi to vτj in the turn graph: 
+
+(vτi , v τj ) ∈ E sem .
+
+4.3 Context Reconstruction 
+
+Given a user query, CueMem reconstructs the evi-dence context through a cue-to-anchor-to-context process. It first retrieves fine-grained memory cues that are semantically relevant to the query. The source turns linked to these retrieved cues are then treated as anchors in the turn graph. Starting from these anchors, CueMem expands along temporal and semantic edges to recover both local conversa-tional context and non-local semantically related evidence. The selected turns are finally assembled as the evidence context for answer generation. 
+
+Cue retrieval. We first encode the user query q
+
+with the same embedding model used for memory cues, obtaining q = Enc( q). CueMem then re-trieves the top-m cues that are most similar to the query: 
+
+Cq = TopK ci∈C cos( q, ti),
+
+where m is the number of retrieved cues. The source-turn pointers of these cues define the anchor set: 
+
+Aq = {τi | ci ∈ C q}.
+
+Graph expansion. Starting from the anchor set 
+
+Aq, CueMem expands over the turn graph G to collect supporting turns connected by temporal and semantic edges. We first collect the one-hop graph neighbors of the anchors: 
+
+NG (Aq) = {j | ∃ i ∈ A q, (vi, v j ) ∈ E temp ∪E sem }.
+
+The reconstructed evidence context is then formed by the anchor turns and their graph neighbors: 
+
+Eq = {uj | j ∈ A q ∪ N G (Aq)}.
+
+This expansion collects turns within a limited graph neighborhood around the anchors, so that the ev-idence context includes both local dialogue con-text and semantically related non-local turns while avoiding excessive irrelevant history. The selected turns are finally ordered according to their original chronological positions before being passed to the LLM. 
+
+4.4 Memory Management 
+
+CueMem manages memory through a lightweight design based on cue records, source-turn pointers, and graph edges. This design separates offline con-struction from online reconstruction and supports simple memory operations. 
+
+Online and offline workflow. CueMem sepa-rates offline memory construction from online query-time reconstruction and answering. Mem-ory cue extraction and turn graph construction are conducted offline, whereas cue retrieval, context re-construction, and answer generation are performed online for each incoming query. This workflow avoids processing the full dialogue history during inference, while still enabling the system to recover rich dialogue evidence through cue-guided graph expansion. Moreover, since memory cues contain relatively atomic semantic information, they can be effectively represented by lightweight embedding models, allowing CueMem to balance retrieval effi-ciency and quality. 
+
+Memory maintenance. CueMem avoids com-plex memory maintenance operations by operating on simple cue records, source-turn pointers, and graph edges, rather than managing consolidated memory units. For ADD, CueMem extracts cues from newly observed dialogue turns and inserts the corresponding cue records and source-turn nodes in the background. Since cues are constructed at the turn level, new memories can be added in near real time, without waiting for a large amount of dialogue history to accumulate for segmentation or compression. For DELETE, CueMem can adopt standard forgetting policies, such as time-based decay or least-recently-used removal, to delete ob-solete turn nodes and their associated cue records and graph edges. For UPDATE, we do not intro-duce a specialized updating mechanism, instead, updated information is added as new cue records linked to newer source turns. During generation, the model is instructed to prioritize more recent evidence. The effectiveness of this simple strategy is further examined in the ablation study. 
+
+5 Experiments 
+
+5.1 Experimental Settings Datasets. We evaluate CueMem on two long-term conversational question answering bench-marks: LoCoMo (Maharana et al., 2024) and Long-MemEval (Wu et al., 2025). For LoCoMo, we follow prior work (Fang et al., 2026) and eval-uate on 10 long conversations with 1,540 ques-tions covering single-hop, multi-hop, temporal, and open-domain categories. For LongMemEval, we use the LongMemEval-S setting, which contains 500 evaluation questions spanning single-session user, assistant, and preference questions, as well as multi-session, temporal-reasoning, and knowledge-update questions. Detailed dataset statistics are provided in the Appendix. 
+
+Metrics. We report accuracy as the primary eval-uation metric. Following prior work (Wu et al., 2025; Fang et al., 2026), we use an LLM-as-judge protocol to compare each generated answer with the reference answer given the corresponding ques-tion. The judge determines whether the prediction correctly answers the question, and accuracy is computed as the proportion of predictions judged correct. 
+
+Baselines. We compare CueMem with represen-tative long-term memory systems for conversa-Method Category Overall Single-hop Multi-hop Temporal Open-domain                               
+
+> Naive RAG 79.67 68.79 68.54 62.50 74.29 MemoryOS (Kang et al., 2025) 75.51 73.76 78.19 77.08 75.84 Mem0 (Chhikara et al., 2025) 46.61 43.97 38.32 50.00 44.61 A-Mem (Xu et al., 2025) 77.76 74.82 70.72 67.71 75.13 LightMem (Fang et al., 2026) 76.58 72.70 66.67 53.13 72.34
+> CueMem 84.07 75.18 82.24 68.75 81.10
+
+Table 1: Accuracy results on the LoCoMo dataset.                                                  
+
+> Method Category Overall Single-user Single-assistant Single-preference Multi-session Temporal Knowledge-update
+> Naive RAG 78.57 100.00 26.67 48.12 54.14 75.64 62.80 MemoryOS 88.57 62.50 36.67 60.90 57.89 74.36 64.80 Mem0 74.29 12.50 20.00 45.86 49.62 71.79 49.60 A-Mem 94.29 98.21 26.67 55.64 51.13 78.21 66.40 LightMem 91.43 37.50 33.33 75.94 79.70 84.62 73.60
+> CueMem 94.29 91.07 40.00 60.90 73.68 87.18 75.20
+
+Table 2: Accuracy results on LongMemEval dataset. 
+
+tional agents: • Naive RAG (turn-level) retrieves dialogue turns directly from the full conversation his-tory using semantic similarity and uses the retrieved turns as context for answer genera-tion. • MemoryOS (Kang et al., 2025) organizes con-versational memory with an OS-inspired hi-erarchical architecture, including short-term, mid-term, and long-term memory units with dynamic updating and retrieval. • Mem0 (Chhikara et al., 2025) builds scal-able long-term memory for production-ready agents by extracting and maintaining mem-ories from dialogue history through LLM-guided operations. • A-Mem (Xu et al., 2025) constructs structured memory notes and dynamically links related memories following the Zettelkasten principle, enabling agentic memory organization and evolution. • LightMem (Fang et al., 2026) filters, groups, and consolidates dialogue history through sensory, short-term, and long-term memory stages for lightweight memory-augmented generation. 
+
+Implementation details. For all methods, we use Llama-3.3-70B-Instruct as the same LLM backbone for memory extraction, answer gener-ation, and LLM-as-judge evaluation. We adopt all-MiniLM-L6-v2 as a lightweight embedding model for encoding memory and user queries. Additional results with other LLM and embedding models, as well as more detailed experimental settings, are provided in the Appendix. 
+
+5.2 Main Results 
+
+We conduct experiments on LoCoMo and Long-MemEval to evaluate the effectiveness of CueMem. Table 1 shows the results on LoCoMo. CueMem achieves the best overall accuracy, outperforming all baseline methods, and surpassing the strongest baseline by a margin of 5.26%. Analyzing per-formance across question types, CueMem shows clear advantages on single-hop and temporal ques-tions, improving over the baseline by 4.40% and 4.05%, respectively. This suggests that fine-grained memory cues are effective for locating specific his-torical information, while graph-based expansion helps recover temporally related evidence around the retrieved anchors. CueMem also performs well on multi-hop questions, which indicates that the reconstructed context is not limited to the directly matched cues, but can incorporate additional ev-idence from semantically related or temporally neighboring turns. For open-domain questions, CueMem performs slightly worse mainly because Overall Single-hop Multi-hop Temporal Open-domain          
+
+> 020 40 60 80 100
+> Accuracy (%)
+> 81.1 84.1 75.2 82.2 68.8 71.4 71.7 64.5 78.5 65.6
+> Full model w/o turn graph
+> Overall Single-preference Single-assistant Single-user Multi-session Temporal Knowledge-update
+> 020 40 60 80 100
+> Accuracy (%)
+> 75.2 40.0 91.1 94.3 60.9 73.7 87.2 72.4 40.0 89.3 94.3 61.7 66.9 80.8
+> Full model w/o priority instruction
+> (a) LoCoMo: removing turn graph (b) LongMemEval: removing priority instruction
+
+Figure 3: Ablation results on LoCoMo and LongMemEval. 
+
+these questions require integrating dialogue infor-mation with external knowledge, whereas CueMem primarily retrieves and reconstructs evidence from the dialogue history itself, suggesting that explicit external-knowledge retrieval or higher-level mem-ory abstraction could further improve its perfor-mance on such questions. Table 2 reports the results on LongMemEval. CueMem achieves the best overall accuracy, out-performing the strongest baseline by 1.60%. This indicates that cue-guided retrieval and dialogue-context reconstruction remain effective even in substantially longer conversation histories. For single-session questions, CueMem shows strong performance, achieving the best results on both single-user and single-preference categories and re-maining competitive on single-assistant questions. This suggests that fine-grained memory cues are effective for capturing user-specific facts and pref-erences within localized interaction contexts. Since single-session questions are common in practical conversational agent scenarios, accurately answer-ing such questions is important for improving the user experience and maintaining coherent person-alized interactions. CueMem also achieves the best performance on knowledge-update questions, even though it does not introduce a specialized UP-DATE operation. This may be because CueMem leverages fine-grained cues to accurately and com-prehensively reconstruct query-relevant evidence from the original dialogue while preserving tem-poral order. Even when the reconstructed context contains conflicting historical information, mod-ern LLMs can often identify and ignore outdated evidence when properly instructed. This result sug-gests that explicit memory rewriting may not al-ways be necessary for handling knowledge updates. When relevant dialogue evidence is accurately re-constructed and temporally ordered, a sufficiently capable LLM can often resolve conflicts between old and updated information during answer genera-tion. Across both datasets, CueMem demonstrates consistently strong performance across different long dialogue QA settings. In contrast, most base-lines tend to perform well on only one dataset. For example, LightMem achieves stronger results on LongMemEval than on LoCoMo, while sev-eral other baselines obtain reasonable performance on LoCoMo but degrade substantially on Long-MemEval. This contrast suggests that CueMem is less sensitive to dataset-specific characteristics and can generalize more consistently across con-versations with different lengths, structures, and question distributions. 
+
+5.3 Ablation Study 
+
+In this section, we conduct two ablation studies on LoCoMo and LongMemEval to evaluate the effec-tiveness of turn graph expansion and the priority instruction, respectively. On LoCoMo, we disable graph expansion while keeping the same cue extraction and retrieval com-ponents. The ablated variant therefore answers questions using only the anchor turns associated with the retrieved cues as context. As shown in Figure 3(a), removing the turn graph reduces the overall accuracy from 81.1% to 71.4%, with the largest drops on single-hop and multi-hop ques-tions. This suggests that the retrieved anchor turns alone often do not contain sufficient evidence, and that graph expansion is important for recovering temporally adjacent and semantically related sup-porting turns. As discussed above, CueMem does not perform an explicit UPDATE operation, yet it still achieves strong performance on knowledge-update ques-tions. We attribute this result largely to the pri-Dataset Method Tokens Time (s) Acc. (%) Recon. Infer. LoCoMo Full History ∼21K – 5.95 80.19 CueMem ∼2K 0.13 3.29 81.10 LongMemEval Full History ∼108K – 29.64 42.80 CueMem ∼2K 0.15 3.58 70.00 
+
+Table 3: Efficiency and effectiveness comparison be-tween the full-history LLM setting and CueMem. All numbers are averaged per query. Tokens denote the num-ber of input tokens provided to the answer-generation LLM. Recon. denotes the query-time context recon-struction cost, including query encoding, cue retrieval, and graph expansion. Infer. denotes the LLM answer-generation latency. 
+
+ority instruction used during answer generation. In practice, this is implemented by adding a sim-ple prompt instruction: “Prioritize the information most recent and closest to the question time”. To verify whether this simple instruction is indeed ef-fective, we remove it while keeping the retrieved evidence context unchanged. As shown in Fig-ure 3(b), removing the priority instruction lowers the overall accuracy from 75.2% to 72.4%, and the accuracy on knowledge-update questions drops from 87.2% to 80.8%. In contrast, several non-update categories remain unchanged or show only minor differences. Temporal questions also show a noticeable accuracy drop of 6.8%, indicating that the priority instruction not only helps the model identify updated facts, but also guides it toward more accurate temporal reasoning. These ablation results suggest that memory systems can handle knowledge updates without relying on complex up-date operations. Instead, when relevant evidence is accurately reconstructed, the inherent reasoning capability of the LLM, combined with a simple priority instruction, can effectively resolve update-sensitive questions. 
+
+5.4 Efficiency Analysis 
+
+As LLMs continue to support increasingly long context windows, directly feeding the entire dia-logue history into the LLM has become a simple and seemingly attractive solution for long-term con-versational question answering. In this section, we compare CueMem with the full-history LLM set-ting in terms of both effectiveness and query-time efficiency, focusing on answer accuracy, token con-sumption, and answering latency, with CueMem using a reconstructed context of approximately 2K tokens. Table 3 shows that CueMem is substantially more efficient than the full-history LLM setting while achieving better accuracy. On LoCoMo, Cue-Mem consumes only about 10% of the input tokens used by the full-history setting while achieving higher accuracy. Meanwhile, it reduces the overall query latency by 42.5%. On LongMemEval, this advantage becomes even more pronounced. Com-pared with the full-history setting, CueMem uses less than 2% of the input tokens, achieves a 27.2% absolute improvement in accuracy, and reduces the overall query latency by 87.4%. These results suggest that long-context LLMs may work reasonably well with moderately long histories, but can degrade when the input ap-proaches the maximum context window (such as 128K limit for Llama-3.3). This degradation may be caused by excessive irrelevant context, noise, or the lost-in-the-middle effect. Moreover, the full-history strategy inevitably increases inference cost and latency as the conversation grows. In contrast, CueMem mitigates these issues with only a small context reconstruction overhead, substantially re-ducing token consumption and latency while im-proving answer accuracy. This low overhead is enabled by CueMem’s fine-grained cues, whose atomic semantics can be effectively encoded by a lightweight 22M-parameter embedding model (all-MiniLM-L6-v2) with 384-dimensional repre-sentations, making the retrieval module lightweight enough for resource-constrained settings. 
+
+6 Conclusion 
+
+We presented CueMem, a lightweight and effec-tive long-term memory framework for conversa-tional agents. CueMem follows a simple cue-to-anchor-to-context pipeline: it treats extracted mem-ories as fine-grained retrieval cues rather than self-contained evidence, links them to source turns, and reconstructs query-relevant dialogue context through expansion over a turn graph. This design keeps memory management simple while retaining direct links to the original dialogue evidence. Ex-periments on LoCoMo and LongMemEval show that CueMem consistently outperforms represen-tative long-term memory baselines while reducing query-time token consumption and latency com-pared with the full-history setting. These results suggest that cue-guided context reconstruction of-fers a simple and scalable strategy for long-term memory in conversational agents. References 
+
+Josh Achiam, Steven Adler, Sandhini Agarwal, Lama Ahmad, Ilge Akkaya, Florencia Leoni Aleman, Diogo Almeida, Janko Altenschmidt, Sam Altman, Shyamal Anadkat, and 1 others. 2023. Gpt-4 techni-cal report. arXiv preprint arXiv:2303.08774 .Prateek Chhikara, Dev Khant, Saket Aryan, Taranjeet Singh, and Deshraj Yadav. 2025. Mem0: Building production-ready ai agents with scalable long-term memory. arXiv preprint arXiv:2504.19413 .MA Conway and DC Rubin. 1993. The structure of autobiographical memory. In Theories of Memory ,pages 103–138. Lawrence Erlbaum Associates. Martin A. Conway and Christopher W. Pleydell-Pearce. 2000. The construction of autobiographical memo-ries in the self-memory system. Psychological Re-view , 107(2):261–288. Darren Edge, Ha Trinh, Newman Cheng, Joshua Bradley, Alex Chao, Apurva Mody, Steven Truitt, Dasha Metropolitansky, Robert Osazuwa Ness, and Jonathan Larson. 2024. From local to global: A graph rag approach to query-focused summarization. 
+
+arXiv preprint arXiv:2404.16130 .Jizhan Fang, Xinle Deng, Haoming Xu, Ziyan Jiang, Yuqi Tang, Ziwen Xu, Shumin Deng, Yunzhi Yao, Mengru Wang, Shuofei Qiao, Huajun Chen, and Ningyu Zhang. 2026. Lightmem: Lightweight and ef-ficient memory-augmented generation. In The Four-teenth International Conference on Learning Repre-sentations .Yunfan Gao, Yun Xiong, Xinyu Gao, Kangxiang Jia, Jinliu Pan, Yuxi Bi, Yixin Dai, Jiawei Sun, Haofen Wang, and 1 others. 2023. Retrieval-augmented gen-eration for large language models: A survey. arXiv preprint arXiv:2312.10997 , 2(1):32. Zirui Guo, Lianghao Xia, Yanhua Yu, Tu Ao, and Chao Huang. 2024. Lightrag: Simple and fast retrieval-augmented generation. arXiv preprint arXiv:2410.05779 , 2(3). Bernal J Gutiérrez, Yiheng Shu, Yu Gu, Michihiro Ya-sunaga, and Yu Su. 2024. Hipporag: Neurobiologi-cally inspired long-term memory for large language models. Advances in neural information processing systems , 37:59532–59569. Bernal Jiménez Gutiérrez, Yiheng Shu, Weijian Qi, Sizhe Zhou, and Yu Su. 2025. From rag to memory: Non-parametric continual learning for large language models. In International Conference on Machine Learning , pages 21497–21515. PMLR. Alisha C. Holland and Elizabeth A. Kensinger. 2010. Emotion and autobiographical memory. Physics of Life Reviews , 7(1):88–131. Jiazheng Kang, Mingming Ji, Zhe Zhao, and Ting Bai. 2025. Memory os of ai agent. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , pages 25961–25970. Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal, Hein-rich Küttler, Mike Lewis, Wen-tau Yih, Tim Rock-täschel, and 1 others. 2020. Retrieval-augmented gen-eration for knowledge-intensive nlp tasks. Advances in neural information processing systems , 33:9459– 9474. Nelson F Liu, Kevin Lin, John Hewitt, Ashwin Paran-jape, Michele Bevilacqua, Fabio Petroni, and Percy Liang. 2024. Lost in the middle: How language mod-els use long contexts. Transactions of the association for computational linguistics , 12:157–173. Adyasha Maharana, Dong-Ho Lee, Sergey Tulyakov, Mohit Bansal, Francesco Barbieri, and Yuwei Fang. 2024. Evaluating very long-term conversational memory of llm agents. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 13851– 13870. Charles Packer, Sarah Wooders, Kevin Lin, Vivian Fang, Shishir G Patil, Ion Stoica, and Joseph E Gonzalez. 2023. Memgpt: Towards llms as operating systems. 
+
+arXiv preprint arXiv:2310.08560 .Zhuoshi Pan, Qianhui Wu, Huiqiang Jiang, Xufang Luo, Hao Cheng, Dongsheng Li, Yuqing Yang, Chin-Yew Lin, H. Vicky Zhao, Lili Qiu, and Jianfeng Gao. 2025. Secom: On memory construction and retrieval for personalized conversational agents. In The Thir-teenth International Conference on Learning Repre-sentations .Joon Sung Park, Joseph O’Brien, Carrie Jun Cai, Mered-ith Ringel Morris, Percy Liang, and Michael S Bern-stein. 2023. Generative agents: Interactive simulacra of human behavior. In Proceedings of the 36th an-nual acm symposium on user interface software and technology , pages 1–22. Di Wu, Hongwei Wang, Wenhao Yu, Yuwei Zhang, Kai-Wei Chang, and Dong Yu. 2025. Longmemeval: Benchmarking chat assistants on long-term interac-tive memory. In The Thirteenth International Con-ference on Learning Representations .Wujiang Xu, Zujie Liang, Kai Mei, Hang Gao, Juntao Tan, and Yongfeng Zhang. 2025. A-mem: Agentic memory for llm agents. Advances in Neural Informa-tion Processing Systems , 38:17577–17604. An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chengen Huang, Chenxu Lv, and 1 others. 2025. Qwen3 technical report. arXiv preprint arXiv:2505.09388 .Wanjun Zhong, Lianghong Guo, Qiqi Gao, He Ye, and Yanlin Wang. 2024. Memorybank: Enhancing large language models with long-term memory. In Pro-ceedings of the AAAI conference on artificial intelli-gence , volume 38, pages 19724–19731.

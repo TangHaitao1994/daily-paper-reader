@@ -48,17 +48,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-16</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-17</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 5 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 19 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>1</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>4</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>7</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>12</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-16 21:51:52 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-17 22:45:04 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -69,9 +69,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共生成 5 篇推荐（精读 1 篇，速读 4 篇）</p>
-<p>精读：《Reducing the Output-Mode Gap in Speech Language Models via Joint-Output On-Policy Distillation》（8.0/10）</p>
-<p>速读：《Candor-LR: A Dyadic Conversational Dataset for Audio-Visual Speech Recognition》（6.0/10）, 《SWRouter: Similarity-Contractive Window Routing for Multi-Turn Large Language Model Conversations》（6.0/10）, 《Optimizing Sparse Outcomes Through Dense Behavioral Signals via Value-Guided Preference Distillation》（6.0/10）</p>
+<p>今日共生成 19 篇推荐（精读 7 篇，速读 12 篇）</p>
+<p>精读：《SpeechAnnotator: A Context-Aware Multi-Agent Framework and Benchmark for Multidimensional Speech Annotation》（9.0/10）, 《OpenEnded: An Open-Response Speech Corpus for Speaking Proficiency Assessment with Human Annotations and ALM Supervision》（9.0/10）</p>
+<p>速读：《StreamAlign: Streaming Text-Aligned Speech Tokenization》（8.0/10）, 《CueMem: Cue-Guided Context Reconstruction for Long-Term Conversational Memory》（8.0/10）, 《VoxTubeS: Distributable Speaker-Anonymized Synthetic Speech Corpora and Their Analysis》（8.0/10）</p>
 <p>这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。</p>
   </div>
 </section>
@@ -81,12 +81,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">1 篇</strong>
+    <strong class="dpr-home-dashboard-count">7 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Reducing the Output-Mode Gap in Speech Language Models via Joint-Output On-Policy Distillation">Reducing the Output-Mode Gap in Speech Language Models via Joint-Output On-Policy Distillation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="SpeechAnnotator: A Context-Aware Multi-Agent Framework and Benchmark for Multidimensional Speech Annotation">SpeechAnnotator: A Context-Aware Multi-Agent Framework and Benchmark for Multidimensional Speech Annotation</span></li><li><span class="dpr-home-dashboard-paper-title" title="OpenEnded: An Open-Response Speech Corpus for Speaking Proficiency Assessment with Human Annotations and ALM Supervision">OpenEnded: An Open-Response Speech Corpus for Speaking Proficiency Assessment with Human Annotations and ALM Supervision</span></li><li><span class="dpr-home-dashboard-paper-title" title="ECHO: A Matched-Contrast Benchmark for Context-Sensitive Turn-Taking in Full-Duplex Dialogue">ECHO: A Matched-Contrast Benchmark for Context-Sensitive Turn-Taking in Full-Duplex Dialogue</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">duplex-agent <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">data-agent <strong>6</strong></span><span class="dpr-home-dashboard-tag">duplex-agent <strong>1</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -94,12 +94,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">4 篇</strong>
+    <strong class="dpr-home-dashboard-count">12 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Candor-LR: A Dyadic Conversational Dataset for Audio-Visual Speech Recognition">Candor-LR: A Dyadic Conversational Dataset for Audio-Visual Speech Recognition</span></li><li><span class="dpr-home-dashboard-paper-title" title="SWRouter: Similarity-Contractive Window Routing for Multi-Turn Large Language Model Conversations">SWRouter: Similarity-Contractive Window Routing for Multi-Turn Large Language Model Conversations</span></li><li><span class="dpr-home-dashboard-paper-title" title="Optimizing Sparse Outcomes Through Dense Behavioral Signals via Value-Guided Preference Distillation">Optimizing Sparse Outcomes Through Dense Behavioral Signals via Value-Guided Preference Distillation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="StreamAlign: Streaming Text-Aligned Speech Tokenization">StreamAlign: Streaming Text-Aligned Speech Tokenization</span></li><li><span class="dpr-home-dashboard-paper-title" title="CueMem: Cue-Guided Context Reconstruction for Long-Term Conversational Memory">CueMem: Cue-Guided Context Reconstruction for Long-Term Conversational Memory</span></li><li><span class="dpr-home-dashboard-paper-title" title="VoxTubeS: Distributable Speaker-Anonymized Synthetic Speech Corpora and Their Analysis">VoxTubeS: Distributable Speaker-Anonymized Synthetic Speech Corpora and Their Analysis</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">duplex-agent <strong>4</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">duplex-agent <strong>9</strong></span><span class="dpr-home-dashboard-tag">data-agent <strong>3</strong></span></div>
 </section>
 </div>
 
