@@ -1,0 +1,1507 @@
+High-Fidelity Video Quality Assessment with VQA-Specific Saliency
+Hakan Emre Gedik1, Shashank Gupta1, Alan Bovik1,2
+1 The University of Texas at Austin, 2 University of Colorado Boulder
+{hakan.gedik, shashank.gupta}@utexas.edu
+Alan.Bovik@colorado.edu
+Abstract
+No-reference video quality assessment (NR VQA) has re-
+cently seen promising progress with deep learning. How-
+ever, video data is inherently large, and processing them
+with deep models incurs high computational cost.
+This
+challenge is particularly acute in VQA, where preserving
+original-resolution cues and dense temporal information
+is critical for accuracy. Existing efficiency-driven prepro-
+cessing strategies, such as fragmenting, reduce computa-
+tion but alter the input data distribution, limiting effective
+reuse of pretrained video foundation models (ViFMs). To
+address these challenges, we propose High-Fidelity Video
+Quality Assessment (HFVQA), a framework built on fixed-
+size spatio-temporal (ST) patches that is fully compatible
+with pretrained ViFMs. HFVQA samples ST patches across
+multiple scales, including the original resolution, with min-
+imal temporal subsampling to preserve low-level quality
+cues and semantic context. To limit computation, HFVQA
+introduces a lightweight auxiliary network trained end-to-
+end with the ViFM encoder to learn VQA-specific saliency.
+Distilled directly from quality supervision, this saliency
+captures task-specific importance patterns, reflecting that
+video quality perception is dominated by a small subset of
+spatio-temporal regions. By combining high-fidelity spatio-
+temporal cues with learned, task-specific saliency, HFVQA
+achieves SOTA performance on standard NR VQA bench-
+marks while processing as little as 12% of candidate ST
+patches, making high-fidelity ViFM-based VQA computa-
+tionally tractable.
+1. Introduction
+No-reference video quality assessment (NR-VQA) is a chal-
+lenging problem due to the diversity of visual content and
+real-world distortions.
+Early approaches relied on hand-
+crafted natural scene statistics (NSS) features [15, 19, 29,
+30, 35, 41, 43], but such methods struggle to generalize be-
+yond limited distortion models. More recently, deep learn-
+ing–based methods [22, 27, 39, 48, 51–53, 59, 60, 64] have
+demonstrated strong performance by learning data-driven
+quality representations. However, video data is inherently
+large, and naively processing dense spatio-temporal signals
+with deep models incurs substantial computational cost.
+Therefore, how video data is processed has become a cen-
+tral design challenge for enabling practical VQA deploy-
+ment [52, 53].
+Unlike recognition-centric vision tasks, VQA depends
+not only on high-level semantics but also on low-level char-
+acteristics of visual signals.
+While aggressive spatial or
+temporal subsampling is often acceptable for semantic un-
+derstanding, such strategies risk discarding quality-critical
+cues. For example, spatial downsampling can obscure arti-
+facts related to sharpness or noise, while temporal subsam-
+pling may mask flicker and motion-related distortions. Con-
+sequently, input processing is a particularly critical design
+choice in VQA, as it must balance computational efficiency
+with the preservation of fine-grained quality cues.
+However, some widely used NR VQA benchmarks con-
+tain distortions that are largely spatial or slowly varying in
+time, where heavy temporal subsampling (e.g., 3.2 FPS)
+incurs little performance degradation [40]. Partly for this
+reason, many SOTA methods [27, 33, 52, 53, 55] adopt
+sparse frame sampling to reduce computational cost. Such
+subsampling, however, limits sensitivity to high-frequency
+temporal artifacts such as flicker or fast motion, causing
+these methods to underperform on temporally challenging
+benchmarks.
+Another challenge in deep VQA is the scarcity of an-
+notated data. Subjective quality assessment studies are ex-
+pensive and time-consuming, severely limiting the size of
+publicly available datasets. Moreover, supervision is typi-
+cally restricted to a single scalar mean opinion score (MOS)
+per video, which provides weak and ambiguous guidance
+towards learning robust quality representations. These lim-
+itations are commonly mitigated through large-scale video
+pretraining, including supervised training on action recog-
+nition and instructional video datasets [4, 28, 38], as well
+as self-supervised approaches such as masked video model-
+ing [42, 46] and video–text contrastive learning [50, 58, 65].
+Pretraining provides transferable spatio-temporal priors that
+compensate for limited VQA supervision. However, pre-
+1
+arXiv:2609.16946v2  [cs.CV]  16 Sep 2026
+
+
+trained video backbones implicitly assume a specific spatio-
+temporal input structure. Processing strategies that substan-
+tially alter this structure can induce distribution shift and
+undermine the effectiveness of pretraining. For example,
+fragmentation-based approaches [27, 52, 53] disrupt spatio-
+temporal continuity learned during pretraining, complicat-
+ing reuse of pretrained architectures.
+To effectively reuse pretrained video foundation mod-
+els (ViFMs), we process video data by sampling fixed-size
+Spatio-Temporal (ST) patches that preserve the local struc-
+ture assumed during pretraining. With fixed patch extents,
+input resolution introduces a trade-off: higher resolutions
+preserve low-level quality cues but provide limited seman-
+tics, while downsampling emphasizes global structure and
+semantics at the cost of low-level cues. To balance these
+complementary aspects, ST patches are sampled from both
+original-resolution videos and their resized variants.
+To
+capture fine-grained temporal quality aspects, patches are
+extracted at a denser temporal sampling than commonly
+adopted in prior VQA methods. By preserving original-
+resolution cues and dense temporal information, we achieve
+High-Fidelity Video Quality Assessment (HFVQA), where
+ST patches serve as the fundamental units processed by a
+pretrained ViFM encoder.
+While preserving low-level quality cues, semantic con-
+text, and dense temporal information is desirable for ac-
+curate quality assessment, exhaustively encoding all ST
+patches is computationally prohibitive. However, perceived
+video quality is typically dominated by a relatively small
+subset of spatio-temporal regions [54]. We leverage this ob-
+servation by introducing a lightweight saliency module that
+identifies quality-relevant regions and that guides the selec-
+tion of a reduced set of ST patches for encoding, thereby
+substantially reducing computational cost.
+Crucially, the saliency module is trained jointly with the
+ViFM encoder and produces dense importance maps that
+are used to select and aggregate ST patch features. Because
+this saliency is learned end-to-end under VQA supervision
+and is directly coupled to the encoder representations, it
+captures task-specific importance patterns tailored to VQA
+rather than generic visual saliency. We therefore refer to
+this mechanism as VQA-specific saliency.
+Overall, we propose HFVQA, a VQA framework built
+on fixed-size ST patches that is fully compatible with pre-
+trained ViFMs.
+HFVQA jointly preserves fine-grained
+quality cues, semantic context, and dense temporal infor-
+mation through multiscale and dense ST patch sampling.
+To make HFVQA computationally tractable, a lightweight,
+jointly trained VQA-specific saliency module selectively
+encodes only those spatio-temporal regions most critical
+to perceived video quality, enabling substantial efficiency
+gains without modifying the underlying video representa-
+tion. Our main contributions are summarized as follows:
+1. We propose HFVQA, a fragmentation-free VQA frame-
+work that processes video as fixed-size ST patches, pre-
+serving the local spatio-temporal structure assumed dur-
+ing ViFM pretraining and enabling distribution-faithful
+reuse of pretrained priors.
+2. To make such ViFM-native processing tractable, we in-
+troduce a lightweight, end-to-end VQA-specific saliency
+mechanism that identifies quality-critical regions before
+encoding, unlike generic saliency or post-encoding pool-
+ing, selecting only a small subset of ST patches.
+3. HFVQA attains SOTA on standard NR VQA bench-
+marks while encoding as little as 12% of candidate ST
+patches, with the largest gains on high-resolution and
+temporally challenging content.
+2. Related Work
+Early no-reference VQA methods [15, 19, 25, 29, 30, 35,
+41, 43] relied on handcrafted features derived from natu-
+ral scene statistics (NSS), which capture certain perceptual
+regularities of visual signals. While effective under lim-
+ited conditions, these methods struggle to generalize across
+the wide diversity of content and authentic distortions com-
+monly encountered in real-world videos.
+Deep learning–based approaches have shown promise
+in overcoming these limitations. Early methods typically
+adopted pretrained backbones in an off-the-shelf manner,
+training lightweight adapters on top of or combining deep
+features with handcrafted NSS descriptors [5, 18, 44]. With
+advances in GPU hardware and the availability of larger
+datasets, end-to-end training became feasible, enabling
+backbone adaptation through fine-tuning on VQA datasets
+and leading to improved performance [22, 39, 48, 59, 60].
+Despite their strong performance, deep learning–based
+VQA models often incur high computational cost, which is
+especially problematic in VQA, where preserving original-
+resolution spatial cues and dense temporal information is
+critical. To mitigate this issue, the FastVQA family [52, 53]
+introduced video fragmenting, a preprocessing strategy that
+aggressively reduces spatial redundancy while retaining
+original-resolution local structures.
+However, fragment-
+ing has been criticized as obscuring semantic information
+[55], which is also important for quality assessment. Sub-
+sequent works such as DOVER [55], Zoom-VQA [64], and
+CLIF-VQA [26] addressed this limitation by augmenting
+fragment-based processing with additional branches oper-
+ating on resized video to recover semantic context. MVQA
+[27] further refined fragmenting by selectively replacing
+fragments with patches from resized views. Collectively,
+these approaches reduce spatial redundancies and enable
+more efficient temporal modeling.
+While these preprocessing strategies substantially re-
+duce computational cost, they do so by significantly al-
+tering the input data distribution, which restricts architec-
+2
+
+
+tural choices and complicates the direct adoption of re-
+cent ViFMs [2, 46, 49, 50, 65]. This limitation is partic-
+ularly critical in VQA, where limited supervision is com-
+monly mitigated through large-scale pretraining to transfer
+general-purpose spatio-temporal priors. Although it is the-
+oretically possible to pretrain ViFMs directly on such pre-
+processed representations, ViFM pretraining is extremely
+compute-intensive and often relies on proprietary datasets
+[50, 65], making it impractical for most research settings.
+HFVQA addresses this challenge by preserving the local
+spatio-temporal structure of the input video through fixed-
+size ST patches, maintaining compatibility with pretrained
+ViFMs while mitigating computational cost via learned
+VQA-specific saliency.
+Conventional visual saliency has been explored as a
+guiding signal in quality assessment models [3, 12, 21, 31,
+36, 61–63], typically yielding modest but consistent perfor-
+mance gains. However, generic visual saliency does not
+necessarily align with the importances of spatio-temporal
+regions for VQA. HFVQA explicitly learns this notion
+through a lightweight auxiliary network trained end-to-end
+with MOS supervision, enabling the model to capture task-
+specific importance patterns. We refer to this learned notion
+as VQA-specific saliency. Recent work such as ReLIQS
+[11] explores learning quality-aware saliency for image
+quality assessment, but does not model temporal dependen-
+cies in video.
+Several existing NR VQA models, such as KVQ [33]
+and related approaches [20, 64], can also be interpreted
+as implicitly learning region importance from quality su-
+pervision.
+However, these methods typically estimate
+importance only after feature encoding, for example via
+importance-weighted pooling.
+As a result, they cannot
+prune spatio-temporal regions prior to encoding and there-
+fore offer limited computational savings.
+By contrast,
+HFVQA learns VQA-specific saliency before encoding
+through a lightweight auxiliary network, enabling selective
+encoding of a small subset of quality-relevant regions and
+substantially reducing computational cost.
+3. Method
+3.1. Proposed Framework
+We propose HFVQA, a high-fidelity VQA framework
+that preserves original-resolution spatial quality cues and
+dense temporal information through multiscale, temporally
+dense, ST patch sampling.
+HFVQA consists of three
+core components: (i) a pretrained ViFM that encodes ST
+patches into quality-aware representations, (ii) a lightweight
+saliency module that learns VQA-specific saliency over
+dense spatio-temporal regions, and (iii) an aggregation
+module that, guided by the learned saliency, fuses multi-
+scale ST patch representations into a final quality predic-
+tion. As illustrated in Fig. 1, the pipeline proceeds as fol-
+lows:
+1. Sample fixed-size ST patches from the video at the orig-
+inal spatial resolution and its resized variants.
+2. Encode each sampled ST patch independently using the
+pretrained ViFM.
+3. Estimate VQA-specific saliency over spatio-temporal re-
+gions via the saliency module.
+4. Aggregate ST patch representations into a quality score
+under the guidance of the learned saliency.
+To
+be
+concrete,
+given
+an
+input
+video
+x(0)
+∈
+RT0×3×H0×W0, we first construct a set of its spatially re-
+sized variants {x(r) ∈RT0×3×Hr×Wr}R
+r=0.
+From each
+scale, fixed-size ST patches are then sampled according
+to a predefined strategy, yielding the collection {{x(r)
+i
+∈
+RT ×3×P ×P }cr
+i=0}R
+r=0, where T denotes the number of
+frames, and P is the spatial patch size, and cr is the number
+of ST patches at scale r . Each sampled ST patch is in-
+dependently encoded by a pretrained ViFM E(·) to obtain
+dense spatio-temporal feature representations:
+e(r)
+i
+= E(x(r)
+i ),
+e(r)
+i
+∈R
+T
+Ts × P
+Ps × P
+Ps ×D,
+(1)
+where Ts and Ps denote the internal temporal and spatial
+patch sizes of the ViFM encoder, respectively, and D de-
+notes the feature dimensionality.
+In parallel, the saliency module S(·) estimates VQA-
+specific saliency using the coarsest scale in its original tem-
+poral dimension:
+s(R) = S(x(R)),
+s(R) ∈R
+TR
+Ts × HR
+Ps × WR
+Ps ,
+(2)
+where s(R) is normalized to sum to 1. The saliency mod-
+ule S(·) is implemented as a lightweight spatio-temporal
+encoder with significantly lower computational cost than
+E(·). To ensure compatibility with the ViFM feature grid,
+S(·) is equipped with lightweight adapters that align its
+temporal and spatial patching with the ViFM patch sizes
+Ts and Ps. To keep the computation resolution-agnostic
+and tractable, S(·) operates exclusively on a predetermined
+coarsest scale (HR, WR) with a fixed short spatial dimen-
+sion. Saliency maps at higher spatial scales are obtained
+by spatially upsampling the coarsest-scale output to ensure
+spatio-temporal alignment with dense feature tokens across
+scales:
+s(r) = Upsample Hr
+Ps , Wr
+Ps (s(R)),
+r = 0, . . . , R−1. (3)
+For the i-th ST patch at scale r covering the spatio-
+temporal grid cells R(r)
+i , the corresponding saliency sub-
+volume is extracted from s(r) as:
+s(r)
+i
+= s(r)
+R(r)
+i ,
+s(r)
+i
+∈R
+T
+Ts × P
+Ps × P
+Ps .
+(4)
+3
+
+
+Figure 1. HFVQA pipeline. Multi-scale ST patches are sampled, with VQA-specific saliency predicted by S(·) at the coarsest scale
+(r = R). Independently encoded patches are aggregated using the resulting saliency volumes.
+Using this saliency sub-volume, we first perform within-
+patch aggregation of dense ViFM features to obtain a single
+ST patch representation:
+Z(r)
+i
+=
+X
+(t′,h′,w′)∈R(r)
+i
+s(r)
+i (t′, h′, w′),
+f (r)
+i
+=
+X
+(t,h,w)∈R(r)
+i
+s(r)
+i (t, h, w)
+Z(r)
+i
+e(r)
+i (t, h, w),
+f (r)
+i
+∈RD.
+(5)
+Then, ST patch representations are aggregated within
+each scale using the saliency mass of each patch:
+α(r)
+i
+=
+P
+(t,h,w)∈R(r)
+i
+s(r)
+i (t, h, w)
+Pcr
+j=1
+P
+(t,h,w)∈R(r)
+j
+s(r)
+j (t, h, w)
+,
+f (r) =
+cr
+X
+i=1
+α(r)
+i
+f (r)
+i
+,
+f (r) ∈RD,
+(6)
+where α(r)
+i
+represents the relative importance of ST patch i
+among patches at scale r and is normalized to sum to one
+within the scale. After obtaining the scale-level representa-
+tions f (r), we concatenate them and pass the resulting multi-
+scale feature to a regression head with a single hidden layer
+to predict a scalar quality score:
+p = Head
+
+[f (0), . . . , f (R)]
+
+,
+p ∈R,
+(7)
+where [·, ·] denotes concatenation along the feature dimen-
+sion.
+3.2. Training Objective
+Following prior work in image and video quality assess-
+ment [27, 33, 52, 53], we trained HFVQA end-to-end using
+a combination of margin-ranking and PLCC losses. Given
+a mini-batch of N videos with ground-truth MOS {gi}N
+i=1
+and corresponding predictions {pi}N
+i=1, the margin-ranking
+loss is defined as
+LMR =
+2
+N(N −1)
+X
+i<j
+max
+
+0, δ−sign
+ gi−gj
+ pi−pj
+
+(8)
+where δ is the margin hyperparameter. For the same mini-
+batch, the PLCC loss term is defined as:
+LPLCC = 1 −
+PN
+i=1(gi −¯g)(pi −¯p)
+qPN
+i=1(gi −¯g)2 PN
+i=1(pi −¯p)2
+,
+(9)
+where ¯g and ¯p denote the batch means of the ground-truth
+MOS and predictions, respectively. Our final training ob-
+jective is:
+L = λ LMR + (1 −λ) LPLCC,
+(10)
+where λ ∈[0, 1] controls the trade-off between the two loss
+terms.
+4
+
+
+Table 1. PLCC / SRCC of compared VQA models. Left: performance under LSVQ Pretraining (cross-dataset entries evaluated over the
+entire dataset). Right: median performance after task-specific Fine-Tuning. Best entries are bold and second best are underlined.
+Methods
+LSVQ Pretraining
+Fine-Tuning
+Intra-dataset
+Cross-dataset
+Target Datasets
+LSVQtest
+LSVQ1080p
+KoNViD-1k
+LIVE-VQC
+KoNViD-1k
+LIVE-VQC
+YouTube-UGC
+LBVD
+TLVQM [15]
+0.774 / 0.772
+0.616 / 0.589
+0.724 / 0.732
+0.691 / 0.670
+0.768 / 0.773
+0.803 / 0.799
+0.659 / 0.669
+0.590 / 0.614
+VIDEVAL [43]
+0.783 / 0.794
+0.554 / 0.545
+0.741 / 0.751
+0.640 / 0.630
+0.780 / 0.783
+0.751 / 0.752
+0.773 / 0.779
+0.697 / 0.707
+Patch-VQ [59]
+0.828 / 0.827
+0.739 / 0.711
+0.795 / 0.791
+0.807 / 0.770
+0.786 / 0.791
+0.837 / 0.827
+– / –
+– / –
+BVQA [17]
+0.854 / 0.852
+0.782 / 0.771
+0.837 / 0.834
+0.824 / 0.816
+0.836 / 0.834
+0.842 / 0.831
+0.819 / 0.831
+0.887 / 0.891
+VSFA [18]
+0.796 / 0.801
+0.704 / 0.675
+0.794 / 0.784
+0.772 / 0.734
+0.775 / 0.773
+0.795 / 0.773
+0.743 / 0.724
+0.642 / 0.622
+Fast-VQA [52]
+0.874 / 0.872
+0.809 / 0.770
+0.862 / 0.864
+0.841 / 0.824
+0.889 / 0.890
+0.852 / 0.845
+0.853 / 0.857
+0.809 / 0.804
+FasterVQA [53]
+0.874 / 0.873
+0.811 / 0.772
+0.863 / 0.863
+0.837 / 0.813
+0.898 / 0.895
+0.858 / 0.843
+0.859 / 0.863
+0.837 / 0.813
+DOVER [55]
+0.879 / 0.881
+0.827 / 0.782
+0.872 / 0.871
+0.841 / 0.812
+0.899 / 0.897
+0.852 / 0.812
+0.873 / 0.877
+0.824 / 0.824
+Q-Align [56]
+0.882 / 0.883
+0.830 / 0.797
+0.877 / 0.865
+– / –
+– / –
+– / –
+– / –
+– / –
+CLiF-VQA [26]
+0.887 / 0.886
+0.832 / 0.790
+0.874 / 0.877
+0.855 / 0.834
+0.903 / 0.903
+0.878 / 0.866
+0.890 / 0.888
+– / –
+MBVQA [51]
+0.895 / 0.895
+0.844 / 0.809
+0.884 / 0.878
+0.844 / 0.806
+0.905 / 0.901
+0.880 / 0.860
+0.877 / 0.876
+– / –
+KVQ [33]
+0.897 / 0.896
+0.846 / 0.814
+0.892 / 0.890
+0.843 / 0.820
+0.915 / 0.909
+0.879 / 0.859
+0.905 / 0.903
+0.828 / 0.824
+MVQA [27]
+0.899 / 0.898
+0.846 / 0.812
+0.887 / 0.885
+0.873 / 0.852
+0.925 / 0.925
+0.895 / 0.878
+0.903 / 0.901
+– / –
+HFVQA
+0.906 / 0.903
+0.873 / 0.842
+0.891 / 0.893
+0.862 / 0.856
+0.927 / 0.926
+0.915 / 0.905
+0.921 / 0.919
+0.902 / 0.904
+4. Experiments
+4.1. Datasets and Implementation Details
+Datasets.
+We train and evaluate HFVQA on multi-
+ple standard NR VQA benchmarks, including LSVQ
+[59], LIVE-VQC [37], KoNViD-1k [14], LBVD [7] and
+YouTube-UGC [47]. LSVQ contains 38,811 videos, LIVE-
+VQC 585, KoNViD-1k 1,200, LBVD 1,013, and the latest
+version of YouTube-UGC 1,067. For LSVQ, we follow the
+official train/test split provided by the dataset. For the re-
+maining benchmarks, we randomly generate training, vali-
+dation, and test splits using a 70:10:20 ratio 10 times and
+report the median performance, following common practice
+in prior work. All datasets consist of real-world SDR videos
+with authentic distortions and are predominantly captured at
+a frame rate of 30 FPS.
+Implementation Details.
+For the ViFM encoder E(·), we
+adopt the VideoPrism [65] ViViT-B [1] factorized encoder
+variant. To keep the saliency module S(·) light, we employ
+a VideoSwin-T [23] backbone pretrained on ImageNet-1k
+[8] and Kinetics-400 [4]. The ViFM encoder uses inter-
+nal temporal and spatial patch sizes of Ts = 1 and Ps =
+18, respectively. To achieve dense spatio-temporal align-
+ment with the ViFM feature grid, S(·) is augmented with
+a lightweight decoder composed of residual blocks with
+depthwise 3D convolutions. Exact details of the decoder
+configuration are provided in the Supplementary Material.
+We trained HFVQA end-to-end using the AdamW op-
+timizer [24] with a cosine annealing learning rate schedule
+and an initial learning rate of 5×10−6 and a weight decay of
+10−3 for a total of 12 epochs. To avoid distorting pretrained
+representations [16], we froze the pretrained backbones dur-
+ing the first 4 epochs and optimized only the adapter mod-
+ules, including the prediction head and the saliency decoder.
+All parameters were then unfrozen and jointly fine-tuned
+over the remaining 8 epochs. A batch size of 16 was used
+for LSVQ, while a batch size of 8 was used for the remain-
+ing datasets.
+We use a spatial ST patch size of P = 252 and a tempo-
+ral sampling rate of 10 FPS, where each patch spans T = 16
+consecutive frames.
+ST patches are sampled from three
+spatial scales: the original resolution, a resized scale with
+the short edge set to 252, and an intermediate scale whose
+short edge is the average of the original short edge and 252.
+During training, four ST patches were randomly sampled
+at each scale. At evaluation time, we generated a candi-
+date set of ST patches using uniform grid sampling and then
+pruned this set using the learned saliency. Further details on
+the evaluation-time patch sampling strategy are provided in
+Sec. 4.3.
+All experiments were conducted using 4 NVIDIA H200
+GPUs.
+We set λ = 0.5 to equally weight the margin-
+ranking and PLCC loss terms. Following standard practice
+in VQA, we evaluated performance using Spearman’s rank
+correlation coefficient (SRCC) and Pearson’s linear correla-
+tion coefficient (PLCC).
+4.2. Main Results
+Pretraining on LSVQ.
+Most public VQA datasets are
+relatively small, which limits their suitability for learning
+robust quality-aware representations from scratch. LSVQ is
+a notable exception and is therefore commonly used to pre-
+train VQA models, which are subsequently fine-tuned on
+smaller benchmarks. In this setting, we train HFVQA on
+the LSVQ training split and evaluate it on LSVQtest and
+LSVQ1080p. To assess cross-dataset generalization, we ad-
+5
+
+
+Figure 2. PLCC on LSVQ1080p and KoNViD-1k, together with
+end-to-end inference time and GFLOPs, as a function of the num-
+ber of ST patches at scales r = 0, 1, with 6 patches fixed at the
+coarsest scale r = 2.
+ditionally report performance on the full KoNViD-1k and
+LIVE-VQC datasets.
+As shown in Tab. 1, HFVQA substantially outperformed
+classical NR VQA methods, including TLVQM [15] and
+VIDEVAL [43], as well as early deep learning–based base-
+lines such as Patch-VQ [59], BVQA [17], and VSFA
+[18].
+Compared to the fragmentation-based approaches
+in the FastVQA family [52, 53], HFVQA achieved con-
+sistent gains, outperforming FasterVQA by 0.032/0.030
+PLCC/SRCC on LSVQtest,
+and by 0.028/0.030 and
+0.025/0.043 on KoNViD-1k and LIVE-VQC, respectively,
+in cross-dataset evaluation.
+HFVQA matched or slightly outperformed recent SOTA
+methods such as KVQ [33] and MVQA [27] on bench-
+marks dominated by low- to mid-resolution content,
+where aggressive resizing or fragmenting incurs only lim-
+ited loss of quality-critical information.
+On the high-
+resolution LSVQ1080p benchmark, however, where preserv-
+ing original-resolution quality cues is essential, HFVQA es-
+tablished a new SOTA with 0.873/0.842 PLCC/SRCC, beat-
+ing the previous best MVQA by 0.027/0.030.
+These results suggest that preserving local spatio-
+temporal structure while utilizing pretrained ViFMs is ef-
+fective for VQA, with particularly strong benefits at high
+resolutions where fine-grained quality cues are most criti-
+cal.
+Fine-tuning.
+We further evaluated HFVQA by fine-
+tuning the LSVQ-pretrained model on smaller NR VQA
+benchmarks, including LIVE-VQC, KoNViD-1k, LBVD,
+and YouTube-UGC. Following prior work, HFVQA is ini-
+tialized from the same LSVQ-pretrained checkpoint used in
+the previous section. To reduce bias from dataset splits, we
+performed fine-tuning over 10 random train/validation/test
+splits and report the median PLCC/SRCC.
+As shown in Tab. 1, HFVQA consistently outper-
+formed prior methods across the evaluated benchmarks.
+On YouTube-UGC, which features a significant portion
+of high-resolution videos (≥1080p), HFVQA exceeded
+KVQ by 0.016/0.016 and MVQA by 0.018/0.018 in
+PLCC/SRCC, echoing the performance gains observed on
+high-resolution LSVQ1080p. On the temporally challeng-
+ing LBVD and LIVE-VQC datasets, HFVQA surpassed
+KVQ by 0.074/0.080 and FasterVQA by 0.065/0.091 on
+LBVD, while outperforming MVQA by 0.020/0.027 on
+LIVE-VQC.
+These results demonstrate that the combination of dense
+temporal sampling and saliency-guided structural preserva-
+tion generalizes robustly during fine-tuning, offering clear
+advantages when modeling high-resolution details and in-
+tricate temporal distortions.
+4.3. Compute vs. Performance Tradeoff
+We reduced the computational cost of HFVQA by limiting
+the number of ST patches encoded by the ViFM, guided by
+the learned VQA-specific saliency. Given an input video,
+we first constructed a candidate set of non-overlapping ST
+patches that densely covers the video.
+Each patch was
+assigned a saliency score by summing its corresponding
+saliency volume, and the top-kr most salient patches were
+selected at each scale r for encoding.
+Since ST patches were processed by a compute-intensive
+ViFM encoder, the number of encoded patches determined
+the trade-off between performance and efficiency. To ana-
+lyze this trade-off and assess the effectiveness of the learned
+VQA-specific saliency, we visualized performance and ef-
+ficiency metrics as a function of the number of encoded
+patches in Fig. 2. In all experiments, the number of patches
+at the coarsest scale (r = 2) was fixed to 6, while the num-
+bers of patches at the original resolution (r = 0) and mid-
+scale (r = 1) were varied.
+Specifically, we report PLCC on the high-resolution
+LSVQ1080p dataset and the lower-resolution KoNViD-
+1k dataset, together with end-to-end inference time and
+GFLOPs.
+As shown in Fig. 2, performances on both
+datasets saturated rapidly as the number of encoded patches
+was increased, whereas inference time and GFLOPs grew
+approximately linearly with the total number of encoded
+patches.
+This behavior indicates that using only a small subset
+of spatio-temporal regions was sufficient to capture most
+quality-relevant information, and that the learned VQA-
+specific saliency was effective at identifying these regions.
+6
+
+
+Figure 3. Consecutive video frames (top), learned VQA-specific saliency maps (second), overlays (third), and comparison with UNISAL
+(bottom). Best viewed zoomed in.
+For example, a 1080 × 1920 video with 96 frames yielded
+258 candidate ST patches under dense coverage. HFVQA
+encoded only 32 saliency-selected patches (r0=13, r1=13,
+r2=6), corresponding to 12% of the candidate set, yet
+achieved a PLCC of 0.873 on LSVQ1080p and 0.927 on
+KoNViD-1k, matching or outperforming methods while re-
+ducing computation by an order of magnitude.
+4.4. Qualitative Analysis of Learned Saliency
+In Fig. 3, we visualized learned VQA-specific saliency for
+eight consecutive frames from three sample videos, along-
+side the corresponding input frames, overlay visualizations,
+and saliency maps from UNISAL [9].
+The learned saliency consistently highlighted seman-
+tically meaningful regions across time.
+Compared to
+UNISAL, which produced sharper and more concentrated
+responses, the VQA-specific saliency is diffused over mul-
+tiple semantically relevant areas within the scene. This be-
+havior aligns with perceptual findings that distortions in se-
+mantically meaningful regions contribute more strongly to
+perceived quality degradation [6]. Additional qualitative re-
+sults on more diverse content are provided in the Supple-
+mentary Material.
+4.5. Efficiency of HFVQA
+We reported the computational cost of HFVQA in terms
+of GFLOPs and end-to-end wall-clock latency in Tab. 2,
+alongside SOTA NR VQA models. HFVQA achieved man-
+ageable computational cost and latency that enable deploy-
+ment on consumer-grade hardware, which is made possible
+by saliency-guided top-k selection of ST patches.
+Compared to recent efficient NR VQA methods such as
+FastVQA, FasterVQA, KVQ, and MVQA, HFVQA incurs
+higher computational cost for two main reasons. First, we
+employ a VideoPrism [65] encoder based on ViViT-B [1] to
+utilize strong spatio-temporal priors from pretrained video
+foundation models. Unlike fragment-based preprocessing,
+HFVQA preserves the local spatio-temporal structure to re-
+7
+
+
+Table 2. GFLOPs and millisecond latencies (median of 100 runs).
+Values are formatted as GFLOPs / Latency. Unless specified,
+latency is measured on an NVIDIA H200.
+Methods
+540p
+720p
+1080p
+VSFA [18]
+6440 / 1506
+11426 / 2556
+25712 / 5291
+PatchVQ [59]
+9203 / 1792
+13842 / 2968
+36760 / 6556
+BVQA [17]
+17705 / 3145
+31533 / 7813
+70714 / 14340
+MBVQA [51]
+912 / 194
+1232 / 267
+2150 / 891
+FAST-VQA [52]
+284 / 58
+284 / 58
+284 / 58
+FasterVQA [53]
+70 / 36
+70 / 36
+70 / 36
+DOVER [55]
+282 / 59
+282 / 59
+282 / 59
+CLiF-VQA [26]
+1432 / 522
+1432 / 522
+1432 / 522
+KVQ [33]
+353 / 93
+353 / 93
+353 / 93
+MVQA [27]
+403 / 130
+403 / 130
+403 / 130
+HFVQA (H200)
+12072 / 284
+12072 / 284
+12072 / 284
+HFVQA (RTX 4090)
+12072 / 679
+12072 / 679
+12072 / 679
+main compatible with ViFM pretraining.
+Second, these
+methods process 32 uniformly sampled frames per video
+(3.2 FPS for 10-second, 30 FPS clips), whereas HFVQA
+operates at 10 FPS, retaining denser temporal cues that di-
+rectly drive its significant gains on temporally challenging
+datasets like LBVD and LIVE-VQC (Tabs. 1 and 3).
+While employing a lighter ViFM backbone would fur-
+ther reduce GFLOPs and latency, to the best of our knowl-
+edge, publicly available pretrained checkpoints for substan-
+tially lighter ViFMs remain limited. Importantly, HFVQA
+is fully plug-and-play with respect to the ViFM encoder:
+as more efficient pretrained backbones become available,
+the computational cost of HFVQA can be directly reduced
+without modifying the framework itself. In addition, future
+work may explore teacher–student distillation [13, 32, 57]
+to transfer ViFM knowledge into lighter student encoders
+for further efficiency gains. We also evaluated HFVQA with
+lighter pretrained video backbones (non-ViFMs). Results
+are provided in the Supplementary Material.
+4.6. Ablation Studies
+In all ablations, we followed the same protocol as Tab. 1 for
+LSVQ1080p, KoNViD-1k, LIVE-VQC, and LBVD.
+VQA-specific saliency.
+Replacing saliency-guided top-
+k selection and saliency-weighted aggregation (Eqs. (5)
+and (6)) with random sampling and uniform weighting con-
+sistently degraded performance (Tab. 3), with PLCC/SRCC
+drops of 0.010/0.011 on LSVQ1080p, 0.024/0.022 on LIVE-
+VQC, 0.009/0.009 on KoNViD-1k, and 0.013/0.011 on
+LBVD, confirming that the learned saliency selects and
+weights quality-relevant regions effectively.
+Multi-scale sampling. Restricting HFVQA to scale subsets
+and retraining (Tab. 3) showed that the original-resolution
+scale alone (r = 0) reduces performance most on high-
+resolution content (0.039/0.041 on LSVQ1080p), reflecting
+limited semantic and global coverage, while the coarsest
+scale alone (r = 2) degrades fine-grained low-level cues.
+Adding the mid-scale (r = 0 & 1) consistently helped, and
+Table 3. Ablation results on LSVQ1080p, LIVE-VQC, KoNViD-
+1k, and LBVD, reported as PLCC / SRCC. A total of 32 ST
+patches are sampled, consistent with prior sections.
+Setting
+LSVQ1080p LIVE-VQC KoNViD-1k
+LBVD
+Patch Sampling
+Random
+0.863 / 0.831 0.891 / 0.893 0.918 / 0.917 0.889 / 0.893
+Saliency
+0.873 / 0.842 0.915 / 0.905 0.927 / 0.926 0.902 / 0.904
+Scales
+r = 0
+0.834 / 0.801 0.894 / 0.886 0.914 / 0.912 0.885 / 0.887
+r = 0&1
+0.857 / 0.829 0.902 / 0.895 0.922 / 0.922 0.894 / 0.895
+r = 2
+0.846 / 0.844 0.900 / 0.894 0.921 / 0.920 0.892 / 0.892
+r = 0&1&2 0.873 / 0.842 0.915 / 0.905 0.927 / 0.926 0.902 / 0.904
+Temporal Sampling Rate
+3 FPS
+0.853 / 0.817 0.890 / 0.882 0.925 / 0.924 0.832 / 0.826
+10 FPS
+0.873 / 0.842 0.915 / 0.905 0.927 / 0.926 0.902 / 0.904
+the full setting (r = 0, 1, 2) was best across all datasets,
+capturing complementary high- and low-level quality cues.
+Temporal sampling rate. Dropping the sampling rate from
+10 to 3 FPS reduces the computational footprint of the
+framework by 72% but reveals a trade-off. While the spa-
+tially dominated KoNViD-1k remained nearly unaffected (a
+0.002/0.002 drop), performance on the temporally challeng-
+ing LBVD dataset collapsed by 0.070/0.078, alongside a
+0.025/0.023 degradation on LIVE-VQC. These results con-
+firm that although internal sparse sampling offered substan-
+tial computational savings, capturing high-frequency tem-
+poral artifacts fundamentally requires both the dense sam-
+pling and the corresponding computational envelope main-
+tained by the full HFVQA framework.
+5. Conclusion
+We presented HFVQA, a high-fidelity NR VQA frame-
+work that preserves original-resolution and dense tempo-
+ral cues through multiscale ST patch sampling.
+By op-
+erating without altering the video data, HFVQA remains
+fully compatible with pretrained ViFMs, enabling effec-
+tive transfer of large-scale spatio-temporal priors to VQA.
+To address the prohibitive cost of exhaustive encoding, we
+introduced a lightweight, end-to-end trained VQA-specific
+saliency mechanism that guides top-k ST patch selection
+and aggregation. This design utilizes the observation that
+video quality perception is dominated by a small subset of
+spatio-temporal regions, allowing HFVQA to process as lit-
+tle as 12% of the input video volume while maintaining
+SOTA performance.
+Extensive experiments demonstrate
+that preserving local spatio-temporal structure and dense
+temporal sampling yields consistent gains, particularly on
+high-resolution benchmarks, and enables a controlled com-
+pute–performance tradeoff. We believe HFVQA provides a
+principled framework for high-fidelity VQA that integrates
+pretrained ViFMs with task-specific saliency for compute-
+adaptive inference.
+8
+
+
+References
+[1] Anurag Arnab, Mostafa Dehghani, Georg Heigold, Chen
+Sun, Mario Luˇci´c, and Cordelia Schmid. Vivit: A video vi-
+sion transformer. In IEEE/CVF International Conference on
+Computer Vision (ICCV), pages 6816–6826, 2021. 5, 7
+[2] Mahmoud Assran, Adrien Bardes, David Fan, Quentin Gar-
+rido, Russell Howes, Mojtaba Komeili, Matthew Muck-
+ley, Ammar Rizvi, Claire Roberts, Koustuv Sinha, Artem
+Zholus, Sergio Arnaud, Abha Gejji, Ada Martin, Francois
+Robert Hogan, Daniel Dugas, Piotr Bojanowski, Vasil Khali-
+dov, Patrick Labatut, Francisco Massa, Marc Szafraniec,
+Kapil Krishnakumar, Yong Li, Xiaodong Ma, Sarath Chan-
+dar, Franziska Meier, Yann LeCun, Michael Rabbat, and
+Nicolas Ballas. V-jepa 2: Self-supervised video models en-
+able understanding, prediction and planning. arXiv preprint
+arXiv:2506.09985, 2025. 3
+[3] Tunc Ozan Aydin, Nikolce Stefanoski, Aljoscha Smolic, and
+Mark Arana. Saliency-weighted video quality assessment.
+US Patent US10699396B2, 2020. Issued June 30, 2020. 3
+[4] Joao Carreira and Andrew Zisserman.
+Quo vadis, action
+recognition? a new model and the kinetics dataset. In Pro-
+ceedings of the IEEE Conference on Computer Vision and
+Pattern Recognition, 2017. 1, 5, 12
+[5] Baoliang Chen, Lingyu Zhu, Guo Li, Fangbo Lu, Hongfei
+Fan, and Shiqi Wang. Learning generalized spatial-temporal
+deep feature representation for no-reference video quality as-
+sessment. IEEE Transactions on Circuits and Systems for
+Video Technology, 32(4):1903–1916, 2022. 2
+[6] Chaofeng Chen, Jiadi Mo, Jingwen Hou, Haoning Wu, Liang
+Liao, Wenxiu Sun, Qiong Yan, and Weisi Lin. Topiq: A
+top-down approach from semantics to distortions for image
+quality assessment. IEEE Transactions on Image Processing,
+33:2404–2418, 2024. 7
+[7] Pengfei Chen, Leida Li, Yipo Huang, Fengfeng Tan, and
+Wenjun Chen. Qoe evaluation for live broadcasting video. In
+IEEE International Conference on Image Processing, pages
+454–458, 2019. 5
+[8] Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li,
+and Li Fei-Fei. Imagenet: A large-scale hierarchical image
+database. In IEEE Conference on Computer Vision and Pat-
+tern Recognition, pages 248–255, 2009. 5, 12
+[9] Richard Droste, Jianbo Jiao, and J. Alison Noble. Unified
+image and video saliency modeling.
+In Computer Vision
+– ECCV 2020: 16th European Conference, Glasgow, UK,
+August 23–28, 2020, Proceedings, Part V, page 419–435,
+Berlin, Heidelberg, 2020. Springer-Verlag. 7
+[10] Fartash Faghri, Pavan Kumar Anasosalu Vasu, Cem Koc,
+Vaishaal Shankar, Alexander T Toshev, Oncel Tuzel, and
+Hadi Pouransari. MobileCLIP2: Improving multi-modal re-
+inforced training.
+Transactions on Machine Learning Re-
+search, 2025. Featured Certification. 12
+[11] Hakan Emre Gedik, Shashank Gupta, and Alan Bovik.
+Learning where to look and how to judge:
+Resolution-
+agnostic image quality assessment with quality-aware
+saliency. In IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, pages 37507–37517, 2026. 3
+[12] Ke Gu, Shiqi Wang, Huan Yang, Weisi Lin, Guangtao Zhai,
+Xiaokang Yang, and Wenjun Zhang. Saliency-guided quality
+assessment of screen content images. IEEE Transactions on
+Multimedia, 18(6):1098–1110, 2016. 3
+[13] Geoffrey E. Hinton, Oriol Vinyals, and Jeffrey Dean.
+Distilling the knowledge in a neural network.
+ArXiv,
+abs/1503.02531, 2015. 8
+[14] Vlad Hosu, Franz Hahn, Mohsen Jenadeleh, Hanhe Lin,
+Hui Men, Tam´as Szir´anyi, Shujun Li, and Dietmar Saupe.
+The konstanz natural video database (konvid-1k). In Inter-
+national Conference on Quality of Multimedia Experience,
+pages 1–6, 2017. 5
+[15] Jari Korhonen.
+Two-level approach for no-reference con-
+sumer video quality assessment. IEEE Transactions on Im-
+age Processing, 28(12):5923–5938, 2019. 1, 2, 5, 6
+[16] Ananya Kumar, Aditi Raghunathan, Robbie Matthew Jones,
+Tengyu Ma, and Percy Liang. Fine-tuning can distort pre-
+trained features and underperform out-of-distribution. In In-
+ternational Conference on Learning Representations, 2022.
+5, 12
+[17] Bowen Li, Weixia Zhang, Meng Tian, Guangtao Zhai, and
+Xianpei Wang. Blindly assess quality of in-the-wild videos
+via quality-aware pre-training and motion perception. IEEE
+Transactions on Circuits and Systems for Video Technology,
+32(9):5944–5958, 2022. 5, 6, 8
+[18] Dingquan Li, Tingting Jiang, and Ming Jiang. Quality as-
+sessment of in-the-wild videos. In ACM International Con-
+ference on Multimedia, page 2351–2359. Association for
+Computing Machinery, 2019. 2, 5, 6, 8
+[19] Xuelong Li, Qun Guo, and Xiaoqiang Lu. Spatiotemporal
+statistics for video quality assessment. IEEE Transactions
+on Image Processing, 25(7):3329–3342, 2016. 1, 2
+[20] Liqun Lin, Yang Zheng, Weiling Chen, Chengdong Lan, and
+Tiesong Zhao. Saliency-aware spatio-temporal artifact de-
+tection for compressed video quality assessment. IEEE Sig-
+nal Processing Letters, 30:693–697, 2023. 3
+[21] Hantao Liu and Ingrid Heynderickx.
+Visual attention in
+objective image quality assessment: Based on eye-tracking
+data. IEEE Transactions on Circuits and Systems for Video
+Technology, 21(7):971–982, 2011. 3
+[22] Wentao Liu, Zhengfang Duanmu, and Zhou Wang.
+End-
+to-end blind quality assessment of compressed videos using
+deep neural networks. In Proceedings of the 26th ACM In-
+ternational Conference on Multimedia, page 546–554, New
+York, NY, USA, 2018. Association for Computing Machin-
+ery. 1, 2
+[23] Ze Liu, Jia Ning, Yue Cao, Yixuan Wei, Zheng Zhang,
+Stephen Lin, and Han Hu.
+Video swin transformer.
+In
+IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 3192–3201, 2022. 5, 12
+[24] Ilya Loshchilov and Frank Hutter.
+Decoupled weight de-
+cay regularization. In International Conference on Learning
+Representations, 2019. 5
+[25] Pavan C. Madhusudana, Neil Birkbeck, Yilin Wang, Balu
+Adsumilli, and Alan C. Bovik. St-greed: Space-time gen-
+eralized entropic differences for frame rate dependent video
+quality prediction. IEEE Transactions on Image Processing,
+30:7446–7457, 2021. 2
+9
+
+
+[26] Yachun Mi, Yan Shu, Yu Li, Chen Hui, Puchao Zhou, and
+Shaohui Liu. CLif-VQA: Enhancing video quality assess-
+ment by incorporating high-level semantic information re-
+lated to human feelings. In ACM Multimedia, 2024. 2, 5,
+8
+[27] Yachun Mi, Yu Li, Weicheng Meng, Chaofeng Chen, Chen
+Hui, and Shaohui Liu. Mvqa: Mamba with unified sampling
+for efficient video quality assessment. In IEEE/CVF Interna-
+tional Conference on Computer Vision, pages 18498–18509,
+2025. 1, 2, 4, 5, 6, 8
+[28] Antoine Miech, Dimitri Zhukov, Jean-Baptiste Alayrac,
+Makarand
+Tapaswi,
+Ivan
+Laptev,
+and
+Josef
+Sivic.
+Howto100m: Learning a text-video embedding by watching
+hundred million narrated video clips. In IEEE/CVF Inter-
+national Conference on Computer Vision (ICCV), pages
+2630–2640, 2019. 1
+[29] Anish Mittal, Anush Krishna Moorthy, and Alan Conrad
+Bovik. No-reference image quality assessment in the spa-
+tial domain. IEEE Transactions on Image Processing, 21
+(12):4695–4708, 2012. 1, 2
+[30] Anish Mittal, Michele A. Saad, and Alan C. Bovik. A com-
+pletely blind video integrity oracle. IEEE Transactions on
+Image Processing, 25(1):289–300, 2016. 1, 2
+[31] Anush Krishna Moorthy and Alan Conrad Bovik. Visual im-
+portance pooling for image quality assessment. IEEE Jour-
+nal of Selected Topics in Signal Processing, 3(2):193–201,
+2009. 3
+[32] Renjing Pei, Jianzhuang Liu, Weimian Li, Bin Shao, Song-
+cen Xu, Peng Dai, Juwei Lu, and Youliang Yan.
+Clip-
+ping: Distilling clip-based models with a student base for
+video-language retrieval. In IEEE/CVF Conference on Com-
+puter Vision and Pattern Recognition (CVPR), pages 18983–
+18992, 2023. 8
+[33] Yunpeng Qu, Kun Yuan, Qizhi Xie, Ming Sun, Chao Zhou,
+and Jian Wang. Kvq: Boosting video quality assessment via
+saliency-guided local perception. In IEEE/CVF Computer
+Vision and Pattern Recognition Conference, pages 2150–
+2160, 2025. 1, 3, 4, 5, 6, 8
+[34] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya
+Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry,
+Amanda Askell, Pamela Mishkin, Jack Clark, Gretchen
+Krueger, and Ilya Sutskever.
+Learning transferable visual
+models from natural language supervision. In International
+Conference on Machine Learning, pages 8748–8763. PMLR,
+2021. 12
+[35] Michele A. Saad, Alan C. Bovik, and Christophe Charrier.
+Blind prediction of natural video quality. IEEE Transactions
+on Image Processing, 23(3):1352–1365, 2014. 1, 2
+[36] Soomin Seo, Sehwan Ki, and Munchurl Kim.
+A novel
+just-noticeable-difference-based saliency-channel attention
+residual network for full-reference image quality predictions.
+IEEE Transactions on Circuits and Systems for Video Tech-
+nology, 31(7):2602–2616, 2021. 3
+[37] Zeina Sinno and Alan Conrad Bovik. Large-scale study of
+perceptual video quality. IEEE Transactions on Image Pro-
+cessing, 28(2):612–627, 2019. 5
+[38] Khurram Soomro, Amir Zamir, and Mubarak Shah. Ucf101:
+A dataset of 101 human actions classes from videos in the
+wild. ArXiv, abs/1212.0402, 2012. 1
+[39] Wei Sun, Xiongkuo Min, Wei Lu, and Guangtao Zhai. A
+deep learning based no-reference quality assessment model
+for ugc videos. In Proceedings of the 30th ACM Interna-
+tional Conference on Multimedia, page 856–865, New York,
+NY, USA, 2022. Association for Computing Machinery. 1, 2
+[40] W. Sun, W. Wen, X. Min, L. Lan, G. Zhai, and K. Ma. Analy-
+sis of video quality datasets via design of minimalistic video
+quality models. IEEE Transactions on Pattern Analysis and
+Machine Intelligence, 46(11):7056–7071, 2024. 1
+[41] Jacob Søgaard, Søren Forchhammer, and Jari Korhonen.
+No-reference video quality assessment using codec analy-
+sis. IEEE Transactions on Circuits and Systems for Video
+Technology, 25(10):1637–1650, 2015. 1, 2
+[42] Z. Tong, Y. Song, J. Wang, and L. Wang. Videomae: masked
+autoencoders are data-efficient learners for self-supervised
+video pre-training. In International Conference on Neural
+Information Processing Systems, Red Hook, NY, USA, 2022.
+Curran Associates Inc. 1
+[43] Zhengzhong Tu, Yilin Wang, Neil Birkbeck, Balu Adsumilli,
+and Alan C. Bovik. Ugc-vqa: Benchmarking blind video
+quality assessment for user generated content. IEEE Trans-
+actions on Image Processing, 30:4449–4464, 2021. 1, 2, 5,
+6
+[44] Zhengzhong Tu, Xiangxu Yu, Yilin Wang, Neil Birkbeck,
+Balu Adsumilli, and Alan C. Bovik. Rapique: Rapid and
+accurate video quality prediction of user generated content.
+IEEE Open Journal of Signal Processing, 2:425–440, 2021.
+2
+[45] Pavan Kumar Anasosalu Vasu, Hadi Pouransari, Fartash
+Faghri, Raviteja Vemulapalli, and Oncel Tuzel.
+Mobile-
+clip: Fast image-text models through multi-modal reinforced
+training. In IEEE/CVF Conference on Computer Vision and
+Pattern Recognition (CVPR), pages 15963–15974, 2024. 12
+[46] L. Wang, B. Huang, Z. Zhao, Z. Tong, Y. He, Y. Wang, Y.
+Wang, and Y. Qiao. Videomae v2: Scaling video masked
+autoencoders with dual masking. In IEEE/CVF Conference
+on Computer Vision and Pattern Recognition (CVPR), pages
+14549–14560, 2023. 1, 3
+[47] Yilin Wang, Sasi Inguva, and Balu Adsumilli. Youtube ugc
+dataset for video compression research. In IEEE Interna-
+tional Workshop on Multimedia Signal Processing, pages 1–
+5, 2019. 5
+[48] Yilin Wang, Junjie Ke, Hossein Talebi, Joong Gon Yim,
+Neil Birkbeck, Balu Adsumilli, Peyman Milanfar, and Feng
+Yang. Rich features for perceptual quality assessment of ugc
+videos. In IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, pages 13430–13439, 2021. 1, 2
+[49] Yi Wang, Kunchang Li, Yizhuo Li, Yinan He, Bingkun
+Huang, Zhiyu Zhao, Hongjie Zhang, Jilan Xu, Yi Liu, Zun
+Wang, Sen Xing, Guo Chen, Junting Pan, Jiashuo Yu, Yali
+Wang, Limin Wang, and Yu Qiao.
+Internvideo: General
+video foundation models via generative and discriminative
+learning. arXiv preprint arXiv:2212.03191, 2022. 3
+[50] Yi Wang, Kunchang Li, Xinhao Li, Jiashuo Yu, Yinan He,
+Guo Chen, Baoqi Pei, Rongkun Zheng, Zun Wang, Yansong
+10
+
+
+Shi, Tianxiang Jiang, Songze Li, Jilan Xu, Hongjie Zhang,
+Yifei Huang, Yu Qiao, Yali Wang, and Limin Wang. Intern-
+video2: Scaling foundation models for multimodal video un-
+derstanding. In Computer Vision – ECCV 2024, pages 396–
+416, Cham, 2025. Springer Nature Switzerland. 1, 3
+[51] Wen Wen, Mu Li, Yabin Zhang, Yiting Liao, Junlin Li, Li
+Zhang, and Kede Ma. Modular blind video quality assess-
+ment.
+In IEEE/CVF Conference on Computer Vision and
+Pattern Recognition (CVPR), pages 2763–2772, 2024. 1, 5,
+8
+[52] H. Wu, C. Chen, J. Hou, L. Liao, A. Wang, W. Sun, Q. Yan,
+and W. Lin.
+Fast-vqa: Efficient end-to-end video quality
+assessment with fragment sampling. In Computer Vision –
+ECCV 2022, pages 538–554. Springer Nature Switzerland,
+2022. 1, 2, 4, 5, 6, 8
+[53] H. Wu, C. Chen, L. Liao, J. Hou, W. Sun, Q. Yan, J. Gu, and
+W. Lin. Neighbourhood representative sampling for efficient
+end-to-end video quality assessment. IEEE Transactions on
+Pattern Analysis and Machine Intelligence, 45(12):15185–
+15202, 2023. 1, 2, 4, 5, 6, 8
+[54] Haoning Wu, Chaofeng Chen, Liang Liao, Jingwen Hou,
+Wenxiu Sun, Qiong Yan, and Weisi Lin. Discovqa: Temporal
+distortion-content transformers for video quality assessment.
+IEEE Transactions on Circuits and Systems for Video Tech-
+nology, 33(9):4840–4854, 2023. 2
+[55] Haoning Wu, Erli Zhang, Liang Liao, Chaofeng Chen, Jing-
+wen Hou, Annan Wang, Wenxiu Sun, Qiong Yan, and Weisi
+Lin.
+Exploring video quality assessment on user gener-
+ated contents from aesthetic and technical perspectives. In
+IEEE/CVF International Conference on Computer Vision
+(ICCV), pages 20087–20097, 2023. 1, 2, 5, 8
+[56] Haoning Wu, Zicheng Zhang, Weixia Zhang, Chaofeng
+Chen, Liang Liao, Chunyi Li, Yixuan Gao, Annan Wang,
+Erli Zhang, Wenxiu Sun, Qiong Yan, Xiongkuo Min, Guang-
+tao Zhai, and Weisi Lin. Q-align: Teaching LMMs for visual
+scoring via discrete text-defined levels. In Proceedings of the
+41st International Conference on Machine Learning, pages
+54015–54029. PMLR, 2024. 5
+[57] Kan Wu, Houwen Peng, Zhenghong Zhou, Bin Xiao,
+Mengchen Liu, Lu Yuan, Hong Xuan, Michael Valenzuela,
+Xi Stephen Chen, Xinggang Wang, Hongyang Chao, and
+Han Hu.
+Tinyclip: Clip distillation via affinity mimick-
+ing and weight inheritance.
+In 2023 IEEE/CVF Inter-
+national Conference on Computer Vision (ICCV), pages
+21913–21923, 2023. 8, 12
+[58] H. Xu, G. Ghosh, P. Huang, D. Okhonko, A. Aghajanyan,
+and F. Metze L. Zettlemoyer C. Feichtenhofer. Videoclip:
+Contrastive pre-training for zero-shot video-text understand-
+ing. In Conference on Empirical Methods in Natural Lan-
+guage Processing, 2021. 1
+[59] Zhenqiang Ying, Maniratnam Mandal, Deepti Ghadiyaram,
+and Alan Bovik. Patch-vq: ‘patching up’ the video quality
+problem. In IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, pages 14014–14024, 2021. 1, 2, 5, 6, 8
+[60] Junyong You and Jari Korhonen. Deep neural networks for
+no-reference video quality assessment.
+In IEEE Interna-
+tional Conference on Image Processing, pages 2349–2353,
+2019. 1, 2
+[61] Lin Zhang, Ying Shen, and Hongyu Li.
+Vsi: A visual
+saliency-induced index for perceptual image quality assess-
+ment.
+IEEE Transactions on Image Processing, 23(10):
+4270–4281, 2014. 3
+[62] Wei Zhang and Hantao Liu. Study of saliency in objective
+video quality assessment. IEEE Transactions on Image Pro-
+cessing, 26(3):1275–1288, 2017.
+[63] Wei Zhang, Ali Borji, Zhou Wang, Patrick Le Callet, and
+Hantao Liu. The application of visual saliency models in
+objective image quality assessment: A statistical evaluation.
+IEEE Transactions on Neural Networks and Learning Sys-
+tems, 27(6):1266–1278, 2016. 3
+[64] Kai Zhao, Kun Yuan, Ming Sun, and Xing Wen. Zoom-vqa:
+Patches, frames and clips integration for video quality as-
+sessment. In 2023 IEEE/CVF Conference on Computer Vi-
+sion and Pattern Recognition Workshops, pages 1302–1310,
+2023. 1, 2, 3
+[65] Long Zhao, Nitesh Bharadwaj Gundavarapu, Liangzhe
+Yuan, Hao Zhou, Shen Yan, Jennifer J. Sun, Luke Friedman,
+Rui Qian, Tobias Weyand, Yue Zhao, Rachel Hornung, Flo-
+rian Schroff, Ming-Hsuan Yang, David A Ross, Huisheng
+Wang, Hartwig Adam, Mikhail Sirotenko, Ting Liu, and Bo-
+qing Gong. VideoPrism: A foundational visual encoder for
+video understanding. In International Conference on Ma-
+chine Learning, pages 60785–60811. PMLR, 2024. 1, 3, 5,
+7
+11
+
+
+High-Fidelity Video Quality Assessment with VQA-Specific Saliency
+Supplementary Material
+Table 4. HFVQA backbone ablation on LSVQ, LSVQ1080p, and
+LIVE-VQC, reported as PLCC/SRCC. All results follow the set-
+tings of Table 1.
+Methods
+Intra-dataset
+Cross-dataset
+LSVQtest
+LSVQ1080p KoNViD-1k LIVE-VQC
+Swin-S
+0.878/0.876
+0.822/0.787
+0.831/0.838
+0.822/0.827
+VideoPrism-B 0.906 / 0.903 0.873 / 0.842 0.891 / 0.893 0.862 / 0.856
+6. Further Ablations
+6.1. HFVQA with Light Backbones
+A significant portion of the computational cost of HFVQA
+originates from the ViFM encoder, VideoPrism-B, which
+is based on the ViViT-B factorized architecture. HFVQA
+adopts ViFMs to leverage the strong general-purpose repre-
+sentations obtained through large-scale video pretraining.
+However, currently available ViFMs are computationally
+heavy, which directly affects the overall cost of the frame-
+work. Importantly, HFVQA itself is not tied to a specific
+backbone and can be instantiated with different video en-
+coders in a plug-and-play manner.
+To examine the effect of replacing the ViFM encoder
+with a lighter alternative, we retrained HFVQA using a
+substantially lighter backbone, Swin-S [23], pretrained on
+ImageNet-1k [8] and Kinetics-400 [4]. This variant is re-
+ferred to as HFVQA-Swin-S. All other settings remain
+identical to the original configuration, including the 10 FPS
+temporal sampling rate.
+As shown in Tab. 4, replacing the ViFM encoder
+with Swin-S results in noticeable performance degrada-
+tion.
+On LSVQtest and LSVQ1080p, PLCC/SRCC de-
+creases by 0.028/0.027 and 0.051/0.055, respectively. The
+drop was also pronounced under cross-dataset evaluation,
+where PLCC/SRCC decreases by 0.060/0.055 on KoNViD-
+1k and 0.040/0.039 on LIVE-VQC.
+The computational cost of HFVQA-Swin-S is substan-
+tially lower, requiring only 1593 GFLOPs. However, the
+results indicate that the stronger spatio-temporal represen-
+tations provided by VideoPrism-B, together with its large-
+scale pretraining, are critical for achieving the best perfor-
+mance within the HFVQA framework.
+Overall, naively replacing the ViFM encoder with a
+lightweight backbone leads to a significant performance
+drop. We expect that more efficient HFVQA variants can be
+realized as lightweight yet capable video foundation mod-
+els become available. Similar progress has been observed
+in the image domain, where heavy CLIP-based models [34]
+have been followed by lighter but competitive alternatives
+such as MobileCLIP family [10, 45] and TinyCLIP [57].
+7. Architecture of the Saliency Decoder
+S(·) solves a simpler problem than full VQA, namely pre-
+dicting the relative importance of dense spatio-temporal re-
+gions for VQA. Therefore, we adopt a lightweight backbone
+in the VQA-specific saliency module. In this lightweight
+regime, using a pretrained backbone is particularly impor-
+tant, as it provides general-purpose visual features that can
+be adapted to the saliency estimation task.
+However, pretrained backbones typically produce ab-
+stract feature maps with reduced spatial and temporal reso-
+lution. To convert these features into dense spatio-temporal
+saliency maps, we introduce a lightweight adapter on top
+of the saliency backbone, referred to as the saliency de-
+coder. The role of the saliency decoder is to map the ab-
+stract feature representations into a dense probability distri-
+bution over spatio-temporal regions of the input video.
+For the saliency backbone, we adopt Swin-T [23] pre-
+trained on ImageNet-1k [8] and Kinetics-400 [4].
+The
+Swin-T features are spatially downsampled by a factor of
+32 and temporally subsampled by a factor of 2 relative to
+the input video. The saliency decoder progressively upsam-
+ples these features back to the input resolution.
+Specifically, the saliency decoder consists of five stages.
+Each stage performs bilinear spatial upsampling followed
+by a residual block composed of two depthwise 3D con-
+volutions. In addition, a trilinear upsampling operation is
+applied at the beginning of the first stage to restore the tem-
+poral resolution. After the final stage, the resulting saliency
+map matches the spatial and temporal resolution of the input
+video. This saliency map is subsequently resized to align
+with the feature grids corresponding to each scale used dur-
+ing ST patch sampling.
+Overall, the saliency decoder performs progressive up-
+sampling and refinement of the abstract features produced
+by the saliency backbone.
+During training, the saliency
+backbone remains frozen while only the saliency decoder is
+optimized under MOS supervision. This strategy reduces
+destructive interference from randomly initialized layers
+and stabilizes adaptation of the pretrained features [16].
+8. Evolution of VQA-specific Saliency
+We investigate whether the proposed VQA-specific saliency
+mechanism learns task-relevant importance patterns under
+MOS supervision. Training proceeds in two stages. In the
+first stage, only the adapter modules are optimized, includ-
+ing the saliency decoder and the prediction head, while the
+12
+
+
+Figure 4. Consecutive video frames (top), VQA-specific saliency maps after adapter-only training (second), early training (third), mid
+training (fourth), and convergence (fifth). Best viewed zoomed in.
+pretrained backbones remain frozen. In the second stage, all
+modules are jointly fine-tuned, including the saliency back-
+bone (Swin-T), the saliency decoder, the ViFM encoder, and
+the prediction head.
+Fig. 4 visualizes the evolution of the learned saliency
+during training. The top row shows the input frames. The
+second row shows the saliency maps obtained after adapter-
+only training with the saliency backbone (Swin-T) frozen.
+The third and fourth rows show saliency maps during the
+early and middle stages of full fine-tuning. The final row
+shows the saliency maps after training convergence.
+After adapter-only training, the saliency maps are highly
+diffuse. As training proceeds and the saliency backbone is
+allowed to adapt, the maps gradually become more struc-
+tured and discriminative. This progression is reflected in
+the model performance. On the LSVQtest, SRCC improves
+from 0.852 after adapter-only training to 0.891 and 0.900
+during early and mid fine-tuning, respectively, reaching a
+final value of 0.903 after convergence.
+Importantly, the saliency maps change little after mid
+training and converge to a stable behavior rather than fluc-
+tuating erratically across epochs.
+This suggests that the
+final saliency patterns are not incidental artifacts of train-
+ing but reflect task-driven importance patterns learned from
+MOS supervision. As illustrated in Fig. 3 of the main pa-
+per and further examples provided in Sec. 9, the learned
+saliency shares certain characteristics with conventional vi-
+sual saliency while also exhibiting clear differences, which
+we attribute to the task-specific characteristics induced by
+VQA supervision.
+9. Additional Qualitative Results
+We provided additional qualitative visualizations of the
+learned VQA-specific saliency in Figs. 5 and 6. Across di-
+verse scenes, the learned saliency frequently emphasized
+semantically meaningful regions, including humans, ani-
+mals, and prominent objects that are likely to influence per-
+ceived video quality.
+Across consecutive frames, the saliency maps also ap-
+peared relatively consistent over time and often remain cen-
+tered on dynamic scene elements. While such behavior is
+difficult to be fully assessed from still visualizations, this
+tendency suggests a possible bias toward temporally salient
+regions, which aligns with perceptual observations that hu-
+man attention is often drawn to motion and animated con-
+tent.
+In scenarios where clear semantic structures were less
+prominent, such as low-light or low-quality scenes, the
+learned saliency became more spatially diffused and often
+concentrated around bright or visually distinct regions. This
+behavior suggests that when semantic cues are weak, the
+model may rely more heavily on basic visual structures that
+can reveal compression artifacts, noise, or other distortions.
+Overall, these qualitative observations support the inter-
+pretation that the learned saliency captures task-relevant im-
+portance patterns rather than generic visual saliency, adapt-
+ing its spatial focus depending on both scene semantics and
+local visual characteristics.
+13
+
+
+Figure 5. Consecutive video frames (top), learned VQA-specific saliency maps (second), overlays (third), and comparison with UNISAL
+(bottom). Best viewed zoomed in.
+14
+
+
+Figure 6. Consecutive video frames (top), learned VQA-specific saliency maps (second), overlays (third), and comparison with UNISAL
+(bottom). Best viewed zoomed in.
+15

@@ -1,0 +1,1135 @@
+Foreground Voice Activity Detection: Learning
+Speaker Selectivity from Supervision
+Guangzhao Yang*, Muhammad Huzaifah*, Yu Pan, Jinya Sakurai, Ningjie Bai†
+R&D Team, Recho Inc., Tokyo, Japan
+{g.yang, m.huzaifah, y.pan, j.sakurai, n.haku}@recho-ai.com
+Abstract—Voice activity detection (VAD) fronts most voice-
+agent pipelines, yet production detectors treat all human speech,
+background talkers included, as valid activity; in crowded
+settings this floods recognition, stalls turn-taking, and triggers
+false barge-in. We formalize Foreground VAD (FVAD): a frame-
+synchronous, enrollment-free task in which only the dominant
+speaker, defined by sustained presence rather than instantaneous
+loudness, is positive, and which reduces to conventional VAD
+when a single speaker is present. We show that foreground
+selectivity is largely governed by training supervision: the crucial
+ingredient is an augmentation recipe pairing foreground-only
+labels with competing-speaker mixing, generated fully automat-
+ically without human annotation. To quantify selectivity we
+introduce the Background False-Alarm Rate (BG-FAR), gated
+by foreground F1, and build a controlled benchmark, Mix-
+Interference, complemented by an adapted VOiCES for real-
+world far-field evaluation. Across equal-size backbones, Mamba
+and LSTM perform on par while a longer-context attention model
+is no better, suggesting that training supervision plays a substan-
+tially larger role than temporal modeling capacity in achieving
+foreground selectivity. The resulting lightweight streaming model,
+Mamba-FVAD, outperforms commercial VADs and enrollment-
+based speaker-aware systems in foreground selectivity while
+staying competitive on conventional VAD, at 1–2 ms per-frame
+CPU latency.
+Index Terms—voice activity detection, foreground speech de-
+tection, speaker selectivity, enrollment-free, streaming inference,
+on-device speech processing, competing-speaker robustness
+I. INTRODUCTION
+The rapid adoption of voice-based AI agents in customer
+service, personal assistants, and human–AI collaboration has
+raised the demand for natural, reliable spoken interaction.
+Voice activity detection (VAD), which decides whether each
+audio frame contains speech, is typically the first stage of such
+pipelines, ahead of automatic speech recognition (ASR), and
+its accuracy strongly shapes overall system performance.
+Modern VAD systems [1]–[3] achieve strong robustness,
+ultra-low latency, and efficient CPU-only inference at 30 Hz
+or higher, yet share a basic limitation: they classify all hu-
+man speech—background speakers included—as valid activity.
+Methods that do distinguish speakers supply an explicit prior
+in the form of an enrolled embedding, as in personal [4], [5]
+and target-speaker VAD [6], rather than expecting a plain VAD
+to learn it. One might assume the limitation is architectural:
+deployed VADs often use LSTMs or GRUs [7], [8] with only
+a few hundred milliseconds of effective context, so isolating
+*Equal contribution.
+†Corresponding author
+a foreground speaker would seem to need much longer-range
+modeling. In this paper, we test this directly: is the inability
+to separate foreground from background speech caused by the
+limited context of recurrent architectures, or by training data
+and objectives that never require the distinction? Our results
+strongly support the latter.
+The limitation becomes severe in crowded settings such
+as restaurants, public squares, and meeting rooms, where
+background conversation and babble are misclassified as valid
+speech. For a voice agent this causes three failures: (1) Ir-
+relevant speech reaches downstream ASR, which modern far-
+field and noise-robust models [9], [10] transcribe into unrelated
+content resulting in erroneous LLM responses; (2) Persistent
+background speech withholds the VAD falling edge that trig-
+gers generation, leaving the agent in a perpetual listening state;
+(3) Background talkers falsely trigger barge-in [11], degrading
+the user experience.
+We formalize the underlying task as Foreground Voice
+Activity Detection (FVAD): a frame-synchronous binary clas-
+sification in which a frame is positive if and only if it contains
+speech from the foreground speaker of the interaction. The
+foreground role is defined by sustained presence and temporal
+identity coherence, not instantaneous energy; the foreground
+speaker is the one with the greatest sustained speech presence,
+and a momentarily louder competitor must not capture the role
+(defining it by frame-wise loudness would otherwise collapse
+the task into energy-based VAD). Non-foreground speech is
+therefore negative, and with a single speaker FVAD reduces
+to conventional VAD. Formally, for a stream x with per-frame
+labels yτ, personal VAD (pVAD) models P(yτ | x, et) over
+three classes, target-speaker speech (tss), non-target-speaker
+speech (ntss), and non-speech (ns), given an exogenous en-
+rollment et of a known target. Instead, FVAD models the
+binary posterior P(yτ=1 | x) for the foreground speaker F(x),
+an endogenous function of the signal inferred online; a self-
+derived pseudo-enrollment the model forms from the audio
+and keeps coherent over time. Equivalently, FVAD’s positive
+class is the analogue of tss with a self-inferred target, while
+ns and ntss collapse into its negative class. In short, pVAD
+is told who the target is, but FVAD must decide for itself
+(we assume one foreground speaker per segment, the identity
+the model commits to and tracks throughout). These choices
+distinguish FVAD from existing paradigms on three axes, ex-
+panded in Section II: it strictly generalizes VAD (no separation
+front-end), it is enrollment-free yet identity-committed (unlike
+arXiv:2609.19856v1  [eess.AS]  17 Sep 2026
+
+
+pVAD or energy-following detection), and it runs in a single
+streaming stage (unlike a VAD-plus-diarization cascade).
+Our central finding is that foreground focus is governed
+largely by supervision, not architecture. The decisive factor is
+the training-data recipe: clean utterances are pseudo-labeled by
+a of state-of-the-art VAD, then unlabeled interfering speakers
+and babble are mixed into the target at controlled signal-to-
+noise ratios (SNRs), level dynamics, and far-field reverbera-
+tion, with the labels kept on the foreground alone. The model
+is thereby supervised to treat competing speech as negative,
+and a sustained foreground identity is encoded implicitly by
+the supervision. Because selectivity is conferred by the data,
+the backbone is free to be chosen for deployment. Our primary
+system, Mamba-FVAD, pairs a learnable LEAF front-end [12]
+with a Mamba state-space backbone [13] whose linear-time
+recurrence gives constant per-frame computation and memory
+for low-latency, CPU-only operation. Varying the backbone
+confirms architecture is not the bottleneck: an LSTM [14] (a
+recurrent model with more limited context [15]) matches it,
+while a long-context attention model [16] yields no meaningful
+gain.
+In summary, our key contributions are as follows:
+• Task and metric. We give a formal definition of
+enrollment-free foreground (dominant-speaker-selective)
+VAD, and introduce the Background False-Alarm Rate
+(BG-FAR) metric: the probability of firing while only
+competing speech is active and the foreground is silent,
+gated by foreground F1, directly measuring the identity-
+commitment the task demands.
+• New benchmark. We introduce Mix-Interference, in
+which the target foreground track is mixed with compet-
+ing speech at controlled SNRs, and adapt VOiCES [17]
+(real far-field television and babble noise) as a cross-
+check. We will release Mix-Interference to spur further
+work on FVAD.
+• Data recipe. We propose a fully automatic pipeline that
+yields large-scale frame-level FVAD supervision without
+human annotation, and show through controlled architec-
+ture and data ablations that the recipe is what primarily
+unlocks foreground focus.
+• State-of-the-art model. We develop Mamba-FVAD, a
+lightweight streaming model that surpasses mainstream
+commercial VADs and specialized speaker-aware systems
+on the proposed benchmark while remaining competitive
+on conventional VAD in clean and noisy conditions.
+II. RELATED WORK
+Production VADs, including Silero [1], TEN-VAD [2],
+MarbleNet [18], and related neural detectors [3], [7], [8], give
+robust, low-latency frame-level detection but are trained to
+detect all speech. For example, competing speakers are treated
+as positive examples rather than interference, so speaker selec-
+tion is therefore not naturally carried out—a gap we address
+with FVAD. A common deployment remedy gates a VAD by
+signal energy, assuming the foreground is closest to the mi-
+crophone; but instantaneous energy is an unreliable proxy for
+the foreground role. For instance, foreground speech may be
+soft at utterance boundaries, whereas a background interjection
+can be momentarily loud, conditions our benchmark probes.
+Furthermore, smoothing energy statistics over a longer analysis
+window trades flicker for latency, and the gate’s hand-tuned
+thresholds transfer poorly across devices and environments.
+Speech enhancement front-ends [19], [20] raise SNR before
+VAD, but optimize perceptual quality over speaker selectivity.
+Likewise, they are trained to preserve all speech; they denoise
+background speakers alongside the foreground and erase the
+very level and reverberation cues that distinguish them, while
+adding cascade latency in the single-speaker conditions that
+dominate real usage. By contrast, FVAD is a strict generaliza-
+tion of VAD, reducing exactly to conventional detection when
+one speaker is present and requiring no separation front-end.
+A second line incorporates speaker identity. Streaming end-
+to-end diarization [21], [22] attributes all speakers (“who
+spoke when”) and typically needs look-ahead, leaving the
+foreground unchosen. Personal and target-speaker VAD [4]–
+[6] condition on an enrollment embedding, giving strong
+selectivity only for a pre-registered identity and failing when
+the speaker is unknown or enrollment is mismatched. Post-
+VAD diarization [23] is accurate offline but introduces multi-
+stage latency. FVAD differs from previous paradigms in sev-
+eral ways: the foreground is inferred endogenously from the
+signal (no enrollment), committed to as a single coherent
+identity (unlike diarization, which tracks everyone, or energy-
+or saliency-following gates, which follow whoever is momen-
+tarily loudest), and produced by one streaming detector (no
+cascade).
+III. METHODOLOGY
+A. Interference-Aware Data Recipe
+Training data. We propose a fully automatic pipeline
+for constructing large-scale VAD training data without hu-
+man annotation. Clean utterances are first pseudo-labelled by
+Silero-v6 [1], then passed through an energy-adaptive edge
+refinement that relocates each segment’s onset and offset to
+the local acoustic boundary. This places the decision threshold
+a fixed fraction of the way from the local noise floor toward
+speech energy, with separate onset/offset factors to absorb the
+asymmetric boundary lag of the base detector. The refinement
+algorithm in effect tightens the labels without discarding
+low-energy speech. The training corpus was assembled from
+an in-house Japanese call-centre dataset of real conversa-
+tional speech (1,128 hours) and concatenated LibriSpeech read
+speech with inter-utterance silences, similar to the recipe used
+by LibriVAD [24].
+Dynamic Augmentation. Rather than pre-computing fixed
+mixtures, augmentations are applied stochastically per utter-
+ance at load time, so every epoch presents new conditions. The
+selectivity-bearing component is competing-speaker mixing.
+One to three interfering-speaker segments, sampled from a
+held-out speech pool and covering 10–50% of the utterance,
+are mixed into the foreground at a target-to-interference ratio
+(measured over speech-active frames) of 0–15 dB, with a
+
+
+probability p of 0.2. Each interfering segment is rendered as
+a background source via far-field simulation by convolving
+it with a room impulse response (RIR) sampled from the
+DNS-Challenge [25] (50/50 simulated and real recorded RIRs)
+and applying a random 1–4 kHz low-pass that models far-
+field high-frequency roll-off. The foreground labels are left
+unchanged, so this competing speech is supervised as negative.
+The remaining augmentations target general robustness, each
+applied independently: environmental-noise mixing (p=0.45;
+scattered or full-length; bimodal SNR, easy [5, 20] dB / hard
+[-5, 5] dB), music mixing (p=0.15; [5, 20] dB), room rever-
+beration on the target (p=0.2), gain perturbation (±6 dB) with
+per-segment level dynamics, hard non-speech negatives (noise-
+, silence-, music- and far-field-speech-only clips, 1–2% each),
+and telephone band-pass filtering (300–3400 Hz / 50–7000
+Hz), sharpening rejection without eroding foreground recall.
+B. Model Architecture and Experimental Setup
+Frames:
+Model:
+Results:
+512 sampling points, 32ms
+......
+LEAF Encoder
+Temporal Decoder
+not-
+speech
+speech
+a) Training
+b) Inference
+New
+Frame
+LEAF
+Encoder
+Temporal
+Decoder
+hidden
+state
+speech
+speech
+not-
+speech
+not-
+speech
+not-
+speech
+LEAF
+Encoder
+Temporal
+Decoder
+hidden
+state
+not-
+speech
+LEAF
+Encoder
+Temporal
+Decoder
+hidden
+state
+speech
+LEAF
+Encoder
+Temporal
+Decoder
+speech
+Fig. 1: Overall architecture of the proposed Mamba-FVAD
+framework.
+To train for FVAD, we pair a learnable acoustic front-
+end with a temporal backbone and a per-frame classification
+head, processing raw audio frame-wise (Fig.1). The front-
+end is a LEAF encoder [12] adapted for streaming: temporal
+pooling is removed and Gaussian pooling replaced by global
+average pooling to preserve frame-level resolution, operating
+on pre-segmented 512-sample frames at a fixed 31.25 Hz.
+Because selectivity is conferred by the data (Sec.III-A), the
+backbone is free to be chosen for deployment. Our primary
+system, Mamba-FVAD (∼0.6M parameters), uses a Mamba
+state-space decoder [13], whose linear-time recurrence gives
+O(1) per-frame compute and memory and thus low-latency,
+CPU-only real-time operation. To study how much temporal
+context foreground selectivity requires, we compare three
+iso-parameter backbones spanning context capacity under an
+identical recipe: the Mamba above; an LSTM [14], that is
+a recurrent model with more limited effective context [15];
+and a Transformer [16], with unbounded in-window context
+but length-growing cost, serving as an offline upper bound.
+Mamba and the LSTM run at O(1) per-frame cost and stream;
+the Transformer does not.
+All backbones train with AdamW (lr 10−4, weight decay
+0.01, cosine schedule with linear warmup), batch size 16,
+dropout 0.3, and bf16 mixed precision; and the Transformer
+a reduced learning rate and longer warmup, for stable conver-
+gence. We call models trained with our recipe (Sec. III-A)
+interference-aware (IA). As a control, we also train each
+backbone under the conventional LibriVAD recipe [24] to
+isolate the recipe’s contribution.
+C. Benchmark Creation
+Mix-Interference is a controlled benchmark that pits a
+single foreground speaker against one competing background
+speaker at known relative levels. Foreground utterances are
+drawn from concatenated LibriSpeech [26] test-other record-
+ings, with frame-level VAD labels (31.25 Hz) from an energy-
+based labeler, where these labels define the foreground (target)
+throughout. For each foreground clip we synthesize seven
+temporally-aligned 16 kHz variants: (1) the clean target;
+(2) target + environmental noise, and (3–7) target + the
+same noise + a competing speaker at five fixed target-to-
+interference SNRs of 9, 11, 13, 15, 17 dB. The competing
+speaker is a different test-other utterance, passed through a far-
+field simulation (random small/medium room, near/medium
+distance, 4–8 kHz low-pass filter) and offset by a random
+temporal delay (±10 s) so it behaves as an intermittent
+background talker. All level ratios are computed over speech-
+active frames (VAD-weighted RMS): noise is mixed at ≈15
+dB SNR for the interference variants and a harsher ≈6 dB for
+the noise-only variant, and each mixture is peak-normalized to
+0.95. Crucially, every variant retains the foreground-only VAD
+labels; the competing speaker is never labeled as speech so
+the benchmark directly measures whether a model tracks the
+foreground while rejecting background speech. Because the
+five mixed variants share the same target, noise, and interferer
+and differ only in the interferer’s level, the takes are frame-
+locked, enabling paired per-frame contrasts.
+VOiCES devkit [17] was adapted as an out-of-distribution
+FVAD benchmark to test whether foreground selectivity trans-
+fers to physically recorded far-field speech. Unlike Mix-
+Interference, nothing is mixed at conversion time: clean
+LibriSpeech utterances are replayed through a loudspeaker
+and re-recorded by far-field microphones in real rooms, so
+reverberation, distance, and the distractor, categorized as none
+(clean), musi (music), or babb/tele (competing background
+speech), are physically baked into the signal. We keep the
+distant recording as input and attach foreground-only labels
+by keying the target speaker’s word-level timestamps from the
+original source forced alignments to each segment, while the
+recorded background talkers in babb/tele stay unlabeled, i.e.
+negative. This makes the competitors real recorded speakers
+rather than synthetic mixtures. Since every segment is recorded
+under all conditions and frame-aligned, the matched none take
+serves as a per-frame clean reference for paired metrics like
+BG-FAR.
+D. Evaluation Metrics
+Conventional VAD scores, namely speech against non-
+speech F1 or ROC-AUC, cannot measure FVAD because they
+treat all speech as positive; a perfect foreground detector that
+suppresses a competing speaker would be charged with false
+negatives. We therefore evaluate against foreground labels with
+
+
+two complementary frame-level metrics that separate the two
+distinct ways an FVAD model can fail, either by missing the
+target, or firing on a competitor.
+Foreground F1 measures how well the model tracks the
+target. With foreground-speech frames as positives, it is the
+harmonic mean of precision and recall. Recall penalizes
+missed foreground speech and precision penalizes activation
+on any foreground-silent frame (silence, noise, or competing
+speech). Reported together with its recall component, it acts
+as a gate; a model cannot appear “selective” merely by being
+conservative as suppressing the target collapses recall and
+hence F1.
+Background False-Alarm Rate (BG-FAR) isolates the
+behavior that defines the task, that is, firing on a competing
+background speaker. It is the false-alarm rate computed only
+over frames where the foreground is silent yet a background
+source is active:
+BG-FAR = P(yτ = 1 | foreground-silent∧background-active)
+Ordinary FAR over all silent frames is dominated by
+easy true silence and dilutes this signal, by conditioning on
+background-active frames, we target exactly the hard case. We
+obtain a frame-exact background-active mask without extra
+annotation by exploiting paired, frame-aligned takes from
+the benchmark datasets. Each clip has a matched reference
+with the same foreground and environment but no competing
+speaker (the noise-only take in Mix-Interference, the none
+take in VOiCES), and a foreground-silent frame is marked
+background-active when its energy exceeds the reference by
+more than a margin δ (6 dB in this paper). BG-FAR is bounded
+by 0 and 1, denoting complete rejection and complete accep-
+tance respectively. In our evaluation, BG-FAR is calculated at
+an operating threshold of 0.5.
+The two metrics are decisive only in combination. Genuine
+foreground selectivity requires both high Foreground F1 (the
+target is detected and the model does not over-fire) and low
+BG-FAR (competitors are rejected). Neither suffices alone, for
+example, a silent model trivially attains BG-FAR = 0 but fails
+Foreground F1, whereas a generic VAD attains high recall but
+high BG-FAR. The full algorithms are described in Appendix
+A and B.
+IV. RESULTS AND ANALYSIS
+A. Foreground VAD Performance
+Fig. 2 plots BG-FAR against Foreground F1 for our IA-
+and LibriVAD-recipe models against baselines: production-
+grade Silero-v6, a pretrained pVAD with speaker enrollment1,
+a Standard VAD (pVAD’s architecture, no enrollment), and
+energy-based Auditok. An ideal FVAD model sits bottom-
+right with high foreground tracking, low BG-FAR. On Mix-
+Interference our IA models (Mamba-FVAD and its iso-
+parameter LSTM) occupy this region (Foreground F1 0.88-
+0.92; BG-FAR from 0.05 at 17 dB to at most 0.40 at 9 dB),
+while every other system drifts up the BG-FAR axis as the
+interferer becomes louder, exceeding 0.8 at the loudest. Criti-
+cally, the LibriVAD-recipe models share the same architectures
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+BG-FAR (
+ rejects background)
+marker size  interferer loudness
+(big = 9 dB, small = 17 dB)
+Mix-Interference
+Mamb-FVAD (IA)
+LSTM-FVAD (IA)
+Mamba VAD (libriVAD)
+LSTM VAD (libriVAD)
+Silero v6
+pVAD (enrolled)
+Standard VAD (pVAD arch)
+Auditok
+0.55
+0.60
+0.65
+0.70
+0.75
+0.80
+0.85
+0.90
+0.95
+1.00
+Foreground F1  (tracks target, penalizes over-firing 
+)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+BG-FAR (
+ rejects background)
+VOiCES
+Distractor
+Music
+Babble
+Telephone
+Model
+Mamb-FVAD (IA)
+LSTM-FVAD (IA)
+Mamba VAD (libriVAD)
+LSTM VAD (libriVAD)
+Silero v6
+pVAD (enrolled)
+Standard VAD (pVAD arch)
+Auditok
+Fig. 2: BG-FAR vs. Foreground F1 for Mix-Interference
+swept over SNR (9–17 dB) (top), and VOiCES by distractor
+(bottom). The ideal FVAD model falls in the bottom-right.
+yet collapse into this high-BG-FAR region, isolating the data
+recipe as the cause. Among baselines, only the enrolled
+pVAD keeps BG-FAR low at a flat ∼0.23 band, interferer-
+independent (as expected from an external speaker prior) but
+at far lower Foreground F1. Removing that prior (Standard
+VAD) returns BG-FAR to the LibriVAD region.
+In VOiCES the distractors form a built-in control: music is
+non-speech, so its BG-FAR measures only generic non-speech
+suppression, whereas babble and telephone are competing
+speech. The gap between babble/telephone and music thus
+isolates false alarms specific to background speech; a true
+speaker-rejecter stays near its music floor, a generic “any-
+speech” detector does not. Mamba-FVAD behaves like the
+former: telephone (0.07) sits at the music floor (0.06) and
+babble (0.12) only just above, a small speech-specific excess,
+while Silero shows a much larger gap (music 0.12 vs. tele-
+phone 0.18, babble 0.27). On this out-of-distribution distant-
+speech set Mamba-FVAD pays a small recall penalty (lower
+Foreground F1) yet rejects background speech as well as or
+better than the enrolled pVAD—without enrollment.
+Overall, varying the backbone (Mamba→LSTM) under the
+IA recipe largely preserves the selective behavior, whereas
+varying the recipe (IA→LibriVAD) collapses it to that of a
+conventional VAD. We thus attribute foreground selectivity to
+1https://github.com/pirxus/personalVAD
+
+
+TABLE I: Conventional VAD Performance Benchmark, scored by ROC-AUC / F1@0.5
+Model
+KAIST
+Voxconverse
+Ten-VAD
+test
+In-house
+LibriVAD concat
+clean
+SNR=-5
+SNR=0
+SNR=5
+SNR=10
+SNR=15
+SNR=20
+webRTC1
+– / 0.688
+– / 0.433
+– / 0.891
+– / 0.587
+– / 0.930
+– / 0.288
+– / 0.332
+– / 0.332
+– / 0.465
+– / 0.564
+– / 0.675
+Auditok2
+– / 0.586
+– / 0.941
+– / 0.886
+– / 0.614
+– / 0.938
+– / 0.802
+– / 0.802
+– / 0.803
+– / 0.807
+– / 0.834
+– / 0.899
+SpeechBrain [27]
+0.966 / 0.831
+0.858 / 0.960
+0.677 / 0.840
+0.842 / 0.560
+0.874 / 0.916
+0.808 / 0.870
+0.823 / 0.886
+0.821 / 0.893
+0.816 / 0.896
+0.811 / 0.898
+0.808 / 0.899
+Pyannote VAD [23]
+– / 0.945
+– / 0.975
+– / 0.917
+– / 0.655
+– / 0.950
+– / 0.890
+– / 0.909
+– / 0.917
+– / 0.923
+– / 0.928
+– / 0.934
+FSMN-VAD [28]
+– / 0.932
+– / 0.972
+– / 0.871
+– / 0.705
+– / 0.918
+– / 0.847
+– / 0.895
+– / 0.901
+– / 0.902
+– / 0.903
+– / 0.904
+Ten VAD [2]
+0.989 / 0.927
+0.930 / 0.949
+0.942 / 0.928
+0.969 / 0.851
+0.980 / 0.955
+0.835 / 0.807
+0.882 / 0.880
+0.912 / 0.904
+0.932 / 0.918
+0.948 / 0.927
+0.960 / 0.934
+MarbleNet [18]
+0.994 / 0.947
+0.962 / 0.966
+0.920 / 0.912
+0.973 / 0.616
+0.979 / 0.955
+0.890 / 0.895
+0.919 / 0.912
+0.935 / 0.919
+0.945 / 0.925
+0.953 / 0.929
+0.958 / 0.933
+Silero-v5 [1]
+0.992 / 0.926
+0.947 / 0.946
+0.925 / 0.903
+0.966 / 0.728
+0.979 / 0.952
+0.846 / 0.809
+0.909 / 0.905
+0.943 / 0.922
+0.963 / 0.932
+0.971 / 0.941
+0.975 / 0.949
+Silero-v6 [1]
+0.992 / 0.947
+0.952 / 0.952
+0.957 / 0.939
+0.966 / 0.862
+0.981 / 0.960
+0.846 / 0.831
+0.918 / 0.914
+0.946 / 0.930
+0.963 / 0.937
+0.972 / 0.944
+0.976 / 0.953
+Mamba-FVAD (IA)
+0.986 / 0.910
+0.933 / 0.929
+0.910 / 0.890
+0.982 / 0.884
+0.979 / 0.960
+0.830 / 0.712
+0.916 / 0.884
+0.958 / 0.933
+0.970 / 0.947
+0.974 / 0.953
+0.976 / 0.956
+interference-aware training, not architectural inductive bias.
+B. Conventional VAD Performance
+Foreground selectivity must not cost ordinary detection:
+with no competing speaker, an FVAD model should reduce
+to a conventional VAD rather than suppress single-talker
+speech. We verify this on three public sets: KAIST3, Vox-
+Converse [29], Ten-VAD test4; and two deployment-relevant
+conditions: a human-annotated in-house benchmark and long-
+form LibriVAD-concat. The in-house set is 9.8 h of con-
+versational Japanese from real voice-agent interactions in
+noisy venues (restaurants, meeting rooms, open-plan offices)
+where background speech and babble are prevalent. Following
+FVAD, frame-level human labels mark only the intended
+speaker as speech, whereas background/overlapping talkers
+and non-speech are negative. Because such calls interleave
+clean single-talker and competing-speech stretches, it jointly
+tests conventional detection and foreground selectivity under
+one label set. For LibriVAD-concat we follow [24], concate-
+nating LibriSpeech recordings under clean and additive-noise
+(SNR −5 to 20 dB) conditions. As not all baselines expose
+per-frame posteriors, we report ROC-AUC where available and
+F1@0.5 threshold as a secondary measure (Table I).
+On the public sets, Mamba-FVAD is broadly competitive,
+trailing the strongest specialist on each (MarbleNet on KAIST,
+Pyannote on VoxConverse, Silero-v6 on TEN-VAD) only
+slightly and with no categorical failure, while leading on the
+in-house benchmark, whose labeling mirrors the FVAD objec-
+tive. On LibriVAD-concat it is strong from 5 dB SNR upward,
+reflecting the conventional noise/music/RIR augmentation the
+IA recipe includes for robustness. The one weak spot is −5 dB
+speech-shaped noise (SSN: ROC-AUC 0.70, vs ≥0.93 for
+non-speech noise). This represents the boundary case of the
+selectivity prior, whose training interferers are always quieter
+than the target, so a louder, sustained speech-like masker
+inverts the dominance cue and the model suppresses the now-
+quietest true foreground.
+In sum, Mamba-FVAD trades a small, localized amount of
+generic-VAD accuracy for the strong foreground selectivity of
+1https://github.com/wiseman/py-webrtcvad
+2https://github.com/amsehili/auditok
+3https://github.com/jtkim-kaist/VAD
+4https://github.com/TEN-framework/ten-vad/tree/main/testset
+Section IV-A: it leads on the real-world in-house benchmark,
+leads from 5 dB SNR upward on LibriVAD-concat, and stays
+within a few points of specialist VADs elsewhere. Because
+the IA recipe pairs competing-speech mixing with standard
+noise augmentation, selectivity and general noise-robustness
+coexist—the speaker-selective objective adds the former with-
+out sacrificing the latter.
+C. Ablations
+For ablation experiments, all models were trained on the
+same IA recipe as Mamba-FVAD but on a fixed budget limited
+to 5 epochs.
+Competing-speaker
+mixing.
+Table
+II
+isolates
+the
+selectivity-bearing
+augmentation
+via
+three
+variants
+that
+differ only in how overlapping speech is generated: the
+reference (On) renders each interferer as far-field background;
+Off completely removes competing-speaker mixing; Nearfield
+keeps the overlap but skips far-field simulation. Off is by far
+the most damaging. BG-FAR rises across the board, widening
+as the interferer grows louder and largest on the real-recorded
+VOiCES. Never exposed to competing speech, the model
+tends to fire on any speech (hence its marginally higher
+foreground recall). This confirms that supervised exposure to
+unlabeled competing speech, not generic noise augmentation,
+is the causal ingredient for background-speech rejection.
+TABLE II: Competing-speaker augmentation ablation: BG-
+FAR and foreground recall (fgRec) on Mix-Interference and
+VOiCES.
+Speaker
+mixing
+Mix-Interference
+VOiCES
+BG-FAR ↓
+fgRec ↑
+BG-FAR ↓
+fgRec ↑
+S17
+S15
+S13
+S11
+S9 (loud)
+S9
+musi
+babb
+tele
+babb
+On (ref)
+0.059
+0.088
+0.140
+0.226
+0.357
+0.946
+0.141
+0.270
+0.183
+0.848
+Off
+0.076
+0.112
+0.184
+0.300
+0.462
+0.957
+0.231
+0.342
+0.235
+0.877
+Nearfield
+0.065
+0.091
+0.134
+0.219
+0.359
+0.962
+0.193
+0.313
+0.230
+0.858
+Nearfield shows that how the overlap is rendered governs
+real-world transfer. On synthetic Mix-Interference near- and
+far-field are nearly indistinguishable, but on VOiCES, where
+competitors are physically distant and reverberant, the far-
+field reference wins at every distractor, its training interferers
+matching real background acoustics. For only a one to two
+point recall cost, far-field competing-speaker mixing both
+rejects background speech and generalizes.
+
+
+Architecture. Table III compares the three iso-parameter
+temporal decoder backbones under the identical IA recipe on
+the conventional VAD benchmarks. Mamba only very slightly
+edges out the LSTM, differing by at most ∼2 points of ROC-
+AUC, with each leading on some sets (Mamba on KAIST
+0.962 and TEN-VAD 0.910, the LSTM on VoxConverse
+0.930), at comparable parameter count. The Transformer trails
+on every benchmark despite its larger context. However, we
+acknowledge that the Transformer trained less stably on this
+data regime despite hyperparameter tuning and also required
+chunking on long clips; hence we treat its scores as a floor.
+TABLE III: Architecture ablation: ROC-AUC across bench-
+marks. LibriVAD-concat is frame-weighted over all noises and
+SNRs.
+Decoder KAIST
+Vox
+conv.
+Ten
+VAD
+In-
+house
+LibriVAD
+concat
+Params
+Transf.
+0.893
+0.746 0.858 0.927
+0.876
+615,369
+LSTM
+0.953
+0.930 0.891 0.977
+0.922
+662,657
+Mamba
+0.962
+0.922 0.910 0.978
+0.923
+615,297
+Together with the matched Mamba/LSTM selectivity in
+Section IV-A and the competing-speaker ablation in Sec-
+tion IV-C, the results suggest that foreground selectivity is
+driven primarily by the proposed supervision strategy, while
+the choice of backbone appears to play a secondary role under
+the evaluated settings. The backbone is therefore a deployment
+choice: we adopt Mamba for its O(1) streaming recurrence,
+with the LSTM a near-equivalent, lighter alternative.
+D. Performance Analysis
+b) Segment B of example
+c) Whole segment of example
+a) Segment A of example
+Fig. 3: Mamba-FVAD inference on a multi-talker recording:
+the model locks onto the dominant speaker (c) while gracefully
+degrading to standard VAD in the absence of a primary speaker
+(a, b).
+To visualize the learned selectivity qualitatively, we overlay
+Mamba-FVAD’s frame-level predictions on the input wave-
+form for representative multi-talker clips (Fig.3). The model’s
+behavior tracks whether a foreground speaker has been estab-
+lished. Before the primary speaker enters (first ∼3 s of Fig.3c),
+no dominant speaker yet exists, so the model falls back to
+conventional VAD and marks the preceding speech-plus-noise
+as active. Once the primary speaker appears, it locks onto that
+target, and when the speaker stops (∼4 s later) it returns to
+silence even though background speech continues. Because
+the background spectrum is nearly identical before and after
+the target’s turn, this switch cannot be explained by acoustic
+change alone; it reflects learned contextual selection.
+Selection is not driven by loudness. Near the end of an ut-
+terance (∼31 s), the target is quiet yet still detected, indicating
+the model holds a stable latent representation of the foreground
+rather than tracking instantaneous amplitude. Background talk-
+ers are consistently suppressed with clean segment boundaries,
+and because FVAD carries no explicit speaker-embedding
+module, it follows speaker changes without re-enrollment,
+keeping the model lightweight. When no primary speaker is
+present (Figs. 3(a),(b)), it gracefully reverts to conventional
+VAD, marking all speech active. Overall, Mamba-FVAD be-
+haves like human auditory attention—focusing on a target,
+suppressing competitors, and falling back to general-purpose
+VAD when no target is established—at 1–2 ms per-frame
+latency on an AWS t2.micro instance, confirming real-time
+CPU-only deployment.
+V. CONCLUSION AND LIMITATIONS
+We formalized Foreground VAD (FVAD), an enrollment-
+free, frame-synchronous task that tracks a single dominant
+speaker and reduces to conventional VAD when only one
+is present, and introduced BG-FAR and Foreground F1 to
+measure it. Our central finding is that foreground selectivity
+primarily comes from supervision: a fully automatic recipe
+pairing foreground-only labels with competing-speaker mixing
+turns an ordinary streaming VAD selective, and iso-parameter
+Mamba, LSTM, and Transformer backbones confirm that
+temporal-modeling capacity is at most a secondary factor. The
+resulting model, Mamba-FVAD, surpasses commercial VADs
+and enrollment-based speaker-aware systems on selectivity
+while staying competitive on conventional VAD and main-
+taining 1–2 ms per-frame CPU latency. The Mix-Interference
+benchmark will be released to support further study.
+The selectivity that drives these gains also bounds the
+method. Because the model commits to a dominant fore-
+ground, it under-fires when the target is not the domi-
+nant source: recall falls at extreme negative SNR on all-
+speech-positive benchmarks, and on out-of-distribution far-
+field speech (VOiCES) selectivity transfers but foreground
+recall drops under the acoustic shift. We also assume a single
+foreground speaker per segment, leaving turn-taking and co-
+equal speakers to future work.
+
+
+REFERENCES
+[1] S.
+Team,
+“Silero
+VAD:
+Pre-trained
+enterprise-grade
+voice
+ac-
+tivity detector (VAD), number detector and language classifier,”
+https://github.com/snakers4/silero-vad, 2024.
+[2] T. Team, “TEN VAD: A low-latency, lightweight and high-performance
+streaming voice activity detector (VAD),” https://github.com/TEN-
+framework/ten-vad.git, 2025.
+[3] S. Zhang, M. Lei, Z. Yan, and L. Dai, “Deep-FSMN for large vocabulary
+continuous speech recognition,” in IEEE International Conference on
+Acoustics, Speech and Signal Processing (ICASSP).
+IEEE, 2018, pp.
+5869–5873.
+[4] S. Ding, Q. Wang, S.-Y. Chang, L. Wan, and I. Moreno, “Personal
+VAD: Speaker-conditioned voice activity detection,” in The Speaker and
+Language Recognition Workshop (Odyssey 2020), 2020, pp. 433–439.
+[5] S. Ding, R. Rikhye, Q. Liang, Y. He, Q. Wang, A. Narayanan,
+T. O’Malley, and I. McGraw, “Personal VAD 2.0: Optimizing personal
+voice activity detection for on-device speech recognition,” in Inter-
+speech, 2022, pp. 3744–3748.
+[6] D. Wang, X. Xiao, N. Kanda, T. Yoshioka, and J. Wu, “Target speaker
+voice activity detection with transformers and its integration with end-to-
+end neural diarization,” in IEEE International Conference on Acoustics,
+Speech and Signal Processing (ICASSP), 2023, pp. 1–5.
+[7] P. R. R. Gudepu, J. M. Koroth, K. Sabu, and M. A. B. Shaik, “Dynamic
+encoder RNN for online voice activity detection in adverse noise
+conditions,” in Interspeech, 2023, pp. 5052–5056.
+[8] M.
+Sharma,
+S.
+Joshi,
+T.
+Chatterjee,
+and
+R.
+Hamid,
+“A
+comprehensive
+empirical
+review
+of
+modern
+voice
+activity
+detection
+approaches
+for
+movies
+and
+tv
+shows,”
+Neurocom-
+puting,
+vol.
+494,
+pp.
+116–131,
+2022.
+[Online].
+Available:
+https://www.sciencedirect.com/science/article/pii/S0925231222004635
+[9] X. Shi, X. Wang, Z. Guo, Y. Wang, P. Zhang, X. Zhang, Z. Guo, H. Hao,
+Y. Xi, B. Yang, J. Xu, J. Zhou, and J. Lin, “Qwen3-ASR technical
+report,” 2026. [Online]. Available: https://arxiv.org/abs/2601.21337
+[10] M. Rouvier and M. Mohammadamini, “Far-field speaker recognition
+benchmark derived from the DiPCo corpus,” in Proceedings of the
+Thirteenth Language Resources and Evaluation Conference (LREC),
+N. Calzolari, F. B´echet, P. Blache, K. Choukri, C. Cieri, T. Declerck,
+S. Goggi, H. Isahara, B. Maegaard, J. Mariani, H. Mazo, J. Odijk,
+and
+S.
+Piperidis,
+Eds.
+Marseille,
+France:
+European
+Language
+Resources Association, 2022, pp. 1955–1959. [Online]. Available:
+https://aclanthology.org/2022.lrec-1.209/
+[11] J. Chen, Y. Hu, J. Li, K. Li, K. Liu, W. Li, X. Li, Z. Li,
+F. Shen, X. Tang, M. Wei, Y. Wu, F. Xie, K. Xu, and K. Xie,
+“FireRedChat:
+A
+pluggable,
+full-duplex
+voice
+interaction
+system
+with cascaded and semi-cascaded implementations,” 2025. [Online].
+Available: https://arxiv.org/abs/2509.06502
+[12] N. Zeghidour, O. Teboul, F. de Chaumont Quitry, and M. Tagliasacchi,
+“LEAF: A learnable frontend for audio classification,” International
+Conference on Learning Representations (ICLR), 2021.
+[13] A.
+Gu
+and
+T.
+Dao,
+“Mamba:
+Linear-time
+sequence
+modeling
+with
+selective
+state
+spaces,”
+2024.
+[Online].
+Available:
+https://arxiv.org/abs/2312.00752
+[14] S. Hochreiter and J. Schmidhuber, “Long short-term memory,” Neural
+Computation, vol. 9, no. 8, pp. 1735–1780, 1997.
+[15] Q. Zhang, M. Chen, Z. Song, H. Liu, X. Zhang, and H. Li, “Long-context
+modeling networks for monaural speech enhancement: A comparative
+study,” in IEEE Workshop on Applications of Signal Processing to Audio
+and Acoustics (WASPAA), 2025, pp. 1–5.
+[16] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez,
+L. Kaiser, and I. Polosukhin, “Attention is all you need,” Advances in
+Neural Information Processing Systems, vol. 30, 2017.
+[17] C. Richey, M. A. Barrios, Z. Armstrong, C. Bartels, H. Franco,
+M. Graciarena, A. Lawson, M. K. Nandwana, A. Stauffer, J. van Hout,
+P. Gamble, J. Hetherly, C. Stephenson, and K. Ni, “Voices Obscured
+in Complex Environmental Settings (VOiCES) Corpus,” in Interspeech,
+2018, pp. 1566–1570.
+[18] F. Jia, S. Majumdar, and B. Ginsburg, “MarbleNet: Deep 1D time-
+channel separable convolutional neural network for voice activity de-
+tection,” in IEEE International Conference on Acoustics, Speech and
+Signal Processing (ICASSP), 2021, pp. 6818–6822.
+[19] S. Zhao, Z. Pan, and B. Ma, “Clearervoice-studio: Bridging advanced
+speech processing research and practical deployment,” 2025. [Online].
+Available: https://arxiv.org/abs/2506.19398
+[20] A. D´efossez, G. Synnaeve, and Y. Adi, “Real time speech enhancement
+in the waveform domain,” in Interspeech, 2020, pp. 3296–3300.
+[21] D. Liang, N. Shao, and X. Li, “Frame-wise streaming end-to-end speaker
+diarization with non-autoregressive self-attention-based attractors,” in
+IEEE International Conference on Acoustics, Speech and Signal Pro-
+cessing (ICASSP), 2024, pp. 10 521–10 525.
+[22] D. Liang and X. Li, “LS-EEND: Long-form streaming end-to-end
+neural diarization with online attractor extraction,” IEEE Transactions
+on Audio, Speech and Language Processing, vol. 33, pp. 3568–3581,
+2025.
+[23] H. Bredin, R. Yin, J. M. Coria, G. Gelly, P. Korshunov, M. Lavechin,
+D. Fustes, H. Titeux, W. Bouaziz, and M.-P. Gill, “Pyannote.Audio:
+Neural building blocks for speaker diarization,” in IEEE International
+Conference on Acoustics, Speech and Signal Processing (ICASSP), 2020,
+pp. 7124–7128.
+[24] I. Stylianou, A. kr. Sarkar, N. Dawalatabad, J. Glass, and Z.-
+H. Tan, “LibriVAD: A scalable open dataset with deep learning
+benchmarks for voice activity detection,” 2025. [Online]. Available:
+https://arxiv.org/abs/2512.17281
+[25] H. Dubey, V. Gopal, R. Cutler, A. Aazami, S. Matusevych, S. Braun,
+S. E. Eskimez, M. Thakker, T. Yoshioka, H. Gamper, and R. Aichner,
+“ICASSP
+2023
+deep
+noise
+suppression
+challenge,”
+IEEE
+Open
+Journal of Signal Processing, vol. 5, pp. 725–737, 2023. [Online].
+Available: https://www.microsoft.com/en-us/research/publication/icassp-
+2023-deep-noise-suppression-challenge/
+[26] V. Panayotov, G. Chen, D. Povey, and S. Khudanpur, “Librispeech: An
+ASR corpus based on public domain audio books,” in EEE International
+Conference on Acoustics, Speech and Signal Processing (ICASSP), 2015,
+pp. 5206–5210.
+[27] M. Ravanelli, T. Parcollet, P. Plantinga, A. Rouhe, S. Cornell, L. Lu-
+gosch, C. Subakan, N. Dawalatabad, A. Heba, J. Zhong, J.-C. Chou,
+S.-L. Yeh, S.-W. Fu, C.-F. Liao, E. Rastorgueva, F. Grondin, W. Aris,
+H. Na, Y. Gao, R. D. Mori, and Y. Bengio, “SpeechBrain: A general-
+purpose speech toolkit,” 2021, arXiv:2106.04624.
+[28] Z. Gao et al., “FunASR: A fundamental end-to-end speech recognition
+toolkit,” in Interspeech, 2023.
+[29] J. S. Chung, J. Huh, A. Nagrani, T. Afouras, and A. Zisserman, “Spot
+the conversation: Speaker diarisation in the wild,” in Interspeech, 10
+2020, pp. 299–303.
+APPENDIX A: FOREGROUND F1 ALGORITHM
+Algorithm 1: Foreground F1. Positives are foreground-
+speech frames; precision penalizes any activation on a
+foreground-silent frame (silence, noise, or competing
+speech), recall penalizes missed foreground speech.
+Input: model f; threshold θ = 0.5; clips (x, y) with
+foreground labels y
+Output: Foreground F1
+TP ←0, FP ←0, FN ←0;
+foreach clip (x, y) do
+p ←f(x);
+// per-frame foreground
+posteriors
+for t ←1 to T do
+ˆyt ←[ pt ≥θ ];
+// 1 if pt ≥θ, else 0
+if ˆyt = 1 and yt = 1 then
+TP ←TP + 1
+else if ˆyt = 1 and yt = 0 then
+FP ←FP + 1
+else if ˆyt = 0 and yt = 1 then
+FN ←FN + 1
+P ←TP/(TP + FP), R ←TP/(TP + FN);
+return 2PR/(P + R);
+
+
+APPENDIX B: BG-FAR ALGORITHM
+Algorithm 2: Background False-Alarm Rate (BG-
+FAR).
+LOGENERGY
+returns per-frame log-energy
+Et = 10 log10( 1
+H
+PH
+i=1 x2
+(t−1)H+i) on the 31.25 Hz
+grid (H=512); the reference xr is the noise_only
+take (Mix-Interference) or the none take (VOiCES).
+Input: model f; threshold θ = 0.5; margin δ = 6 dB;
+clips paired as (xc, xr, y) – condition xc
+(foreground + competing speaker), matched
+reference xr (same scene, no competing
+speaker), foreground labels y
+Output: BG-FAR
+n ←0;
+// false alarms on
+background-active frames
+d ←0;
+// total background-active
+frames
+foreach paired clip (xc, xr, y) do
+p ←f(xc);
+// per-frame foreground
+posteriors
+Ec ←LOGENERGY(xc),
+Er ←LOGENERGY(xr);
+for t ←1 to T do
+if yt = 0 and Ec
+t −Er
+t > δ then
+d ←d + 1;
+if pt ≥θ then n ←n + 1;
+return n/d;
+GENERATIVE AI USE DISCLOSURE
+Generative AI tools (ChatGPT, Claude) were used for
+grammar checking and polishing the English writing of this
+manuscript. All technical content, experimental design, and
+scientific conclusions were produced entirely by the authors.
