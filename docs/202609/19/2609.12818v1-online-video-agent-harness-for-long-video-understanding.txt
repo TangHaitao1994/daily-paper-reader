@@ -1,0 +1,975 @@
+Title: Online Video Agent Harness for Long Video Understanding
+
+URL Source: https://arxiv.org/pdf/2609.12818v1
+
+Published Time: Mon, 14 Sep 2026 01:23:53 GMT
+
+Number of Pages: 36
+
+Markdown Content:
+# Online Video Agent Harness for Long Video Understanding 
+
+Sen Yang *, Boqiang Duan *, Jing Yang †, Weihao Bo †, Jie Liu †, Boyuan Tong †, Ze Feng †, Wenkang Zhang †,Jingdong Wang, Hua Wu Baidu Inc. 
+
+Abstract 
+
+Long video understanding often behaves like a visual needle-in-a-haystack problem: query-relevant evidence is sparsely distributed across long temporal spans, while packing dense frames into a single VLM context incurs context rot and high cost. Existing video agents often rely on query-agnostic offline preprocessing or ad hoc tool sets, which can miss query-specific details and waste computation. In this work, we present VideoXAgent, a purely online video-agent harness for long video understanding that starts from the given video file and user query, plans and decomposes the task, invokes specialized expert tools on demand, and aggregates multimodal evidence to produce a final answer while resolving conflicts among observations. To support this on-demand invocation, we design a suite of heterogeneous expert tools guided by a data-driven taxonomy of atomic capabilities, spanning scripts, VLMs, and domain models (e.g., detection, OCR, ASR, face recognition). The harness further enforces objective evidence prompting and budget-aware control to curb hallucination and non-termination. Across Video-MME-Long, LongVideoBench-Long, LVBench, and MINERVA, VideoXAgent is competitive with frontier LMMs and video agents under a smaller context footprint—about 50k tokens of agent context per sample, even on hour-long videos. In particular, on complex video-reasoning benchmarks such as MINERVA, it matches this level while using only about 15% of the context of a 1,024-frame dense-packing baseline. Notably, the harness remains effective with a visually weak or even text-only orchestrator, suggesting that strong long-video understanding can emerge from progressive agentic evidence seeking rather than from packing the full video into a single context. 
+
+Date: September 14, 2026 
+
+Project page: https://go-agent-x.github.io/video_agent_harness/ (a) Prior agents: offline parsing → online search      
+
+> Video V
+> Offline parsing
+> query-agnostic
+> Hierarchical In-dex / memory
+> full-video tree-based content
+> Agent
+> search over hierarchical indices Answer A
+> Query Q
+> × query unused until after indexing × query-specific details may be dropped
+> (b) Ours: purely online exploration of a black-box video
+
+? 
+
+> Raw file V
+
++ Query Q Agent       
+
+> on-demand observations and actions relevant evidence
+> Answer A
+> ✓no offline preprocessing ✓query-conditioned ✓details preserved on demand
+
+Figure 1: Two video-agent paradigms. (a) Prior agents first run a query-agnostic preprocessing stage: they split the full video into fixed-length segments, uniformly sample frames, and parse it offline into an intermediate database or hierarchical memory. Query-specific reasoning and retrieval begin only after this index exists, so evidence not preserved by the fixed sampling can be missed, and a full-video cost is incurred before any query. (b) Our purely online agent starts from the raw video file together with the user query, and acquires task-relevant evidence on demand by invoking tools on query-conditioned spans. 
+
+> ∗
+
+Equal contributions. Contact Email: yangsenius@gmail.com, firestonelib@gmail 
+
+> †
+
+The work was done when Jing Yang, Weihao Bo, Jie Liu, Boyuan Tong, Ze Feng, and Wenkang Zhang were interns at Baidu. 
+
+1arXiv:2609.12818v1 [cs.CV] 11 Sep 2026 1 Introduction 
+
+Long video understanding is a key multimodal application and a practical test of the long-context capa-bilities of large models. A long-form video—such as a short film, animation, vlog, movie, or any other kind of video recording—may run from tens of minutes to several hours. Even with sparse sampling at 1 FPS, such videos can contain thousands of frames. Under the standard processing paradigm for large multimodal models (LMMs), this can easily lead to contexts with millions of tokens, far beyond the effective context length of most models and thus prone to context degradation [16, 39]. Existing model-based solutions typically rely on direct model understanding: dynamically sampled or low-resolution frames are packed into the context window to provide broad temporal coverage, as in methods such as Qwen2.5/3-VL [2, 1] and Kimi-K2.5 [17]. However, when the distribution of relevant information in the video cannot be assumed in advance, uniform downsampling has two major drawbacks: (1) it may miss critical frames that contain query-relevant evidence; (2) it also introduces many irrelevant frames from unrelated temporal segments, which can further interfere with visual reasoning. Some recent methods, such as VideoThinker [19], LongVT [40], and Doubao-Seed-1.8/2.0 [5, 6], attempt to first reason about potentially relevant temporal intervals and then perform dense sampling within those segments to inspect details and identify evidence. Nevertheless, these methods still mostly pack frames into one model con-text. They make limited use of non-visual signals such as speech, on-screen text, and video structure, and do not treat long video understanding as a multi-step process of seeking evidence and jointly reasoning across modalities. In this context, it is natural to use the agentic paradigm to solve long video understanding, as the agent can adaptively interpret both the video content and the user query, decompose the problem into intermediate subproblems, and selectively invoke specialized tools to acquire task-relevant evidence. However, many existing video-agent systems, such as DVD [43] and HAVEN [42], still rely on a query-agnostic preprocessing stage before agentic reasoning begins. In such a stage, they usually split the full video into fixed-length segments, uniformly sample frames, combine audio content, and parse the video offline into an intermediate database or hierarchical memory. Only after this precomputation step do they perform query-specific agentic reasoning and retrieval. Nevertheless, this two-stage pipeline still inherits the limitations of fixed sampling, can overlook query-specific evidence that was not preserved during preprocessing, and incurs substantial computational overhead, particularly for long videos. In this work, we propose a purely online agentic paradigm for long video understanding, together with a principled agent harness that follows contemporary agent-design principles: the agent adaptively reasons over the video content and the user query, decomposes the task into multiple continuous steps, and selectively invokes external tools to acquire task-relevant evidence. Within this agentic paradigm, the orchestrated models play a fundamentally different role from VLMs in conventional video-understanding pipelines. Instead of loading the entire video context at once, they act as adaptive reasoners, treating the video as a black box and progressively disclosing evidence via intermediate reasoning and on-demand tool invocation. This interactive and query-conditioned process is particularly suitable for long videos, where the information required to answer a question is often sparsely distributed across time and may involve heterogeneous modalities, including visual events, speech, text, faces, objects, and temporal relations. Figure 1 contrasts this offline-then-online pipeline with a purely online alternative that never materializes a query-agnostic index. As for the agent orchestration process, we also consider the problem from another perspective: the capabilities that video understanding requires, and the corresponding tool design. Current video-agent designs, however, often choose those tools in an ad hoc manner, based mainly on human intuition. Although such designs can be effective for selected scenarios, they lack a systematic account of what capabilities are intrinsically required by complex and long-tail video understanding scenes. As a result, existing agents may include redundant tools, miss important atomic capabilities, or provide tools whose interfaces are too ambiguous for reliable orchestration. This suggests that building a strong and online long video agent requires not only adding more tools, but also designing a principled tool space and a specialized agent harness that reflect the underlying capability structure of video understanding. The challenge is that a query rarely requires a single capability. Depending on the video and the question, answering it may require temporal or spatial localization, audio understanding, and logical inference. These underlying capabilities are difficult to annotate manually or infer reliably from video– question pairs. Existing benchmarks mainly label question formats, genres, or coarse task types, and therefore provide little guidance for decomposing a question into atomic capabilities. To address this gap, rather than subjectively defining the required capabilities, we empirically discover a comprehensive taxonomy of atomic capabilities directly from the reasoning processes of human experts. We then use this 2Figure 2: Accuracy and efficiency comparison on long video understanding benchmarks. Left: LVBench accuracy across representative methods; the HAVEN value is the visual-only ablation without subtitles or audio. Right: Video-MME-Long accuracy against input-context cost. For our method, context length includes the total agent context and the visual tokens of frames processed by the VLM tools for a single video; for the remaining models, it is estimated from the reported number of processed frames at 256 tokens per frame. taxonomy as a blueprint for expert-tool design, mapping each capability to specialized tools spanning scripts, VLMs, and domain models. The online agent decomposes the query over this tool space and acquires evidence only as needed. Figure 2 shows the performance and efficiency of this design. Under the online, taxonomy-guided har-ness, the agent reaches competitive accuracy on challenging benchmarks such as LVBench and VideoMME-long at a smaller input-context cost than packing the full video or performing extensive preprocessing, by adaptively exploring only the evidence needed for the query. We summarize the three contributions behind this result as follows. • Purely online video-agent orchestration and harness. We propose a query-time agent that starts from the raw video file and the user query, decomposes the task into tractable subproblems, invokes expert tools on demand, and aggregates multimodal evidence into a final answer. Unlike pipelines that first parse the full video offline or pre-build a hierarchical content database index, the agent acquires evidence only when it is needed for the current query. We follow principled agent-design practices and further specify tool functionalities and boundaries to reduce ambiguity and misuse, and use compact VLM tools when the relevant evidence already fits a short-video context. • Atomic capability mining and expert-tool design. We mine a taxonomy of fine-grained atomic capabilities from MINERVA expert reasoning traces, and use it as the instrution for tool design to cover various and long-tail cases. This yields 60+ expert tools backed by scripts, VLMs, and specialist models (Grounding-DINO [21], WhisperX [3], PaddleOCR [8], etc.) for subproblems such as overview, detection, OCR, ASR, and face recognition. • Frontier-level accuracy under a compact online budget. On Video-MME-Long, LVBench, and MINERVA, VideoXAgent reaches 85 .1% , 76 .5% , and 65 .7% with about 50k agent context, even on hour-long videos. This is competitive with frontier LMMs such as Seed-2.0-pro [6] and Gemini-3.1-Pro [15] at a smaller visual footprint than prior video agents. The same harness also brings a visually weak or text-only orchestrator to this level, showing that long video performance can come from agentic tool use. 
+
+# 2 Related Work 
+
+2.1 Large Multimodal Models for Long Video Understanding 
+
+Large Multimodal Models (LMMs) have shown native capabilities in handling long video understanding tasks due to their long-context capabilities, which can put all multi-frame visual tokens into the context window to comprehensively capture the video content. Powerful open-source and commercial LMMs such as Qwen-VL series models [2, 1], Kimi-K2.5/K2.6 [17], Seed model series (Seed1.5-VL/1.8/2.0) [7, 5, 6], 3and Gemini 2.5/3/3.1 pro [11, 13, 14, 15] have shown strong performance on long video understanding benchmarks. However, as video duration grows, their performance remains tightly coupled to the frame-sampling strategy and to the model’s long-context capabilities. 
+
+2.2 Long Video Representation and Retrieval 
+
+Long video methods commonly reduce the raw visual stream into a searchable intermediate representation before answering a query. VideoRAG constructs graph-based textual knowledge together with multimodal context for retrieval over extremely long videos [31]. DrVideo converts long video understanding into a document-retrieval problem: it first transforms the video into a coarse text document, retrieves question-related frames, and then uses an agent loop to iteratively augment the document until enough evidence is available to answer [22]. VideoTree builds a query-adaptive hierarchical tree of keyframes and aggregates multi-granularity evidence in a coarse-to-fine manner for LLM reasoning [37]. MR. Video instead applies a MapReduce principle: it densely analyzes short clips in parallel (Map) and then aggregates clip-level evidence for global reasoning (Reduce) [25]. DVD builds a multi-granular database of segmented clips and exposes search-centric tools over that database [43], while HAVEN organizes audiovisual entities into a hierarchical tree for agentic search [42]. These approaches make extended videos tractable by shifting substantial perception and organization into an indexing or preprocessing stage. Our work instead targets a purely online setting in which evidence is acquired on demand from the raw video for the current query, without requiring a pre-built video database or hierarchical memory. 
+
+2.3 Tool-Augmented Video Agents 
+
+VideoAgent establishes an iterative pattern in which an LLM plans, retrieves a small set of relevant frames through visual tools, and accumulates observations before answering [36]. Video-Thinker instead trains an LMM with reinforcement learning to perform temporal grounding and captioning inside the reasoning trace, so that tool-like evidence acquisition is internalized rather than invoked through an external tool interface [33]. More recent methods strengthen this interaction through different forms of visual tool use within a ReAct loop [41]: LongVT interleaves reasoning with native temporal cropping and fine-grained resampling [40]. VideoSeek uses a think–act–observe loop and multi-granular tools to seek answer-critical evidence [20], DrVideo iteratively retrieves and augments a text document of the video [22], and DVD and HAVEN couple agentic search with structured video representations [43, 42]. Complementary to these video-agent systems, EDC uses off-the-shelf visual specialists to enrich descriptive captions with fine-grained object attributes and relations, demonstrating that specialist evidence can improve multimodal perception and downstream reasoning [32]. EDC focuses on image-caption enhancement, sharing the spirit of using visual models as tools, whereas our work orchestrates heterogeneous expert tools for query-conditioned, purely online evidence acquisition over long videos. Together, these works show the value of adaptive evidence acquisition, but they primarily specify their tool sets through system-level design choices or bind agent actions to a particular indexed representation. VideoXAgent instead derives an atomic capability taxonomy from expert reasoning traces and maps those capabilities to heterogeneous expert tools, so that a query-conditioned agent can plan and decompose the task without a pre-built long video representation. 
+
+# 3 Method 
+
+3.1 Overview 
+
+3.1.1 Problem formulation 
+
+Given a video file V and a natural-language query Q, the goal of the video-understanding task is to produce an accurate answer A that is consistent with the video content and directly addresses the query. Our setting is purely online: the agent starts from the raw input video at query time and may inspect or transform only the portions required by the current reasoning trajectory, rather than assuming an offline preprocessing pass or a preconstructed hierarchical representation of the full video. We formulate this process as A = Agent( V, Q, T, B ), where T = {t1, . . . , t M } denotes the set of expert tools available to the agent and B denotes the execution budget. Here, V refers to the path of the video file rather than a sequence of decoded video frames placed directly in the model context. At step k, the agent maintains a state sk = ( Q, H k, b k), where Hk contains the accumulated tool calls, observations, and evidence, and 
+
+bk is the remaining budget. Based on this state, the agent either invokes a tool with query-specific 4Video Agentic Framework for Long Video Understanding with Multi-modal Atomic Tools 
+
+A= Agent(V, Q, T)  V: long video (thousand of frames) Q: query T: tools A: answer 
+
+> Content Rec.
+> (what happens)
+
+Visual Evidence
+(frames, crops, objects...) 
+
+Textual/Audio Evidence
+(OCR, subtitles, audio) 
+
+> Agent
+> (Orchestrator)
+> Observe & Reflect
+> Aggregate evidence & check consistency, identify gaps
+> Refine
+> Update plan or subprolems
+> Overview
+> (when/where)
+> Scene/Event/ Object Detection
+
+Long Video (V) 
+
+Aggregate Multi-modal Evidence 
+
+> Thinking & Plan
+> Understanding goal & next strategy
+
+Invoke Atomic tools (T) 
+
+> Audio/Subtitle
+> (what is said)
+> Execute
+> Invoke atomic tools
+
+Temporal Evidence
+(timeline, associations) 
+
+Structured Evidence
+(counts, status, comparsion) 
+
+> Object/ Action/Event Counting
+> Decompose
+> Break into sub-problems
+> Tracking/ Comparison/ ReID
+
+Sub-problems (an example with 58 min video duration)
+Locate timestamp using “Sicily to Libya and some technical”
+Visual Inspection the image at 2917s
+
+
+
+
+3. Detect red arrow, white chair, blue water tank, black camera, black phone, using DINO-X
+4. Query objects using VLM inspect image tool
+"What objects can be seen in the frame? Choose from: A. red arrow, B. white chair, C. blue water tank, D. black camera, E. black phone.
+5. Ambiguity Resolution using VLM inspect image tool (Refine)
+“Between ‘black camera’ and ‘black phone’, which one is the most accurate and undeniable object present in the image? Choose only one.” 
+
+> ...
+
+When the subtitle 'Sicily to Libya and some technical' appears, what objects can be seen in the frame?
+A. red arrow B. white chair C. blue water tank D. black camera E. black phone 
+
+Final analysis and Answer (A) 
+
+> Locating the Subtitle: The subtitle "Sicily to Libya and some technical" appears at approximately 2917.2 seconds.
+> Visual Inspection: Extracting and inspecting the frame at this exact timestamp (2917.5s) shows three men sitting around a table.
+> Object Identification: While there is a dark rectangular object on the table that could be a phone or a tablet, the black camera is the most prominent, distinct, and undeniable object among the options.
+> Answer : D.
+
+A natural query (Q) Figure 3: System architecture overview. At inference time, given a long video (e.g., 3600 frames, up to several million tokens if being processed by a VLM), the agent decomposes user queries into sub-problems, invokes expert tools, and aggregates multi-modal evidence. arguments or produces the final answer. The sequence of states, tool calls, and observations forms an execution trajectory τ .Our approach consists of three components: (1) A data-driven capability taxonomy that provides principled guidance for tool design. (2) A suite of 60+ expert tools and compositional workflows built upon this taxonomy. Each tool targets a specific atomic sub-problem. The workflows chain these tools for high-level reasoning. (3) A systematic video-agent harness that orchestrates these tools at inference time by adapting to the query and video duration, decomposing the query into sub-problems, invoking appropriate tools, aggregating multimodal evidence, and controlling the execution budget to prevent unbounded loops. Overall, the agent operates in an iterative loop, as illustrated in Figure 3: thinking and planning ,
+
+decomposition , execution through tool invocation, reflection , and refinement . The loop continues until the agent obtains sufficient evidence to produce an answer or the remaining budget cannot support another tool round, at which point it returns an answer using the evidence already collected. 
+
+3.2 Capability Mining and Expert Tool Design 
+
+Existing benchmarks such as LongVideoBench [38], VideoMME[10], and LVBench [34] mainly classify question formats, video genres, or coarse task types; they therefore provide limited guidance for decom-posing complex tasks into atomic capabilities and equipping models or agents with tools that cover them. To address this gap, rather than subjectively defining the required capabilities, we take a data-driven 5From human reasoning to a taxonomy that guides tool design 
+
+question 
+
+video                                                                                                          
+
+> How many drones shots occur before the man goes to Flyer's?
+> Options：A. 5. B. 1. C. 4. D. 2. Ilooked for the time the man goes to Flyer's and find it at 01:08 --Flyer's is the name of arestaurant at which he eats. Knowing this Ilooked from 00:00 to 01:08 to find any drone shots. Shots that move without handheld motion while also capturing views high above the ground are good candidates. Ilooked for these and found my first from 00:11 to 00:17, my second from 00:28 to 00:36, and my third just before the shot of the restaurant, from 01:05 to 01:08. Therefore, Iconcluded their are 3drones shots.
+
+human expert reasoning  answer: D. 2
+
+Capability extraction         
+
+> LLM-based prompting
+> Name Embedding &Clustering Human Filtering &Merge
+> Final Taxonomy
+
+Data-driven Video Understanding Capability Taxonomy 
+
+Visual perception    
+
+> visual description
+> object detection
+> OCR Action &Event perception
+> ...
+
+Temporal Relation   
+
+> Temporal localization
+> State change &transition
+> Temporal continuity
+> ...
+
+Spatial Relation   
+
+> Spatial positioning
+> spatial relationship
+> Tracking &Trajectory
+> ...
+
+Audio-Visual
+Association    
+
+> ASR
+> Audio-visual cross reference
+> Audio event detection
+> ...
+
+High-level
+Reasoning   
+
+> Mathemati c
+> universal counting
+> Sequential &Ordinal Reasoning
+> ...
+
+Taxonomy-Guided Tool & workflow Design 
+
+Design 60+ expert tools and combined workflows targeting these capabilities
+Tool backends: basic scripts, VLM tools, visual models (SAM, DINOX, Insightface ...), audio models (Whisper-X) ... Figure 4: Capability mining pipeline. Starting from MINERVA human-expert reasoning traces 
+
+(Q, R, A, O ), we extract atomic capabilities by LLM prompting, merging clustering, and refine the result with human filtering. The resulting five-category taxonomy then guides the design of expert tools and compositional workflows. approach and mine a taxonomy of atomic capabilities from human reasoning traces. Figure 4 summarizes this pipeline. Specifically, we use the MINERVA [24] benchmark as our primary source, because it provides detailed human-expert reasoning annotations as (Q, R, A, O ) tuples, where Q denotes the question, R the human reasoning trace, A the ground-truth answer, and O the candidate options when available. By analyzing these reasoning traces, we observe the cognitive trajectories that human experts follow when solving complex video understanding questions, thereby inspiring the design of various expert tools that video agents can use. It must be explicitly emphasized that the only information extracted from these annotations is a high-level capability taxonomy for general video understanding, rather than any ground-truth instance data. We adopt this extracted taxonomy purely as a design blueprint to construct dedicated expert tools and orchestrate their compositional workflows for tackling complex video tasks. No concrete example data is exposed, memorized, or disclosed. Based on this principle, our bottom-up mining process consists of four main steps: 1. LLM Prompting: For each task quadruple (Q, R, A, O ) (representing the query, human reasoning trace, ground-truth answer, and candidate options), we prompt an LLM to reverse-engineer the cognitive trajectory R. To prevent hallucination, the model must output a structured JSON schema where each extracted capability is explicitly grounded by quoting direct reasoning_evidence from 
+
+R.2. Merging & Filtering: We first normalize surface-form variants, then merge long-tail, low-frequency capabilities into semantically similar high-frequency ones using cosine similarity on all-MiniLM-L6-v2 
+
+embeddings [35, 29]. 3. Embedding & Clustering: We encode the merged capability names into dense vectors and apply 
+
+K-means clustering, selecting K by the silhouette score, then we manually review to refine cluster boundaries. 4. Final Taxonomy: This iterative process yields a consolidated taxonomy of 22 atomic capabilities across 5 distinct categories: Visual Perception, Temporal Relation, Spatial Relation, Audio-Visual ,and High-Level Reasoning .6Details of the mining pipeline are given in the Appendix (Sec. C). A key insight derived from this methodology is that essential capabilities must be discovered from the actual reasoning process of solving video questions, rather than inferred from macroscopic task-level labels or subjective assumptions. An illustrative decomposition of a paraphrased sports query is provided in Appendix Table 11. It shows how a query that appears to require only a coarse task label can involve several fine-grained capabilities in the underlying reasoning trace. As detailed in Table 6, our framework uses these trace-level observations to construct a bottom-up taxonomy rather than relying on top-down task labels. By grounding tool design in observed human reasoning trajectories, we aim to equip our agent with atomic capabilities relevant to complex video reasoning. The mined taxonomy guides both atomic tool design and workflow composition. Well-defined percep-tual or retrieval capabilities map to focused tools, whereas comparison, cross-modal fusion, and logical inference map to multi-tool workflows, as summarized in Table 7. Each tool specifies its media scope, task-specific inputs, and expected outputs, while hiding backend-specific execution behind a common interface (Appendix Table 9). Tool observations are aligned by video, temporal, and spatial references, enabling workflows such as temporal localization followed by dense inspection and targeted OCR, detection, or audio analysis. Empty results and execution errors remain explicit observations, allowing the agent to revise the call, select another tool, or answer from the available evidence. 
+
+3.3 Video Agent Orchestration and Harness 
+
+3.3.1 ReAct-style Agent Loop 
+
+Overall, our video agent follows a ReAct-style paradigm consisting of the following steps: 1. Think and Plan: At the outset, the agent reasons solely from the user query and identifies the required information. The LLM initially generates a rough plan based on its understanding of the question and the provided options. Since the agent has no prior knowledge of the video content, it first uses basic tools to obtain the video duration and may invoke audio or subtitle tools to acquire preliminary cues. Once a coarse picture of the video emerges, the agent decomposes the user query into multiple subproblems and records their progress in the execution trajectory. Note that the plan may also be updated or revised based on observations from tool outputs. Some overview or scene caption tools may also be invoked to build a high-level understanding of the video. 2. Decompose and Act: For each subproblem, the agent maps the required capability to an atomic tool or compositional workflow, as summarized in Table 7. It then instantiates task-specific argu-ments, such as a subquery, sampled frames, a spatial region, or start and end timestamps. The selected backend analyzes this bounded media scope and returns an observation for the next rea-soning step. Section 3.3.2 further details how tools and workflows are selected and how their observations are aggregated. 3. Observe and Reflect: The agent links the observation to its tool call and media scope, then determines whether it resolves the current subproblem or reveals missing, ambiguous, conflicting, or failed evidence. 4. Continue or Finish: If required evidence remains unresolved, the agent updates the plan and continues the loop. Otherwise, or when another useful round exceeds the remaining budget, it stops tool use and synthesizes the final prediction. The orchestrator is instructed by a single system prompt that encodes this loop together with tool-efficiency limits, duration-aware routing, and a required answer format. The full prompt is given in Appendix D. 
+
+3.3.2 Tool/Workflow Selection and Evidence Aggregation Tool and workflow selection. Tool selection is conditioned on the current subproblem, the required modality, and the media scope already identified in the trajectory. The agent uses direct VLM inspec-tion for general visual interpretation and routes specialized requirements to the corresponding expert tools, such as OCR for embedded text, transcription for speech, detection or tracking for object-centric questions, and temporal retrieval for event localization. When a subproblem requires several dependent 7operations, the agent invokes a workflow whose outputs narrow the inputs of subsequent tools. Inde-pendent analyses over multiple segments or modalities can be batched or executed in parallel when their interfaces permit, while dependent calls remain sequential. 
+
+Objective visual evidence prompting. Because the agent decomposes the user query into interme-diate VLM sub-queries, these sub-queries may contain implicit presuppositions that take the existence of an event, object, action, or temporal relation as given before any visual check. A VLM may then confirm such assumptions even when the supplied visual evidence is incomplete or ambiguous. To reduce this failure mode, we wrap every VLM-based tool with a shared objective-evidence contract that treats the incoming sub-query as a hypothesis to be verified rather than a fact to be accepted. Under this contract, the model grounds its response only in the media supplied to the current call, such as sampled frames, image crops, thumbnail grids, or scene segments. Auxiliary signals, including subtitles, OCR strings, and detector outputs, may be used as tool-generated context, but must be explicitly separated from directly visible evidence. The model is also instructed not to assert identity, intent, emotion, causality, exact counts, small text, or fine-grained spatial relations unless the supplied evidence is sufficiently clear; otherwise, it should state the limitation explicitly. Each VLM tool returns a structured response with 
+
+visual_evidence , answer , and uncertainty fields, with tool-specific variants for scene captioning and directed scene queries. This structure allows the orchestrator to distinguish grounded observations from interpretations and to propagate uncertainty during multi-tool evidence aggregation. We refer to these constraints as the objective rules ; their contribution is evaluated in Table 3. 
+
+Evidence aggregation and conflict resolution. Each observation is associated with its originating tool and available temporal or spatial reference before being added to the evidence state. The agent aggregates complementary visual, textual, audio, and structured observations according to their relevance and specificity to the query rather than assuming that all outputs are equally reliable. When observations conflict, it first checks whether they refer to different times, regions, entities, or interpretations; unresolved conflicts trigger targeted verification with refined inputs or an alternative tool. Final answer synthesis uses only the evidence retained after conflicts are resolved, distinguishes direct observations from agent inference, and answers the query or selects an option without reproducing the full execution trace. 
+
+Illustrative example. To answer a sports query about which play sequence caused the score to become 
+
+24 –13 , the agent first uses temporal retrieval or scene captions to identify candidate scoring intervals. Within those intervals, OCR traces scoreboard changes, while visual inspection or action recognition identifies the corresponding plays. The observations are aligned by timestamp to construct the event sequence; if a recognized play does not match the scoreboard transition, the agent resamples that interval more densely or verifies it with an alternative tool before answering. 
+
+3.3.3 Adaptive Strategy for Video Length Routing principle. Video duration is an important routing signal, but the effective path also depends on whether the query-relevant visual and audio evidence can fit within the available model context. The agent therefore obtains basic video metadata first and adapts the temporal coverage and sampling granularity during execution rather than relying on a fixed duration threshold. 
+
+Short-video path. When the relevant content can be examined within a compact context, the agent favors direct video or multi-frame VLM analysis to preserve global event continuity. Expert tools are invoked selectively when the query requires information that broad visual inspection does not reliably expose, such as small text, a specific object or face, precise speech content, or a localized temporal relation. This path avoids constructing an unnecessary hierarchy and stops once the direct analysis and any targeted verification provide sufficient evidence. 
+
+Long-video path. For videos whose relevant evidence cannot be covered compactly, the agent follows a coarse-to-fine exploration strategy. It first builds a sparse temporal map from overview, scene, subtitle, or audio observations selected according to the query. It then localizes candidate intervals and applies denser visual sampling or specialized tools only within those intervals. If the evidence remains incomplete or inconsistent, the agent expands adjacent intervals, increases sampling density, or switches modality; 8it does not repeatedly resample the full video. The process terminates early when the required subprob-lems are resolved, while the shared execution budget and forced-answer mechanism bound unsuccessful exploration. 
+
+Budget control. A failure mode of ReAct-style agents is non-termination : when poor planning yields tool calls that return no useful evidence, the agent keeps repeating nearly the same calls; the many low-value observations that follow consume and pollute the context, which further degrades planning and traps the agent in a tool-calling loop that ends with no answer—wasting the entire trajectory’s compute. We control this with two complementary mechanisms, implemented as a lightweight middleware that operates purely on the message stream. (i) Hard step limit with forced answering. Each trajectory is capped at 
+
+L=125 node executions, counting model steps, tool-call messages, and corresponding tool-execution steps. Under the common three-node pattern, this is approximately 42 tool calls. When the remaining budget can no longer support another tool round, the middleware disables all tools ( tool_choice=none ) and the final model call must emit a textual prediction—so every run is guaranteed to produce an answer. (ii) Progressive budget warnings. At L=125 , most trajectories finish within 65% of the budget; runs that go beyond are almost always struggling. When consumption crosses 65% /80% /90% of L, the middleware therefore injects a single escalating message ( Notice /Warning /Critical , each fired once) that reports the remaining call budget and instructs the agent to stop redundant verification, resolve conflicting evidence by majority vote, and commit to a final answer. Both mechanisms leave the tools and decoding untouched; their effects are quantified in Sec. 4.4.1. 
+
+# 4 Experiments 
+
+4.1 Experimental Setup 
+
+We evaluate VideoXAgent on five long video understanding benchmarks that span diverse durations, themes, and reasoning demands. Unless otherwise noted, we report results on the full official evaluation splits (LongVideoBench-long, Video-MME-long, and LVBench); for MINERVA we use the publicly re-leased set, and for Video-MME-v2 a stratified subset, as detailed below. Table 1 summarizes the main comparison. • LongVideoBench [38] contains web videos of varying lengths up to one hour, together with subtitles, covering diverse themes and evaluating detailed retrieval and reasoning over long videos. We report results on its long split, which comprises 564 questions from 188 videos with durations between 900 and 3600 seconds. • Video-MME [10] is a comprehensive multimodal benchmark for long video understanding across diverse video types and temporal ranges. We evaluate on its long subset, which includes 900 questions from 300 videos with an average duration of 2,466 seconds. • LVBench [34] focuses on long-term memory and extended comprehension over multimodal inputs. It consists of 103 publicly sourced videos (e.g., TV series, sports, and surveillance) totaling about 117 hours, with an average duration of 4,101 seconds and 1,549 human-annotated questions; we evaluate on the full official set. As the original LVBench data has no subtitles, we disable transcripts, ASR, and other audio tools and use visual frames only, matching the wo. sub protocol in Table 1. • MINERVA [24] targets complex, multi-step video reasoning. The paper reports about 1.5K hand-crafted questions over videos ranging from under 2 minutes to over 1.5 hours, spanning domains such as short films, sports, and instructional content, with five answer choices and a detailed human reasoning trace per question. We evaluate on the publicly released JSON from the Neptune repository, 1 which contains 1,357 questions. • Video-MME-v2 [23] is a newly released progressive benchmark with 800 YouTube videos (average 10.4 minutes; 99% under 20 minutes) and 3,200 eight-way questions, each video bound to a fixed group of four. Considering the cost, we evaluate a video-level stratified subset of 118 videos / 472 questions: 6 videos from each of 10 relevance second_head classes, and roughly 3 videos from each of 21 logic Q4 third_head classes, keeping groups intact and category coverage near-uniform. The subset balances independently labeled relevance groups (60 videos / 240 QA) and causally chained 
+
+> 1https://github.com/google-deepmind/neptune#minerva
+
+9Table 1: Comparison with SOTA video agents and large multimodal models on long video understanding benchmarks. The frames/context column records the average per-example visual input frames for VLM tools and the maximum prompt context for the agent or LMM (agent context in DVD, HAVEN, and VideoSeek is not reported). LMM results on Video-MME-Long and Video-MME-v2 are from our evalu-ations under each model’s published configuration using official-APIs. Our agent uses Claude-Opus-4.6 with Gemini-3.1-Pro-preview VLM tools. LMM LVBench numbers follow the source default and may include native audio. ∗This is the result of visual-only ablation (71.7) in the paper of HAVEN. †Seed-2.0-pro does not report per-example context on LVBench; this result is the average input tokens when we use its official API for the LVBench samples.                                                                         
+
+> Method Type VideoMME Long (w. sub)
+> LongVideoBench Long (w. sub)
+> LVBench
+> (wo. sub)
+> VideoMME-v2 Stratified ( n=472 )
+> (w. sub)
+> Acc. frames/Context Acc. frames/Context Acc. Context Acc. Non-lin Score Context
+> Doubao-Seed-2.0-pro [6] LMM 85.5% ∼112k ––76.4% ∼96k †57.63% 40.26 49.1k Gemini-3.1-Pro-preview [15] LMM 86.2% ∼179k ––––59.96% 38.47 43.2k DVD [43] Video Agent ––68.6% 2,816 f/-74.2% 8,074 f/-–––VideoSeek [20] Video Agent 81.2% 15.9 f/-73.5% 29.6 f/-68.4% 92.3 f/-–––HAVEN [42] Video Agent 82.8% 1,645 f/-78.2% 943.5 f/-71.7% ∗2,702 f/-–––Ours Video Agent 85.1% 52.0 f/51k 78.1% 116.7 f/55.3k 76.5% 60.8 f/55k 61.28% 40.74 53.5k
+
+logic groups (58 videos / 232 QA). This yields exact uniformity over the 10 relevance classes and full coverage of all 21 logic classes. For the LongVideoBench ablation in Table 3, we draw a category-stratified sample of 150 questions from the long split, using the benchmark’s question categories as strata. For the budget-control study in Sec. 4.4.1, we evaluate on the 217-question loop-prone stress set defined in Appendix B.5. For VideoMME-v2, we report the benchmark’s nonlinear score together with the fine-grained ca-pability breakdowns summarized in Figure 6. The performance of LMMs on Video-MME-Long and Video-MME-v2 in Table 1 is from our own evaluations: we call each model’s official API following its published video-understanding configuration, on the same splits as our agent (the official long split for Video-MME-Long; the 118-video / 472-question stratified subset for Video-MME-v2). In the comparison and ablation tables, the frames/context column reports processed frame counts per-example and agent context lengths when available. For directly evaluated LMMs, frames and context refer to the same visual input consumed by the model, reported as a frame count or a context-token count, respectively. For video agents, the two quantities are distinct: frame counts refer either to frames processed by VLM tools or to frames materialized during offline index construction in two-stage agents such as DVD and HAVEN, while context denotes measured agent maximum context tokens when reported. We map the final assistant’s answer format to the official options; a wrong match or no match is counted as incorrect. 
+
+4.2 Implementation 
+
+We implement VideoXAgent as a ReAct-style orchestrator over a unified tool interface rather than as a monolithic video encoder. The toolkit is organized around the mined capability taxonomy in Appendix Table 6: each atomic capability is backed by one or more callable tools, while High-Level Reasoning capabilities are realized as compositional ReAct workflows rather than single calls (Appendix Table 7). As detailed in Appendix Tables 9 and 8, the current system exposes 60+ atomic tools spanning 14 
+
+backend families—including VLM-based visual inspection, Grounding-DINO/DINO-X detection [21, 30], PaddleOCR [8], WhisperX [3], PyAnnote [4], SAM/SAM2 [18, 28], CLIP retrieval [27], FFmpeg-based media extraction, and custom Python utilities—grouped into categories such as detection, OCR, tempo-ral/spatial analysis, audio processing, face & emotion, and basic video operations. Each tool receives a bounded media scope together with task-specific arguments such as sampled frames, timestamps, spatial crops, or sub-queries, and returns a structured observation that can be merged into the shared evidence state. Video preprocessing therefore remains query-conditioned: the system operates on the raw video path, uses FFmpeg or script backends (Appendix Table 8) only to extract the clips, frames, audio spans, or subtitle-aligned segments required by the current step, and avoids a separate offline full-video pars-ing stage. An exception is LVBench, where subtitle, ASR, and other audio tools are disabled and only visual frames are used. For VLM-based tools, we reuse the objective-evidence prompting protocol of Sec. 3.3.2, which records grounded evidence, answers, and uncertainty separately so that later aggrega-tion can distinguish direct observations from inferred conclusions. The orchestrator itself is conditioned 10 Table 2: Comparison on MINERVA against frontier LMMs. For our agent rows, we report the orchestrator (Agent) and VLM tool backend; LMM baselines do not use an external tool stack. Context is mean (min ∼max) tokens per example; Agent Steps is the mean number of tool-loop steps. †Result from the original MINERVA paper [24] (1,515 questions, with ASR; context tokens converted from the reported frames at 256 tokens/frame). ‡Gemini-3-Pro-preview result reported in the Doubao-Seed-1.8 paper [5].                                                
+
+> Method Type Agent VLM Acc. Context
+> avg (min ∼max)
+> Steps
+> avg
+> Gemini-2.5-Pro-Thinking [13] LMM ––64.7 †65.5k (256 f) –Gemini-2.5-Pro-Thinking [13] LMM ––66.2 †262.1k (1,024 f) –Gemini-3-Pro-preview [14] LMM ––65.0 ‡––Doubao-Seed-1.8 [5] LMM ––62.4 ––Doubao-Seed-2.0-pro [6] LMM ––66.5 ––Ours Video Agent GLM-5.2 Qwen3.6-35B-A3B 65.4 33.7k (17.7k ∼189.9k) 35.6 Ours Video Agent Claude-Opus-4.6 Qwen3.6-35B-A3B 65.7 37.1k (25.0k ∼97.6k) 27.5
+
+by the system prompt reproduced in Appendix D. The default execution budget follows Sec. 3.3.3: each trajectory is capped at L=125 node executions, with escalating warnings at 65% , 80% , and 90% of the budget and forced answering when another tool round no longer fits. Independent tool calls over disjoint temporal segments or modalities may be batched or run in parallel when their interfaces permit. We primarily use Claude-Opus-4.6 as the orchestrator, leveraging its strong agentic capabilities for competitive long video understanding. Its native long video perception remains comparatively limited; the observed gains stem from planning, tool use, and evidence aggregation, rather than from packing dense frames into a single context window. We further evaluate and ablate alternative orchestrators, including GLM-5.2 [12], Kimi-K2.6 [17], Gemini-3.1-Pro [15], DeepSeek-V4-Flash (2026-04-24-version) [9], and Doubao-Seed-2.0 [6]. For VLM-based tool backends, we mainly use Gemini-3.1-Pro-preview [15] via API and Qwen3.6-35B-A3B [26] via local deployment. 
+
+4.3 Comparison with State-of-the-Art Large Multimodal Models and Video Agents 
+
+We compare our approach with representative video agents and frontier multimodal models across mul-tiple long video understanding benchmarks. For each benchmark subset, we report accuracy and the number of input frames or maximum context length when available. Table 1 shows that VideoXAgent is competitive with frontier long-context LMMs while using a much smaller visual input footprint. On VideoMME-Long, our agent reaches 85 .1% accuracy with 52 .0 frames / 
+
+∼51k context, close to the strongest direct LMM rows ( 85 .5% –86 .2% ) while remaining far below the dense-frame budgets reported for prior agents such as HAVEN. The same pattern appears on LongVideoBench-Long and LVBench, where VideoXAgent improves over DVD and remains close to or above the previously reported agent baselines without requiring uniformly large frame counts. Video-MME-v2 in this table is a stratified subset ( n=472 ); both our agent and the LMM baselines in that column are evaluated on this same split, so those numbers are for positioning rather than an official full-split leaderboard. We further evaluate on MINERVA, a more challenging benchmark for complex video reasoning (Table 2; n=1 ,357 from the public Neptune release). On this benchmark, we compare with frontier LMMs including Doubao-Seed-1.8/2.0-pro [5, 6], Gemini-2.5-Pro-Thinking [13, 24], and Gemini-3-Pro-preview [14, 5]. We adopt two orchestrators with limited native vision: Claude-Opus-4.6, which is strong at coding but comparatively weak visually, and GLM-5.2 [12], a text-only LLM with no visual ability. With Qwen3.6-35B-A3B [26] as the VLM tool backend, both reach frontier LMM level ( 65 .7% / 65 .4% 
+
+vs. 62 .4–66 .5% ). This suggests that our harness converts long video understanding into an agentic capa-bility of invoking video-understanding tools, rather than requiring a single model to ingest the full visual context. 
+
+4.4 Ablation study 
+
+We conduct ablation studies to analyze how different tool groups, rule constraints, agent backbone mod-els, and VLM tool models affect both answer accuracy and input-context cost. The evaluated components 11 75 100 125 150 Step budget L
+
+> 30 35 40 45 50 55 End-to-end accuracy (%)
+> End-to-end accuracy (95% CI) Mean tokens
+> 36 38 40 42 44 46 48 50 Mean tokens (×10 3)
+
+Figure 5: Sensitivity to the step budget L on the targeted stress set ( n=217 , paired). The plot shows end-to-end accuracy with 95% CIs and mean token cost, matching the values in Table 4; non-termination is 0% at every limit. Table 3: Ablation of tool configuration, model choice, and objective rules on a 150-question LongVideoBench-Long sample. Each cell reports accuracy and total input context when available. † de-notes thinking/reasoning mode. This table uses Kimi-K2.6 with Qwen3.6 tools, not the headline Claude-Opus-4.6 + Gemini-3.1-Pro-preview configuration of Table 1.                                                                                          
+
+> Sequence-level VLM Tool Single-Image VLM Tool Visual Expert Tools Audio/ Subtitle Tools Objective Rules Agent Model VLM Tool Model LongVideoBench Long-subset Acc Context
+> ✓✓✓✓✓kimi-k2.6 qwen-3.6 †75.33% 32.2k
+> ✓✓✓✓✓kimi-k2.6 qwen-3.6 74.67% 30.9k
+> ✓✓✓✓✓gemini-3.1-pro qwen-3.6 80.67% 50.1K
+> ✓✓✓✓✓kimi-k2.6 doubao-seed 74.67% 29.4k
+> ✓✓✓✓✓gemma4-31B-dense qwen-3.6 69.33% 26.8k
+> ✓✓✓✓✓deepseek-v4-flash qwen-3.6 71.33% 42.2K
+> ✗✓✓✓✓kimi-k2.6 qwen-3.6 †68.67% 35.3k
+> ✓✗✓✓✓kimi-k2.6 qwen-3.6 †70.00% 30.4k
+> ✓✓✗✓✓kimi-k2.6 qwen-3.6 †72.00% 25.4k
+> ✓✓✓✗✓kimi-k2.6 qwen-3.6 †68.67% 37.4k
+> ✓✓✓✓✗kimi-k2.6 qwen-3.6 †72.60% 31.6k
+
+include single-image VLM understanding tools, visual expert tools such as detection, segmentation, track-ing, and OCR, audio/subtitle tools, and objective rule constraints. 
+
+Effect of tool groups. The lower block of Table 3 shows that the full tool stack is useful because the failure modes are complementary rather than redundant. Removing the sequence-level VLM tool lowers LongVideoBench-Long accuracy from 75 .33% to 68 .67% , and removing the audio/subtitle tools yields the same score, indicating that long-range temporal continuity and speech-derived evidence are both high-impact components on this sample. Dropping the single-image VLM tools also causes a clear degradation to 70 .00% , which is consistent with their role in inspecting localized frames after coarse temporal routing. Removing the visual expert tools reduces accuracy by 3.33 percentage points ( 75 .33% → 72 .00% ). This setting also reduces the context budget, falling from 32 .2k to 25 .4k tokens. These results suggest that specialist visual tools provide targeted evidence rather than merely adding computation: removing them reduces context usage but also lowers accuracy. Overall, the table supports a layered design in which sequence-level inspection, localized frame analysis, structured visual experts, and audio/subtitle evidence each recover different parts of the long video reasoning problem. 
+
+Effect of agent and tool models. The upper block of Table 3 shows that model selection changes both the accuracy frontier and the context budget. Among the reported LongVideoBench-Long runs, the Gemini agent with Qwen-3.6 tools attains the highest accuracy ( 80 .67% ), but it also uses the largest 12 reported context budget in this table ( 50 .1k), so the gain is not free. The Kimi-K2.6 configuration with Qwen-3.6 thinking tools—the ablation backbone, distinct from the headline Claude-Opus-4.6 setup— is the strongest balanced point in this table: it trails the best-accuracy row by 5.34 points while using substantially less context ( 32 .2k). With the Kimi orchestrator and tool groups fixed, the Doubao-Seed tool backend achieves 74 .67% , compared with 74 .67% for the non-thinking Qwen-3.6 configuration. Likewise, replacing the Kimi orchestrator with Gemma-31B-dense or DeepSeek-V4-Flash [9] reduces accuracy while shifting the context budget in different directions, so neither weakness can be explained by token usage alone. We therefore treat the orchestrator and the tool model as a coupled design choice: the ablation does not identify a single universally best backbone, but it does show that accuracy, cost, and evidence quality move together when either component changes. 
+
+Effect of the objective rules. A subtle failure mode of compositional video agents is evidence con-tamination : an ungrounded intermediate VLM observation can be consumed by later reasoning steps as if it were a verified fact, propagated through aggregation, and potentially used to override more re-liable evidence. The objective rules of Sec. 3.3.2 are designed to mitigate this problem by acting as a per-observation reliability gate rather than merely a prompt-format constraint. The final row of Table 3 isolates this component by disabling the objective-evidence contract while keeping the orchestrator, VLM tool model, and tool groups unchanged. Accuracy on LongVideoBench-Long decreases from 75 .33% to 
+
+72 .60% , suggesting that the way visual evidence is elicited and recorded has a measurable impact beyond the choice of tools alone. We observe that, without hypothesis-style framing and explicit uncertainty re-porting, VLM tool outputs are more likely to conflate directly visible evidence with auxiliary signals such as subtitles, OCR, or detector outputs, allowing unsupported assumptions to enter the evidence state. This reliability gain comes with a modest context increase, from 31 .6k to 32 .2k tokens. The additional cost mainly comes from more structured textual responses and occasional low-confidence verification, rather than dense visual re-sampling. These results indicate that a small structured cost for evidence integrity can improve long video agent reliability, where a single confident but unsupported observation may derail the final answer. level_1 level_2 level_3 relevance_score relevance_linear_score logic_score total                    
+
+> 010 20 30 40 50 60 70 80
+> Score  50.3 38.3 25.8 37.3 52.1 29.8 33.6 43.6 41.4 41.2 32.5 41.7 51.1 41.6 52.5 50.5 31.4 46.2 60.8 35.0 40.7 42.8 42.6 38.1 40.7 55.4 39.8 40.3 38.0 44.3 35.0 39.1 55.4 37.9 38.5
+> Video-MME-v2: Main Metrics Comparison
+> Agent (kimi-k2.6) + Tools (vlm: qwen3.6) Agent (Gemini-3.1-pro) + Tools (vlm: gemini-3.1-pro) Agent (Opus46) + Tools (vlm: gemini-3.1-pro) Seed-2.0-pro (LMM) Gemini-3.1pro (LMM)
+> Frames & Audio Change Frame-Only Temporal Reasoning Video-Based Knowledge Acquisition Order Action & Motion Social Behavior Analysis Complex Plot Comprehension Physical World Reasoning
+> 020 40 60 80
+> Score
+> 57.6 46.4 43.1 42.2 40.3 35.2 29.1 28.7 26.2 13.5 60.0 30.4 27.3 54.9 56.9 43.0 26.4 43.2 47.4 23.0 65.0 42.9 40.0 58.0 41.1 58.1 32.1 21.1 35.0 29.1 42.4 49.1 43.3 46.0 41.1 48.9 19.6 42.8 50.8 19.6 41.0 43.8 35.0 49.7 47.4 46.1 32.7 30.7 44.0 21.2
+> Video-MME-v2: Second Head Comparison
+> Agent (kimi-k2.6) + Tools (vlm: qwen3.6) Agent (Gemini-3.1-pro) + Tools (vlm: gemini-3.1-pro) Agent (Opus46) + Tools (vlm: gemini-3.1-pro) Seed-2.0-pro (LMM) Gemini-3.1pro (LMM)
+
+Figure 6: Fine-grained comparison on VideoMME-v2 across different agent backbones, VLM tool models, and direct LMM baselines. The top panel reports main metrics and second-head capability groups, while the bottom panel further breaks down performance by third-head capability categories. Figure 6 provides a more detailed view of how model choice and agent design affect VideoMME-v2 performance. At the aggregate level, the best agent variants and the strongest direct LMM baseline are close but not identical in where they obtain their gains. The Gemini-3.1-Pro agent paired with 13 Table 4: Sweep of the step limit L on the stress set ( n=217 , paired, warnings enabled). Non-termination is 0% at every limit; accuracy peaks at L=125 , with overlapping 95% CIs across limits, while token cost grows monotonically. †: default in all other experiments. Limit L Acc. (%) 95% CI Mean tokens Non-term. (%) 75 41.9 [35 .5, 48 .4] 37.5k 0.0 100 42.9 [36 .4, 49 .3] 37.8k 0.0 125 † 43.8 [37 .3, 50 .2] 42.0k 0.0 150 42.9 [36 .4, 49 .3] 44.7k 0.0 Gemini-3.1-Pro tools achieves the highest total score in the plotted set ( 41 .6), while the Opus46-based agent is close behind ( 40 .7) and exceeds all compared systems on level-1, level-2, relevance-score, and relevance-linear-score metrics. By contrast, the Gemini-3.1-Pro direct LMM is strongest on logic-score among the plotted configurations, showing that direct long-context reasoning remains competitive on some question types even when the agent variants lead on several retrieval-sensitive metrics. The second-head breakdown further shows that the strengths are capability-dependent rather than uniform. The Opus46 agent leads the plotted group on Frames & Audio, Temporal Reasoning, Order, and Physical World Reasoning, whereas the Gemini-3.1-Pro agent is strongest on Video-Based Knowledge Acquisition and Social Behavior Analysis. Seed-2.0-pro remains competitive on categories such as Change and Complex Plot Comprehension, so the figure does not support a blanket claim that agentic execution dominates direct LMMs across every capability group. Instead, the figure supports a narrower conclusion: backbone choice, tool-model choice, and agent orchestration interact with the underlying capability being tested, so they should be selected jointly rather than treated as interchangeable knobs. 
+
+4.4.1 Effect of Budget Control Loop-prone stress set. Whether the tool-calling loop of Sec. 3.3.3 occurs depends strongly on the orchestrator. With Claude-Opus-4.6 we observe no non-terminating run on any of the five benchmarks, whereas Gemini-3.1-Pro fails to return a prediction on a subset of questions: weak task planning leads to tool calls that surface no useful evidence, and the agent loops until its context is exhausted. We aggregate all such no-answer cases across VideoMME, VideoMME-v2, MINERVA, LVBench, and LongVideoBench into a 217 -question stress set—loop-prone by construction , intended as a targeted test of termination behaviour rather than a random benchmark sample (Appendix B.5). Since the set is selected with a 
+
+different orchestrator than the one evaluated below, the selection is not circular. All ablations use the 
+
+Kimi-K2.6 orchestrator with the Qwen3.6-A3B vision expert, vary only the step limit L and the warning middleware, and share the same questions (paired design); reported numbers are single runs accompanied by paired bootstrap 95% confidence intervals (CIs). 
+
+Choice of the step limit L. Table 4 sweeps L ∈ { 75 , 100 , 125 , 150 } with warnings enabled. The forced-answer mechanism eliminates non-termination at every limit ( 0% throughout), so, on this targeted stress set, the choice of L trades accuracy against cost: accuracy peaks at L=125 (43 .8% ) and saturates— 
+
+L=150 is no better ( 42 .9% ), and the four 95% CIs overlap—while mean token cost grows monotonically from 37 .5k to 44 .7k ( +19% ). We therefore adopt L=125 (≈42 tool calls) as the default for all other experiments. 
+
+Effect of the progressive warning. Table 5 ablates the warning messages at the fixed L=125 . With-out them, 14 .7% (32 /217 ) of runs return no answer ( 29 budget exhaustions, 3 unrecoverable tool errors); with them, such failures disappear entirely ( 0/217 ), and end-to-end accuracy—counting unanswered runs as incorrect—rises from 35 .0% to 43 .8% (+8 .8 points, 95% CI [+2 .3, +15 .2] ). The improvement is largely associated with the 32 runs that previously returned no answer. On the remaining 185 questions, where the baseline already finished, accuracy is 41 .1% , close to the warning condition’s 43 .8% . Warnings are injected only after 65% of the budget is used, so trajectories that already finish in time are left unchanged. Mean token usage simultaneously drops by about 12% (47 .5k → 42 .0k), because looping runs no longer consume the rest of the budget without producing an answer. On this targeted stress set, budget control eliminates the observed non-termination cases while reducing mean token usage. 14 Agent Conversation Trace 
+
+Video: qVZOKel_-gpE.mp4 Ground Truth: D Answer: D
+
+User 
+
+Question: On the third day of training, why is the man in the green top so far behind the contestant in the white top? Options: A. Slacking off B. Windy/difficult C. Fell and hurt D. Bike broke down, repairs took time 
+
+Steps 1–5 
+
+Agent (Claude-Opus-4.6) 
+
+get_video_duration. I need the video’s scale and modalities first. 
+
+Tool Call 
+
+get_video_duration(video_path=qVZOKel-gpE.mp4) 
+
+Tool Output 
+
+get_video_duration(qVZOKel-gpE.mp4) → 2242.26s (37:22), 1280 ×720, audio and video available. 
+
+Agent (Claude-Opus-4.6) 
+
+write_todos (plan initialization). Creating a four-item investigation plan before content retrieval. 
+
+Tool Call 
+
+write_todos(overview=in_progress, locate=pending, analyze=pending, answer=pending) 
+
+Tool Output 
+
+write_todos(init) → Overview=in progress; localization, event analysis, and final decision=pending. 
+
+Agent (Claude-Opus-4.6) 
+
+check_subtitle_exists. The relevant interval is unknown; checking whether semantic subtitle search is available. 
+
+Tool Call 
+
+check_subtitle_exists(video_path=qVZOKel-gpE.mp4) 
+
+Tool Output 
+
+check_subtitle_exists() → Matching SRT found with 749 cues. 
+
+Agent (Claude-Opus-4.6) 
+
+parallel dispatch. I will localize “third day of training” from subtitles while independently building a scene-level map from the same pre-call state. 
+
+Tool Call 
+
+(parallel dispatch) 
+
+locate_event_by_text(video_path=qVZOKel-gpE.mp4, query=“third day of training”) caption_video_scenes(video_path=qVZOKel-gpE.mp4, max_scenes=30, scene_threshold=35) 
+
+Tool Output 
+
+locate_event_by_text(“third day of training”) → Top match [905.3s–911.5s], “energy training day three” (score 0.72). 
+
+Tool Output 
+
+caption_video_scenes(max_scenes=30) → 17 scenes; scene 13 (∼875–960s) opens Day 3 with a 160km ride and 4km run. 
+
+Steps 6–10 
+
+Agent (Claude-Opus-4.6) 
+
+write_todos (status update). Updating the plan after coarse overview and Day-3 localization complete. 
+
+Tool Call 
+
+write_todos(overview=done, locate=done, analyze=in_progress, answer=pending) 
+
+Tool Output 
+
+write_todos(update) → Overview and localization=completed; event analysis=in progress; final decision=pending. 
+
+Agent (Claude-Opus-4.6) 
+
+get_video_subtitle. Day 3 is localized; retrieving dialogue from [1050s–1340s] to identify the delay. 
+
+Tool Call 
+
+get_video_subtitle(video_path=qVZOKel-gpE.mp4, segments=[1050s–1340s]) 
+
+Tool Output 
+
+get_video_subtitle([1050s–1340s]) → [17:55] “I just fell down...I’m fine”; [19:38] “I lost my two lowest gears”; [21:01] “he’s not here yet”; [21:16] “I fixed it–-took my wheel out.” 
+
+Agent (Claude-Opus-4.6) 
+
+query_segment_detail. D is favored, but B/C also appear in dialogue. Calling direct visual verification on [1255s–1335s]. 
+
+Tool Call 
+
+query_segment_detail(video_path=qVZOKel-gpE.mp4, start=1255s, end=1335s, num_frames=6) 
+
+Tool Output 
+
+query_segment_detail([1255s–1335s], 6 frames) → White-top waits; green-top arrives later by bicycle, consistent with a repair stop. 
+
+> 20:55
+> White-top waits at the track
+> 21:24
+> Green-top arrives later
+> 22:00
+> Post-arrival follow-up
+
+Agent (Claude-Opus-4.6) 
+
+write_todos (completion). Visual and subtitle evidence are sufficient; closing the investigation plan. 
+
+Tool Call 
+
+write_todos(overview=done, locate=done, analyze=done, answer=done) 
+
+Tool Output 
+
+write_todos(complete) → Overview, localization, event analysis, and final decision all marked completed. 
+
+Agent (Claude-Opus-4.6) 
+
+Final evidence aggregation. ## Can Answer True. Lost gears and wheel repair explain the delayed arrival. Final answer: D. 
+
+Figure 7: Chat-bubble agent trace (two-column) for a case with a 37-min long video: query, planning, temporal localization, multimodal verification, and final answer. The agent response and tool call/output have been summarized for brevity. 15 Table 5: Progressive budget warning at fixed L=125 on the stress set ( n=217 , paired). End-to-end accuracy counts unanswered runs as incorrect. Condition Non-term. (%) End-to-end Acc. (%) Mean tokens w/o warning 14.7 35.0 47.5k w/ warning 0.0 43.8 42.0k 
+
+4.5 Cost and Evidence Efficiency 
+
+We report a narrow but reliable notion of cost: how much visual and textual context the agent must acquire to answer a question , and correspondingly evidence efficiency : how effectively that context converts into benchmark accuracy. Under that lens, Table 1 shows that VideoXAgent remains competitive with strong long-context LMMs while operating with selective evidence acquisition instead of uniformly dense video ingestion. On VideoMME-Long, for example, the agent reaches 85 .1% accuracy with 52 .0 sampled frames and roughly 
+
+51 k total context, while earlier agent baselines such as DVD and HAVEN report much denser frame usage. The same selective pattern appears on LongVideoBench-Long and LVBench, where the agent stays within tens to low hundreds of retrieved frames rather than exhaustively expanding the full video into a monolithic context window. The ablations further show that this cost profile is a property of the full system design rather than of any single model choice. Removing the visual expert tools lowers the LongVideoBench-Long context budget from 32 .2k to 25 .4k tokens, the largest token saving in the tool-group ablation, but it also reduces accuracy from 75 .33% to 72 .00% . A lower raw budget is therefore not automatically a better operating point: some apparently expensive tools remain efficient once the quality of the final answer is taken into account. Sequence-level VLM inspection and audio/subtitle tools produce the largest accuracy drops when removed, even though those ablations do not yield the largest context savings, which implies that these components contribute high-value evidence per unit of added context. The budget-control study in Table 5 shows that better control can reduce cost and improve accuracy simultaneously: progressive warnings decrease mean token usage from 47 .5k to 42 .0k while eliminating unanswered runs. Increasing the recursion limit beyond the default range does not improve accuracy on the loop-prone stress set. Efficiency is therefore improved not only by making each tool call informative, but also by preventing the agent from repeatedly spending context on unproductive branches. We inter-pret the agent’s main cost advantage as selective evidence spending : the system pays for extra tool calls only when they help replace broad, expensive visual inspection with narrower grounded observations. 
+
+4.6 Case Study 
+
+We visualize the case study with a single chat-bubble trace that foregrounds the chronological interaction among the user, the agent, explicit tool calls, and the corresponding tool outputs. The trace is taken from a real agentic run rather than from a synthetic storyboard, so each step corresponds to an actual tool invocation and returned observation (the description of each step is abstracted for brevity). It mirrors the method of Secs. 3.3.2 and 3.3.3: the agent first inspects metadata and subtitle availability, then localizes the “third day of training” interval with coarse retrieval and scene captioning, extracts subtitle evidence over the candidate window, and finally performs targeted visual verification on the late-Day-3 segment before answering. This progression shows why the final prediction is not based on a single cue. The subtitle track surfaces three competing hypotheses—wind, a fall, and a mechanical issue—while the final frame-level inspection resolves the conflict by confirming that the white-top rider is waiting and the green-top rider arrives only after the repair-related dialogue. The case study therefore illustrates the intended division of labor in VideoXAgent: broad temporal routing narrows the search space, specialized tools recover complementary evidence, and answer synthesis is deferred until conflicting observations are reconciled. Additional interactive traces, including this example, are available at https: //go-agent-x.github.io/video_agent_harness/#trace .16 5 Limitations and Conclusion 
+
+We presented VideoXAgent, a purely online video-agent harness that starts from the raw video file and the user query, decomposes the task, invokes expert tools on demand, and aggregates multimodal evi-dence under a bounded budget. A data-driven taxonomy of atomic capabilities, mined from MINERVA expert reasoning traces, guides the tool space rather than an ad hoc toolkit. On Video-MME-Long, LongVideoBench-Long, and LVBench, the agent is competitive with frontier LMMs while using a smaller visual and context footprint. On the challenging MINERVA benchmark, the same harness brings visually weak or text-only orchestrators to the same range as direct frontier LMMs. Several limitations remain. Our efficiency analysis measures the amount of evidence acquired—retrieved frames and the maximum context of the agent model—rather than total token cost. The capability taxonomy is mined solely from MINERVA reasoning traces and may therefore reflect dataset-specific distributions or omit capa-bilities that are salient in other domains. Future work could investigate more compact and efficient tool taxonomies and capability definitions that reduce redundancy while preserving coverage across various domains or adapting to a specific domain. 
+
+# References 
+
+[1] Shuai Bai, Yuxuan Cai, Ruizhe Chen, Keqin Chen, Xionghui Chen, Zesen Cheng, Lianghao Deng, Wei Ding, Chang Gao, Chunjiang Ge, Wenbin Ge, Zhifang Guo, Qidong Huang, Jie Huang, Fei Huang, Binyuan Hui, Shutong Jiang, Zhaohai Li, Mingsheng Li, Mei Li, Kaixin Li, Zicheng Lin, Junyang Lin, Xuejing Liu, Jiawei Liu, Chenglong Liu, Yang Liu, Dayiheng Liu, Shixuan Liu, Dunjie Lu, Ruilin Luo, Chenxu Lv, Rui Men, Lingchen Meng, Xuancheng Ren, Xingzhang Ren, Sibo Song, Yuchong Sun, Jun Tang, Jianhong Tu, Jianqiang Wan, Peng Wang, Pengfei Wang, Qiuyue Wang, Yuxuan Wang, Tianbao Xie, Yiheng Xu, Haiyang Xu, Jin Xu, Zhibo Yang, Mingkun Yang, Jianxin Yang, An Yang, Bowen Yu, Fei Zhang, Hang Zhang, Xi Zhang, Bo Zheng, Humen Zhong, Jingren Zhou, Fan Zhou, Jing Zhou, Yuanzhi Zhu, and Ke Zhu. Qwen3-vl technical report. arXiv preprint arXiv:2511.21631 , 2025. [2] Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang, Jun Tang, Humen Zhong, Yuanzhi Zhu, Mingkun Yang, Zhaohai Li, Jianqiang Wan, Pengfei Wang, Wei Ding, Zheren Fu, Yiheng Xu, Jiabo Ye, Xi Zhang, Tianbao Xie, Zesen Cheng, Hang Zhang, Zhibo Yang, Haiyang Xu, and Junyang Lin. Qwen2.5-vl technical report. arXiv preprint arXiv:2502.13923 , 2025. [3] Max Bain, Jaesung Huh, Tengda Han, and Andrew Zisserman. WhisperX: Time-accurate speech transcription of long-form audio. In Interspeech 2023 , pages 4489–4493, 2023. [4] Hervé Bredin, Ruiqing Yin, Juan Manuel Coria, Gregory Gelly, Pavel Korshunov, Marvin Lavechin, Diego Fustes, Hadrien Titeux, Wassim Bouaziz, and Marie-Philippe Gill. pyannote.audio: neural building blocks for speaker diarization. In ICASSP 2020 - 2020 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , pages 7124–7128, 2020. [5] ByteDance Seed. Seed1.8 model card: Towards generalized real-world agency. arXiv preprint arXiv:2603.20633 , 2026. [6] ByteDance Seed. Seed2.0 model card: Towards intelligence frontier for real-world complexity. arXiv preprint arXiv:2607.00248 , 2026. [7] ByteDance Seed Team. Seed1.5-vl technical report. arXiv preprint arXiv:2505.07062 , 2025. [8] Cheng Cui, Ting Sun, Manhui Lin, Tingquan Gao, Yubo Zhang, Jiaxuan Liu, Xueqing Wang, Zelun Zhang, Changda Zhou, Hongen Liu, Yue Zhang, Wenyu Lv, Kui Huang, Yichao Zhang, Jing Zhang, Jun Zhang, Yi Liu, Dianhai Yu, and Yanjun Ma. PaddleOCR 3.0 technical report, 2025. [9] DeepSeek-AI. Deepseek-v4: Towards highly efficient million-token context intelligence. arXiv preprint arXiv:2606.19348 , 2026. Technical report for DeepSeek-V4; covers DeepSeek-V4-Pro and DeepSeek-V4-Flash. [10] Chaoyou Fu, Yuhan Dai, Yongdong Luo, Lei Li, Shuhuai Ren, Renrui Zhao, Mengdan Shen, Peize Zhang, et al. Video-MME: The first-ever comprehensive evaluation benchmark of multi-modal LLMs 17 in video analysis. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2025. [11] Gemini Team. Gemini 1.5: Unlocking multimodal understanding across millions of tokens of context. 
+
+arXiv preprint arXiv:2403.05530 , 2024. [12] GLM-5 Team. Glm-5: from vibe coding to agentic engineering. arXiv preprint arXiv:2602.15763 ,2026. Technical report for GLM-5; GLM-5.2 cites this report. [13] Google DeepMind. Gemini 2.5 pro model card. https://storage.googleapis.com/ deepmind-media/Model-Cards/Gemini-2-5-Pro-Model-Card.pdf , June 2025. Accessed 2026-07-11. [14] Google DeepMind. Gemini 3 pro model card. https://deepmind.google/models/model-cards/ gemini-3-pro , November 2025. Accessed 2026-07-11; redirects to the official PDF model card. [15] Google DeepMind. Gemini 3.1 pro model card. https://deepmind.google/models/model-cards/ gemini-3-1-pro , February 2026. Accessed 2026-07-11. [16] Kelly Hong, Anton Troynikov, and Jeff Huber. Context rot: How increasing input tokens impacts llm performance. Technical report, Chroma, July 2025. [17] Kimi Team. Kimi k2.5: Visual agentic intelligence. arXiv preprint arXiv:2602.02276 , 2026. Technical report for Kimi K2.5; K2.6 shares the same published architecture and cites this report. [18] Alexander Kirillov, Eric Mintun, Nikhila Ravi, Hanzi Mao, Chloe Rolland, Laura Gustafson, Tete Xiao, Spencer Whitehead, Alexander C. Berg, Wan-Yen Lo, Piotr Dollár, and Ross Girshick. Segment anything. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) ,pages 4015–4026, 2023. [19] Chenglin Li, Qianglong Chen, Feng Han, Yikun Wang, Xingxi Yin, Yan Gong, Ruilin Li, Yin Zhang, and Jiaqi Wang. Videothinker: Building agentic videollms with llm-guided tool reasoning. arXiv preprint arXiv:2601.15724 , 2026. [20] Jingyang Lin, Jialian Wu, Jiang Liu, Ximeng Sun, Ze Wang, Xiaodong Yu, Jiebo Luo, Zicheng Liu, and Emad Barsoum. Videoseek: Long-horizon video agent with tool-guided seeking. CVPR 2026 ,2026. [21] Shilong Liu, Zhaoyang Zeng, Tianhe Ren, Feng Li, Hao Zhang, Jie Yang, Qing Jiang, Chunyuan Li, Jianwei Yang, Hang Su, Jun Zhu, and Lei Zhang. Grounding DINO: Marrying DINO with grounded pre-training for open-set object detection. In European Conference on Computer Vision ,pages 38–55, 2024. [22] Ziyu Ma, Chenhui Gou, Hengcan Shi, Bin Sun, Shutao Li, Hamid Rezatofighi, and Jianfei Cai. Drvideo: Document retrieval based long video understanding. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 18936–18946, June 2025. [23] MME-Benchmarks. Video-MME-v2: Towards the next stage in benchmarks for comprehensive video understanding. arXiv preprint arXiv:2604.05015 , 2026. [24] Arsha Nagrani, Sachit Menon, Ahmet Iscen, Shyamal Buch, Ramin Mehran, Nilpa Jha, Anja Hauth, Yukun Zhu, Carl Vondrick, Mikhail Sirotenko, Cordelia Schmid, and Tobias Weyand. MINERVA: Evaluating complex video reasoning. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) , 2025. [25] Ziqi Pang and Yu-Xiong Wang. MR. Video: “mapreduce” is the principle for long video understand-ing. arXiv preprint arXiv:2504.16082 , 2025. [26] Qwen Team. Qwen3.6-35B-A3B: Agentic coding power, now open to all. https://qwen.ai/blog? id=qwen3.6-35b-a3b , April 2026. Official blog release for Qwen3.6-35B-A3B. [27] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, Gretchen Krueger, and Ilya Sutskever. Learning transferable visual models from natural language supervision. In Proceedings of the 38th International Conference on Machine Learning , volume 139, pages 8748–8763. PMLR, 2021. 18 [28] Nikhila Ravi, Valentin Gabeur, Yuan-Ting Hu, Ronghang Hu, Chaitanya Ryali, Tengyu Ma, Haitham Khedr, Roman Rädle, Chloe Rolland, Laura Gustafson, Eric Mintun, Junting Pan, Kalyan Vasudev Alwala, Nicolas Carion, Chao-Yuan Wu, Ross Girshick, Piotr Dollár, and Christoph Feichtenhofer. SAM 2: Segment anything in images and videos. In The Thirteenth International Conference on Learning Representations , 2025. [29] Nils Reimers and Iryna Gurevych. Sentence-BERT: Sentence embeddings using siamese BERT-networks. In Proceedings of the 2019 Conference on Empirical Methods in Natural Language Process-ing and the 9th International Joint Conference on Natural Language Processing (EMNLP-IJCNLP) ,pages 3982–3992, 2019. [30] Tianhe Ren, Yihao Chen, Qing Jiang, Zhaoyang Zeng, Yuda Xiong, Wenlong Liu, Zhengyu Ma, Junyi Shen, Yuan Gao, Xiaoke Jiang, Xingyu Chen, Zhuheng Song, Yuhong Zhang, Hongjie Huang, Han Gao, Shilong Liu, Hao Zhang, Feng Li, Kent Yu, and Lei Zhang. DINO-X: A unified vision model for open-world object detection and understanding. arXiv preprint arXiv:2411.14347 , 2024. [31] Xubin Ren, Lingrui Xu, Long Xia, Shuaiqiang Wang, Dawei Yin, and Chao Huang. Videorag: Retrieval-augmented generation with extreme long-context videos. arXiv preprint arXiv:2502.01549 ,2025. [32] Y Sun, J Hao, K Zhu, et al. Enhancing descriptive captions with visual attributes for multimodal per-ception. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition ,pages 1683–1694, 2026. [33] Shijian Wang, Jiarui Jin, Xingjian Wang, Linxin Song, Runhao Fu, Hecheng Wang, Zongyuan Ge, Yuan Lu, and Xuelian Cheng. Video-thinker: Sparking “thinking with videos” via reinforcement learning. arXiv preprint arXiv:2510.23473 , 2025. [34] Weihan Wang, Zehai He, Wenyi Hong, Yean Cheng, Xiaotao Zhang, Ji Qi, and Ming Huang. LVBench: An extreme long video understanding benchmark. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) , 2025. [35] Wenhui Wang, Furu Wei, Li Dong, Hangbo Bao, Nan Yang, and Ming Zhou. MiniLM: Deep self-attention distillation for task-agnostic compression of pre-trained transformers. In Advances in Neural Information Processing Systems , 2020. [36] Xiaohan Wang, Yuhui Zhang, Orr Zohar, and Serena Yeung-Levy. Videoagent: Long-form video understanding with large language model as agent. In European Conference on Computer Vision ,pages 58–76, 2024. [37] Ziyang Wang, Shoubin Yu, Elias Stengel-Eskin, Jaehong Yoon, Feng Cheng, Gedas Bertasius, and Mohit Bansal. Videotree: Adaptive tree-based video representation for LLM reasoning on long videos. arXiv preprint arXiv:2405.19209 , 2024. [38] Haoning Wu, Dongxu Li, Bei Chen, and Junnan Li. LongVideoBench: A benchmark for long-context interleaved video-language understanding. In Advances in Neural Information Processing Systems (NeurIPS) , 2024. [39] Tsung-Han Wu, Giscard Biamby, Jerome Quenum, Ritwik Gupta, Joseph E. Gonzalez, Trevor Dar-rell, and David Chan. Visual haystacks: A vision-centric needle-in-a-haystack benchmark. In The Thirteenth International Conference on Learning Representations , 2025. [40] Zuhao Yang, Sudong Wang, Kaichen Zhang, Keming Wu, Sicong Leng, Yifan Zhang, Bo Li, Chengwei Qin, Shijian Lu, Xingxuan Li, and Lidong Bing. Longvt: Incentivizing “thinking with long videos” via native tool calling. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2026. [41] Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik Narasimhan, and Yuan Cao. ReAct: Synergizing reasoning and acting in language models. In International Conference on Learn-ing Representations , 2023. [42] Xinlei Yin, Xiulian Peng, Xiao Li, Zhiwei Xiong, and Yan Lu. Hierarchical long video understanding with audiovisual entity cohesion and agentic search. CVPR 2026 , 2026. 19 [43] Xiaoyi Zhang, Zhaoyang Jia, Zongyu Guo, Jiahao Li, Bin Li, Houqiang Li, and Yan Lu. Deep video discovery: Agentic search with tool use for long-form video understanding. Advances in Neural Information Processing Systems , 38:89863–89895, 2025. 20 Appendix 
+
+A Capability Taxonomy . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 21 A.1 Detailed Tool Mapping . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 21 A.2 Backend Technologies . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 21 A.3 Tool Specifications . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 24 
+
+B Tool Usage Distribution Analysis . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 27 B.1 Usage Distribution by Capability Category . . . . . . . . . . . . . . . . . . . . . . . . . . 27 B.2 Emergent Tool-Chaining Behaviour . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 28 B.3 Tool Usage and Answer Correctness . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 28 B.4 Accuracy by Task Type . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 30 B.5 Provenance of the diagnostic set . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 31 
+
+C Mining Procedure for Atomic Capabilities . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 31 C.1 Step-by-Step Discovery Pipeline . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 31 
+
+D Agent System Prompt . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 34 
+
+A Capability Taxonomy 
+
+A.1 Detailed Tool Mapping A.2 Backend Technologies 
+
+21 Table 6: Comprehensive taxonomy of 22 mined atomic capabilities for video understanding, grouped into five macro categories. The Repr. Tool column gives one representative tool; ReAct denotes capabilities implemented through multi-step orchestration. Full tool sets and observed reasoning chains are given in Table 7. 
+
+Atomic Capability Representative Tool Description Visual Perception 
+
+Visual Content Understanding 
+
+inspect_image Capturing the overall scene content, salient entities, and holistic semantic context of a frame or video segment. Object Perception detect Identifying object existence, spatial locations, and quantities. OCR / Text Perception 
+
+ocr_frame_text Extracting and comprehending text embedded within visual frames. Action & Event Understanding 
+
+classify_action Recognizing ongoing human/object actions and macro-events. Attribute & State Analysis 
+
+attribute_recognition Analyzing fine-grained visual properties (e.g., color, texture) and scene classifications. Human-Centric Perception 
+
+face_detect Recognizing human biometrics including identity, pose, gaze, and facial expressions. 
+
+Temporal Relation 
+
+Temporal Localization / Grounding 
+
+locate_event_by_text Identifying specific temporal occurrences, including query-based grounding and segment boundary detection using text embedding matching. Temporal Ordering / Sequencing 
+
+caption_video_scenes Understanding chronological order and logical causal chains of events. State Change & Transition 
+
+scene_change_detect Detecting state transitions (e.g., object state transformations) and video shot boundaries. Temporal Continuity object_track Tracking object persistence and estimating continuous action durations. Temporal Recognition classify_action Defining and recognizing ongoing continuous actions or events over a time span. 
+
+Spatial Relation 
+
+Spatial Positioning locate Determining precise coordinates, bounding boxes, or existence of objects in 2D/3D space. Spatial Relationship spatial_relation Understanding relative object arrangements (e.g., inside/outside), orientations, and occlusion states. Tracking & Trajectory 
+
+object_track Capturing spatial movement paths and continuous displacement patterns of targets. Spatial Reasoning & State 
+
+estimate_depth Inferring object states or making logical judgments based on complex spatial layouts and dynamic changes. 
+
+Audio-Visual 
+
+Speech Transcription (ASR) 
+
+transcribe_audio Transcribing spoken language content (Speech-to-Text). Audio-Visual Cross-modal 
+
+detect_active_speaker Aligning visual and auditory signals temporally and semantically (e.g., active speaker detection); cross-modal fusion is handled as a ReAct workflow over these tools. Audio Event Detection 
+
+detect_audio_events Identifying non-speech environmental sounds and acoustic events. 
+
+High-Level Reasoning 
+
+Mathematical & Quantitative 
+
+ReAct Performing arithmetic operations and numerical logic based on visual elements. Universal Counting ReAct Quantifying discrete entities, actions, or temporal occurrences globally. Sequential & Ordinal Reasoning 
+
+ReAct Deducing chronological sequences and causal implications among complex events. Abstract Logical Inference 
+
+ReAct Inferring macroscopic scene semantics or intentions based on implicit visual and spatial cues. 
+
+22 Visual Perception 1 Visual Content Understanding inspect_image , query_segment_detail , caption_video_scenes 
+
+2 Object Perception detect , locate , scene_scan , count , instance_segment 
+
+3 OCR / Text Perception ocr_frame_text , ocr_region_read , ocr_table_extract ,
+
+ocr_video_text_timeline , ocr_layout_analysis 
+
+4 Action & Event Understanding classify_action , classify_action_multi_segments , recognize_interactions 
+
+5 Attribute & State Analysis attribute_recognition , prompt_segment , instance_segment 
+
+6 Human-Centric Perception face_detect , face_cluster_video , face_match , analyze_face_emotion ,
+
+gaze_estimate , person_identification 
+
+Temporal Relation 7 Temporal Localization / Grounding locate_event_by_text , locate_event_by_scene_caption , moment_retrieve 
+
+8 Temporal Ordering / Sequencing caption_video_scenes , classify_action_multi_segments 
+
+9 State Change & Transition diff_two_frames , diff_video_timestamps , scene_change_detect 
+
+10 Temporal Continuity object_track , motion_analyze , face_cluster_video 
+
+11 Temporal Recognition classify_action , ocr_video_text_timeline , detect_audio_event_timeline 
+
+Spatial Relation 12 Spatial Positioning locate , spatial_relation , calc_bbox_relation , calc_point_in_region 
+
+13 Spatial Relationship spatial_relation , spatial_analyze , calc_multi_spatial , calc_bbox_relation 
+
+14 Tracking & Trajectory object_track , motion_analyze , speed_estimate , analyze_flow_segment 
+
+15 Spatial Reasoning & State estimate_depth , compare_object_depth , get_depth_at_points , spatial_analyze 
+
+Audio-Visual 16 Speech Transcription (ASR) transcribe_audio , speaker_diarize , get_video_subtitle 
+
+17 Audio-Visual Cross-modal detect_active_speaker , analyze_multimodal_emotion , segment_deep_query ;
+
+Agent ReAct : get_video_subtitle → locate_event_by_text →
+
+query_segment_detail → LLM fusion 
+
+18 Audio Event Detection detect_audio_events , detect_audio_event_timeline , identify_music ,
+
+compare_audio_fingerprint 
+
+High-Level Reasoning 19 Mathematical & Quantitative ReAct Workflows : such as extract_frame → ocr_frame_text → inspect_image →
+
+LLM arithmetic 
+
+20 Universal Counting ReAct Workflows : such as generate_thumbnail_grid → inspect_image →
+
+extract_frame → LLM aggregation 
+
+21 Sequential & Ordinal Reasoning ReAct Workflows : such as caption_video_scenes → query_segment_detail → LLM temporal ordering 
+
+22 Abstract Logical Inference ReAct Workflows : such as extract_frame → concat_images → inspect_image →
+
+LLM inference 
+
+Table 7: Mapping from the 22 canonical capabilities in Table 6 to concrete tools and observed multi-step chains. Agent ReAct denotes multi-step orchestration; per-tool backends and descriptions are listed in Table 9. 23 Backend Description 
+
+grounding-dino Grounding-DINO [21] / DINO-X [30] for open-set detection, seg-mentation, and spatial analysis; DINO-X is used as the stronger grounding backend when available vlm Vision Language Models (GPT-4V, Gemini, etc.) for visual QA whisperx WhisperX [3] for word-level speech transcription pyannote Pyannote [4] for speaker diarization panns Pretrained Audio Neural Networks for audio event detection shazamio Shazam-like music identification via audio fingerprinting insightface InsightFace for face detection, recognition, and emotion analysis transformers HuggingFace Transformers for action, emotion, depth models sam Segment Anything Model [18] for image segmentation sam2 SAM2 [28] for video object segmentation and tracking clip CLIP [27] for text-video moment retrieval ffmpeg FFmpeg for audio/video extraction and processing script Custom Python scripts for various utilities yt-dlp yt-dlp for YouTube video download and caching Table 8: Backend Technology Stack 
+
+A.3 Tool Specifications 
+
+Table 9: Tool specifications: backend and function (70 tools). 
+
+Tool Backend Description VLM Query 
+
+inspect_image vlm Visual QA on a frame, grid, or composite image. 
+
+query_segment_detail vlm VLM QA over a time interval using sampled frames and optional SRT. 
+
+caption_video_scenes vlm Timestamped captions for detected scenes. 
+
+Grounding-DINO Visual Detection 
+
+detect grounding-dino Open-set detection of named categories with boxes and scores. 
+
+locate grounding-dino Ground a natural-language phrase to matching boxes. 
+
+scene_scan grounding-dino Scan common categories to build a scene inventory. 
+
+count grounding-dino Count instances of a named category. 
+
+instance_segment grounding-dino Detect objects and report relative instance size. 
+
+spatial_relation grounding-dino Detect two objects and compute their geometric relation. 
+
+OCR Text Extraction 
+
+ocr_frame_text PaddleOCR Extract on-screen text with boxes and confidence. 
+
+ocr_region_read PaddleOCR Read text from a specified image region. 
+
+ocr_table_extract PaddleOCR Parse tables and scoreboards into structured fields. 
+
+ocr_video_text_timeline PaddleOCR Track when overlay text appears or changes. 
+
+ocr_layout_analysis PaddleOCR Segment document or slide regions and infer reading order. 
+
+Action Recognition 
+
+classify_action transformers Classify the dominant activity in a clip. 
+
+classify_action_multi_ segments 
+
+transformers Classify actions across multiple time windows. 
+
+recognize_interactions grounding-dino Detect entities and action-relation triples. 
+
+Face & Emotion Analysis 
+
+face_detect insightface Detect faces with boxes and scores. 
+
+face_cluster_video insightface Cluster faces across frames to identify unique people. 
+
+face_match insightface Verify identity correspondence between two face images. 
+
+analyze_face_emotion insightface Classify facial expressions into emotion categories. 
+
+analyze_speech_emotion transformers Classify vocal emotion in an audio or video span. 
+
+24 Table 9: Tool specifications (continued). 
+
+Tool Backend Description 
+
+analyze_multimodal_ emotion 
+
+insightface Fuse facial and speech emotion at a timestamp. 
+
+gaze_estimate insightface Estimate gaze direction and coarse target. 
+
+detect_active_speaker insightface Identify the active speaker from face and audio cues. 
+
+Visual Attribute Recognition 
+
+attribute_recognition vlm Query visual attributes globally or within boxes. 
+
+person_identification vlm Match people across frames using visual appearance. 
+
+Temporal Analysis 
+
+locate_event_by_text script Rank subtitle spans matching a text query. 
+
+moment_retrieve clip Retrieve visually matching moments. 
+
+scene_change_detect script Detect shot boundaries from frame differences. 
+
+Spatial Analysis 
+
+calc_bbox_relation script Compute direction, overlap, containment, and distance between boxes. 
+
+calc_point_in_region script Test whether a point or box center lies inside a region. 
+
+calc_multi_spatial script Compute spatial relations for multiple objects. 
+
+spatial_crop script Crop a specified image region for inspection. 
+
+spatial_analyze grounding-dino Detect categories and summarize pairwise layout. 
+
+Instance Segmentation & Tracking 
+
+auto_segment sam Segment distinct image regions without prompts. 
+
+prompt_segment sam Generate a mask from point or box prompts. 
+
+tracked_object_count sam2 Count tracked instances over a short clip. 
+
+object_track sam2 Track a prompted object across frames. 
+
+Audio Processing 
+
+transcribe_audio whisperx Transcribe speech with word timestamps. 
+
+speaker_diarize pyannote Assign speaker labels to audio turns. 
+
+detect_audio_events panns Classify non-speech audio events. 
+
+detect_audio_event_ timeline 
+
+panns Produce a timestamped audio-event timeline. 
+
+identify_music shazamio Identify music from an audio excerpt. 
+
+compare_audio_ fingerprint 
+
+shazamio Compare two audio fingerprints for matching content. 
+
+Video Basic Operations 
+
+get_video_duration script Return video duration, resolution, and stream metadata. 
+
+get_videos_duration script Return durations for multiple videos. 
+
+get_directory_videos_ duration 
+
+script Scan a directory for video durations. 
+
+extract_frame script Extract frames at specified timestamps. 
+
+generate_thumbnail_grid script Build a timestamped thumbnail grid. 
+
+extract_audio ffmpeg Extract or resample the audio track. 
+
+extract_video_segment ffmpeg Extract a temporal video segment. 
+
+get_video_subtitle script Retrieve SRT text for a video or time range. 
+
+get_multiple_videos_ subtitle 
+
+script Retrieve subtitles for multiple videos. 
+
+concat_images script Combine frames into a comparison grid. 
+
+check_subtitle_exists script Check whether subtitles are available. 
+
+get_video_from_youtube_ id 
+
+yt-dlp Resolve a YouTube ID to a local video path. (This is only for MINERVA testing.) 
+
+check_youtube_cache yt-dlp Check the local YouTube cache. 
+
+Motion & Depth Analysis 
+
+diff_two_frames script Compute pixel differences between two frames. 
+
+diff_video_timestamps script Compare frames at two video timestamps. 
+
+motion_analyze sam2 Summarize the motion of a tracked object. 
+
+speed_estimate script Estimate speed from an object trajectory. 
+
+compute_dense_flow script Compute dense optical flow between frames. 
+
+analyze_flow_segment script Summarize optical flow over a video segment. 
+
+estimate_depth transformers Estimate a monocular depth map. 
+
+compare_object_depth transformers Compare the depth of two detected objects. 
+
+25 Table 9: Tool specifications (continued). 
+
+Tool Backend Description 
+
+get_depth_at_points transformers Sample depth at specified image points. 
+
+Camera Motion Analysis 
+
+analyze_camera_motion script Classify camera motion over a video clip. 
+
+detect_camera_motion_ type 
+
+script Classify camera motion between two timestamps. 
+
+26 B Tool Usage Distribution Analysis 
+
+B.1 Usage Distribution by Capability Category 
+
+Figure 8 reports how often each of the 22 mined capabilities is actually exercised. The counting unit here is deliberately a trajectory rather than a tool call: every concrete tool invoked in a trajectory is mapped back to its capability through the correspondence of Table 7, and a capability is credited once if the trajectory touched any of its tools at least once, no matter how often. This removes the bias of chatty inner loops—a single sample may call inspect_image dozens of times—so the figure measures capability coverage instead of total call volume. Generic operators that carry no capability semantics (e.g. get_video_duration ,
+
+extract_frame ). Over the full transcript corpus of partially collected 34,364 trajectories, 33,544 (97.6%) exercise at least one capability of Table 7, giving 60,474 (trajectory, capability) pairs. Visual Content Understanding 29,921 (49.5%) OCR / Text Perception 3,968 (6.6%) Object Perception 1,299 (2.1%) Temporal Localization / Grounding 6,968 (11.5%) Speech Transcription (ASR) 15,317 (25.3%) 
+
+> Visual Perception 59.6% Temporal Relation 12.8% Audio-Visual 27.1%
+> Tool usage distribution over the 22 mined capabilities (inner ring: 5 macro categories; one count per trajectory that uses the capability at least once; 34,364 trajectories, 60,474 (trajectory, capability) pairs)
+> Capability (18 with atomic tools)
+> Visual Content Understanding Object Perception OCR / Text Perception Action & Event Understanding Attribute & State Analysis Human-Centric Perception Temporal Localization / Grounding Temporal Ordering / Sequencing (shared) State Change & Transition Temporal Continuity (shared) Temporal Recognition (shared) Spatial Positioning (shared) Spatial Relationship Tracking & Trajectory Spatial Reasoning & State Speech Transcription (ASR) Audio-Visual Cross-modal Audio Event Detection
+
+Figure 8: Tool usage distribution over the 22 mined capabilities, counted once per trajectory that exercises the capability. The inner ring aggregates the five macro categories; the outer ring shows individual capabilities, shaded within their macro colour. Percentages are shares of the 60,474 (trajectory, capability) pairs. The legend covers the 18 capabilities that own at least one atomic tool in Table 7; capabilities 19–22 are realized only as ReAct chains and are therefore not measurable in a tool-level count. A pale swatch marks a capability with no mass ( shared ): its tools are also listed under another capability and are credited there, so it may be exercised in practice but not counted here. The distribution is strongly head-heavy: Visual Content Understanding accounts for 49.5% of all pairs (present in 87.1% of trajectories) and Speech Transcription for 25.3% (44.6% of trajectories), followed by temporal localization (11.5%) and OCR (6.6%); the remaining ten capabilities together contribute under 8%. Eight capabilities carry no mass in the figure, for three different reasons, and neither means the capability is unexercised. (1) Capabilities 19–22 own no atomic tool at all: Table 7 realizes them purely as ReAct chains over other tools, so they lie outside what a tool-level count can measure. (2) For capabilities 8, 10, 11 and 12, their tools are also listed under another capability and are credited there, so it is exercised in practice but not counted here. (3) The trajectories for statistics is partially collected from all dates, so some tools may be omitted. Moreover, a small share should not be read as low utility. Frequency here reflects how often a capability is needed , not how much it contributes when it is: a long-tail tool is typically the only route to the evidence a particular question depends on, so its value is whether those few queries become answerable at all, not the fraction of trajectories it appears in. The ablation in Table 3 makes this concrete—the visual expert group (detection, OCR, segmentation and tracking) accounts for roughly a tenth of the pairs in this figure, yet removing it costs 3.33 accuracy points. 27 B.2 Emergent Tool-Chaining Behaviour inspect_image extract_frame query_segment_detail generate_thumbnail_grid get_video_duration get_video_subtitle locate_event_by_text write_todos caption_video_scenes concat_images check_subtitle_exists ocr_frame_text transcribe_audio ocr_video_text_timeline get_video_from_youtube_id extract_video_segment spatial_crop detect count scene_change_detect 
+
+next tool                                                                              
+
+> inspect_image extract_frame query_segment_detail generate_thumbnail_grid get_video_duration get_video_subtitle locate_event_by_text write_todos caption_video_scenes concat_images check_subtitle_exists ocr_frame_text transcribe_audio ocr_video_text_timeline get_video_from_youtube_id extract_video_segment spatial_crop detect count scene_change_detect
+> current tool
+> 0.56 0.22 0.07 0.04 0.56 0.18 0.20 0.03 0.19 0.54 0.06 0.04 0.06 0.77 0.13 0.20 0.07 0.10 0.28 0.27 0.15 0.08 0.07 0.39 0.16 0.08 0.07 0.04 0.05 0.32 0.45 0.11 0.12 0.17 0.14 0.06 0.15 0.12 0.20 0.23 0.05 0.18 0.10 0.92 0.04 0.06 0.08 0.10 0.33 0.17 0.14 0.10 0.13 0.06 0.03 0.57 0.06 0.17 0.14 0.11 0.11 0.23 0.26 0.12 0.12 0.06 0.05 0.27 0.77 0.17 0.16 0.51 0.08 0.04 0.04 0.13 0.48 0.04 0.08 0.34 0.18 0.13 0.07 0.04 0.07 0.38 0.09 0.04 0.07 0.03 0.71 0.07 0.47 0.12 0.06 0.07 0.05
+
+Tool transition probability P(next current) 
+
+0.0 0.2 0.4 0.6 0.8 1.0 probability 
+
+Figure 9: First-order tool transition probabilities P (next | current) for the twenty most-frequent tools, i.e. the high-traffic backbone ( 99 .3% of all calls); this is a view of the common path, not a ranking of tool importance. Rows sum to 1 over the full tool set; only each tool’s six most likely successors are retained (together 92 –99% of its outgoing mass), and of those only the cells landing inside the top 20 are shown. Bright diagonal/off-diagonal cells expose the emergent perception loop and the subtitle ↔grounding cycle. Beyond marginal call counts, the ordered traces reveal how the agent composes tools. Figure 9 shows the first-order Markov transition matrix P (next | current) over the twenty most-used tools. Two macro-workflows emerge without being hard-coded: (i) a frame-perception loop in which generate_thumbnail_grid ,
+
+extract_frame , and concat_images all funnel into inspect_image (P ≥ 0.55 , up to 0.92 from concat_images ), which then largely self-loops or hands off to query_segment_detail ; and (ii) a text/temporal-grounding chain get_video_duration →caption_video_scenes /check_subtitle_exists (0.28 /0.27 ) followed by a subtitle ↔grounding cycle between get_video_subtitle and locate_event_by_text (0.16 and 0.32 in the two directions), where both tools also self-loop strongly ( 0.39 and 0.45 ) as the agent walks successive subtitle windows. These two clusters correspond to the visual and language/temporal evidence-gathering strategies. This is a traffic-weighted view: the twenty tools shown carry 99 .3% of the 173 ,846 calls, so the matrix describes the path the agent takes on typical questions—not a ranking of which tools matter. A specialist tool is called only when a question happens to need it, so it can never form a high-probability edge however useful it is. Their value shows up in the ablation study ablation of Table 3. 
+
+B.3 Tool Usage and Answer Correctness 
+
+Figure 10 contrasts, for each tool, the accuracy of sessions that used it against those that did not (∆ = acc used − acc not ; only tools with nused ≥ 20 and support ≥ 1% are shown). These observational correlations are not causal effects: harder questions tend to trigger more tool calls, so heavy visual tools (e.g. inspect_image , extract_frame , query_segment_detail , all ∆ ≈ − 15 pp) appear negatively associated mainly because they are invoked on the hardest items. The only positively associated tools are 28 the subtitle/temporal-grounding family ( locate_event_by_text +6 .6pp, get_video_subtitle +4 .5pp, 
+
+check_subtitle_exists +3 .6pp), reflecting that questions answerable from transcripts are both easier and text-tool-driven. 30 20 10 0 10 Accuracy delta (used not used, percentage points) 
+
+> scene_change_detect concat_images extract_frame detect query_segment_detail inspect_image extract_video_segment ocr_video_text_timeline generate_thumbnail_grid spatial_crop extract_audio caption_video_scenes ocr_frame_text transcribe_audio get_video_duration get_video_from_youtube_id write_todos check_subtitle_exists get_video_subtitle locate_event_by_text
+> -24.2 (n=145) -15.5 (n=2602) -15.4 (n=5802) -15.2 (n=102) -14.9 (n=4535) -14.7 (n=6619) -14.3 (n=506) -14.2 (n=487) -13.6 (n=5419) -11.2 (n=207) -8.4 (n=93) -6.8 (n=5297) -6.2 (n=521) -6.2 (n=958) -6.1 (n=8919) -5.4 (n=829) -4.4 (n=2184) +3.6 (n=4539) +4.5 (n=3112) +6.6 (n=2614)
+
+Per-tool accuracy correlation (overall acc = 72.8%) 
+
+Figure 10: Per-tool accuracy correlation. Green = sessions using the tool score above the no-use baseline; red = below. Bars are annotated with ∆ (percentage points) and nused . Overall accuracy = 72 .8% .At the pair level, the same signal sharpens: co-using the subtitle and temporal-grounding tools yields the largest positive lift, whereas pairs anchored on scene_change_detect or ocr_video_text_timeline 
+
+mark the hardest slices. Here ∆ is measured against the overall baseline (not a leave-one-pair-out control). 
+
+Tool Pair n Acc. ∆ vs. overall Most positively associated 
+
+get_video_subtitle + locate_event_by_text 1,897 79.1% +6 .2pp 
+
+check_subtitle_exists + locate_event_by_text 2,322 78.2% +5 .4pp 
+
+get_video_duration + locate_event_by_text 2,500 77.4% +4 .6pp 
+
+check_subtitle_exists + get_video_subtitle 2,632 76.7% +3 .8pp 
+
+Most negatively associated 
+
+locate_event_by_text + ocr_video_text_timeline 115 47.8% −25 .0pp 
+
+generate_thumbnail_grid + scene_change_detect 133 48.1% −24 .7pp 
+
+get_video_subtitle + ocr_video_text_timeline 103 48.5% −24 .3pp 
+
+inspect_image + scene_change_detect 144 48.6% −24 .2pp 
+
+Table 10: Tool-pair correctness correlation for sessions using both tools. ∆ is relative to the overall 72 .8% 
+
+baseline. 
+
+Interpretation and confounds. The sign pattern is consistent: positive associations are concentrated among text-based tools (subtitle / temporal grounding), whereas heavy visual tools are negatively asso-ciated. This is not evidence that “looking at the video hurts.” It is driven by two confounds that operate in opposite directions. 29 (1) Visual tools are invoked on harder questions. The agent decides which tools to call, and it escalates to visual inspection precisely when a question resists an easy answer. Figure 10 makes this con-crete: inspect_image , query_segment_detail , concat_images , and especially scene_change_detect —the most negative tool—are the ones reserved for items that resist a short, text-first pass. The visual tools’ baseline acc not is therefore enriched for shorter sessions that terminate after only a few calls; this imbalance can inflate the reference accuracy and induce a negative association in ∆. By contrast, subtitle tools appear across ordinary sessions rather than only on that leftover easy tail, so their positive ∆ is not an artefact of short-session dilution. 
+
+(2) Very common tools yield unstable comparisons. For a tool used in almost every session (e.g. get_video_duration , support 0.97 ), the “did-not-use” comparison group is a tiny, atypical 3% 
+
+sliver, so its ∆ is statistically fragile and should not be over-read. 
+
+(3) Subtitle use remains associated after stratification. To separate subtitle availability from subtitle use, we restrict the analysis to the 4,539 sessions that probed for subtitles and compare those that then read the transcript with those that did not. The lift remains in this matched stratum: 
+
+get_video_subtitle +4 .8pp ( 76 .7% vs. 71 .8% ) and locate_event_by_text +7 .3pp ( 78 .2% vs. 70 .9% ). This residual is consistent with a modality difference: a transcript provides a high-fidelity text channel, whereas visual perception can be affected by sparse frame sampling and VLM captioning errors. 
+
+Summary. The correlations largely measure which questions summon which tools , not the marginal value of a tool. Visual tools are negatively associated because they are the instruments of last resort on the hardest items; subtitle tools are positively associated both because they select for text-answerable questions and because, controlling for availability, text remains the cleanest evidence channel. 
+
+B.4 Accuracy by Task Type 
+
+Aggregating outcomes by question type (Figure 11) makes the tool ↔difficulty link concrete: the strongest categories ( Spatial Reasoning 91% , Information Synopsis 88% , Attribute Perception 88% , Object Reason-ing 87% ) are dominated by subtitle/temporal tools and use few calls per session, whereas the weakest (State Changes 42% , Spatial Perception 57% , Counting 60% ) rely on dense frame inspection and issue the most calls. 30 0 20 40 60 80 100 Accuracy (%) 
+
+> State Changes Spatial Perception Counting Problem Event Occurence Cause and Effect Counterfactual Counting Listening Goal Reasoning Numerical Reasoning OCR Problems Action Reasoning Action Recognition Reading Situational Awareness Temporal Perception Temporal Reasoning Object Recognition Object Reasoning Attribute Perception Information Synopsis Spatial Reasoning
+> 41.5% (n=53) 56.6% (n=99) 59.9% (n=217) 63.1% (n=65) 63.3% (n=60) 65.5% (n=58) 65.8% (n=79) 70.8% (n=65) 72.5% (n=51) 73.8% (n=61) 73.9% (n=134) 78.1% (n=480) 79.6% (n=250) 81.0% (n=63) 81.0% (n=58) 81.8% (n=66) 82.3% (n=379) 82.5% (n=308) 86.5% (n=742) 88.1% (n=185) 88.5% (n=460) 91.0% (n=122)
+
+Accuracy by task type 
+
+> overall 72.8%
+
+Figure 11: Accuracy per task type (labelled sessions with n ≥ 50 ). Dashed line = overall 72 .8% . Colour encodes accuracy; annotations give accuracy and sample size. 
+
+B.5 Provenance of the diagnostic set 
+
+The 217 loop-prone questions used in the budget-control ablation (Sec. 4.4.1) are the union of all cases on which an independent agent backbone (Gemini-3.1-Pro) exhausted its step budget without producing a prediction, collected across VideoMME, VideoMME-v2, MINERVA, LVBench, and LongVideoBench. We reuse only the inputs ; every run reported in the ablation uses the Kimi-K2.6 backbone, so the selection is not circular with respect to the evaluated system. This set is therefore a targeted stress test for the non-termination failure mode, not a random sample of the benchmarks; benchmark-wide results appear in Table 1. 
+
+C Mining Procedure for Atomic Capabilities 
+
+For reproducibility, we represent each video-QA instance as the quadruple: 
+
+d = ( Q, R, A, O ) (1) where Q is the query for video V , R is the expert reasoning trace, A is the ground-truth answer, and O
+
+is the set of candidate options. Let C = {c1, c 2, . . . , c K } denote the global taxonomy of standardized atomic capabilities ; the capabil-ities required by instance d form a subset: 
+
+Cd ⊆ C (2) The pipeline below extracts and aggregates these subsets from R, then maps Cd to executable tools 
+
+T under budget B (i.e., A = Agent( V, Q, T, B ) as in Sec. 3.1.1). 
+
+C.1 Step-by-Step Discovery Pipeline 
+
+This section specifies the implementation of four phases: (1) LLM prompting, (2) merging and filtering, (3) embedding and clustering, and (4) final taxonomy construction. 31 Table 11: Paraphrased schematic of a MINERVA-style (Q, R, A, O ) record, used only to illustrate capa-bility extraction. The query is shortened, options are collapsed, and the video key is omitted; quoted fragments of R are representative rather than a reproduced benchmark item.             
+
+> Field Content Domain Sports (ball game)
+> Question type Event occurrence
+> Question (Q) (paraphrased) Which on-court sequence caused one team’s score to become 24 –13 ?
+> Options (O) Collapsed into two types: a sequence ending in a three-point shot vs. sequences ending in a dunk, fadeaway, or layup.
+> Quoted from R“read the scoreboard and added 3”; tempo-ral grounding of the score-change moment; visual identification of jersey numbers and a rebound-then-pass.
+> Mined capabilities OCR / Text Perception; Temporal Localiza-tion; Mathematical & Quantitative.
+
+To illustrate the trace-level decomposition, consider the paraphrased sports query in Table 11. Acoarse label such as “Sports Analysis” hides several operations in the reasoning trace: reading the score-board, identifying teams or players from jersey attributes, recognizing basketball actions, and linking those actions to the observed score change. These raw descriptors are subsequently normalized, clus-tered, and mapped to the canonical capability names reported in Table 6. 
+
+C.1.1 LLM prompting 
+
+The first phase of our pipeline systematically extracts raw, fine-grained capability descriptors from human-annotated reasoning traces. Specifically, each task quadruple d = ( Q, R, A, O ) is formatted as a structured textual input. Table 11 shows a paraphrased schematic of such a record: solving the question typically combines temporal grounding, visual OCR, and basic arithmetic. To guide the LLM in systematically decomposing this cognitive trace, we design a dedicated system prompt, denoted as Thinking_prompt (detailed in Fig. 12). To reasonably anchor the open-ended ex-traction space, we provide the LLM with five empirical prior-knowledge macro-categories, derived from existing video benchmarks and dataset characteristics: 1. Visual Perception : Lower-level visual recognition tasks, such as object detection, attribute iden-tification, and Optical Character Recognition (OCR). 2. Temporal Dynamics : Time-related operations, including temporal grounding (identifying times-tamps) and temporal event ordering. 3. Spatial & Object Dynamics : Spatial relation understanding and object counting within frames. 4. Audio-Visual : Multi-sensory comprehension, such as speech-to-text transcription and cross-modal audio-visual alignment. 5. High-Level Reasoning : Logical deductions, basic arithmetic calculations, and counterfactual scenario planning. During inference, the LLM reads the input instance and reverse-engineers the discrete steps human ex-perts took to solve the task. The model is forced to map its findings into a strict JSON schema containing (1) a high-level analysis_summary of the composite skill and (2) a list of required_atomic_abilities .Crucially, to prevent the LLM from hallucinating or generating unrealistic capability names, the schema enforces a reasoning_evidence field for every extracted capability. The LLM must populate this field by quoting direct text segments from the human reasoning trace R. For instance, in the schematic of Table 11, the phrase “read the scoreboard and added 3” maps to Arithmetic (under High-Level Reasoning) with the quoted fragment as validation. This grounded mechanism ensures that every extracted raw capability is strictly backed by the factual steps of human experts. 32 # Role You are an expert AI Analyst specializing in long video Understanding . Your task is to reverse -engineer the cognitive process required to solve a specific video QA example . # Task Analyze the provided [ Question ] , [ Final Answer ] , [ Reasoning ] , and [ Distractors ]. Determine the specific atomic capabilities required to answer the question correctly . - An atomic capability is the smallest practically distinguishable component of a skill . # Reference Taxonomy ( Start Here ) Check if the required ability fits into these categories . Give a specific name and attribute it to acategory . If NOT , you must define a new category . 1. Visual Perception 2. Temporal Dynamics 3. Spatial & Object Dynamics 4. Audio - Visual 5. High - Level Reasoning # Protocol for Defining New Abilities ( Extension Rules ) If the problem - solving requires a capability strictly outside the list above : 1. Create a precise name ( e . g . , Emotion Recognition ) . 2. Assign a Category . 3. Justify explicitly why existing tags were insufficient . # JSON Schema Output Requirement {" analysis_summary ": {" p r im a r y _c o m p o si t e _ s ki l l ": " String " , " complexity_level ": " Low | Medium | High | Very High " , " c o m p o s i t e _ s k i l l _ d e s c r i p t i o n ": " String " } , " r e q u i r e d _ a t o m i c _ a b i l i t i e s ": [{" ability_name ": " String " , " category ": " String " , " d e f i n i t i o n _ j u s t i f i c a t i o n ": " String " , " reasoning_evidence ": " String ( Quote text from Reasoning ) " , " necessity ": " Required | Optional " }]}
+
+Figure 12: The system prompt ( Thinking_prompt ) used to guide the LLM in reverse-engineering human reasoning traces. 33 C.1.2 Merging & Filtering 
+
+The raw capabilities extracted directly from the LLM inevitably contain syntactic redundancies and exhibit a long-tail distribution. To address this, we implement a two-stage filtering pipeline: syntactic normalization followed by frequency-based semantic merging. First, we resolve surface-level formatting variations by applying a deterministic normalization func-tion. This step converts all raw ability names to lowercase, replaces hyphens and underscores with spaces, expands parentheses, and applies a domain-specific vocabulary mapping to unify common variations (e.g., mapping both “ fine-grained ” and “ fine grained ” to the unified term “ finegrained ”). In our dataset, this lightweight step successfully identified and merged eight groups of syntactic variants, which primarily suf-fered from inconsistent capitalization and hyphenation styles (such as Fine-Grained versus Fine-grained ). Second, to filter the sparse noise inherent in the long-tail distribution, we apply a frequency-based merg-ing strategy with a minimum occurrence threshold of 5, identifying 458 low-frequency terms. To evaluate semantic equivalence, we encode all terms into dense 384-dimensional vectors using a locally deployed 
+
+all-MiniLM-L6-v2 Sentence Transformer [35, 29]. We compute the cosine similarity between the em-beddings of these low-frequency terms and all high-frequency terms, merging each rare capability into the target with the highest similarity. For instance, the low-frequency term Person Re-Identification 
+
+(frequency of 2) is mapped to Person Re-identification (similarity of 1.000), and Video Optical Character Recognition (Video OCR) (frequency of 3) is merged into Video Optical Character Recognition (OCR) 
+
+(similarity of 0.995). Crucially, we accumulate the macro-category weights of the merged low-frequency terms into their targets, meticulously preserving the dataset’s macro-level capability distribution. 
+
+C.1.3 Embedding & Clustering 
+
+While the previous merging step effectively resolves spelling discrepancies and long-tail noise, it cannot globally group semantically identical but lexicographically different terms (such as “ text recognition ”versus “ optical character recognition ”). To bridge this macroscopic semantic gap, we take the clean, unified capability embeddings generated in the previous step and partition them using the K-means clustering algorithm. To determine the optimal partition size, we systematically sweep a range of cluster sizes from 10 to 100 with a step of 5, selecting the configuration that yields the highest silhouette score. Under this automated sweep, the optimal configuration converges at 86 clusters with a silhouette score of 0.138. This quantitative result indicates that the underlying task space has a clearly structured distribution despite the soft boundaries inherent to complex cognitive domains. Finally, we manually review the 86 clusters and distill them into 22 canonical atomic capabilities. 
+
+C.1.4 Final Taxonomy Construction 
+
+After refining the cluster boundaries, we select a single canonical name for each of the final 22 atomic capabilities. To determine this name, we apply a clear three-tier rule within each cluster: we prioritize the name with the highest global frequency, then the greatest source diversity, and resolve ties by choosing the shortest string. This ensures that every capability name is concise and representative. For example, our pipeline consolidates 13 raw variants (e.g., Fine-grained Video OCR and Text Recog-nition ) under OCR / Text Perception , and unifies 12 attribute-related terms under Attribute & State Analysis . The resulting 22-item taxonomy C is detailed in Table 6. 
+
+D Agent System Prompt 
+
+For reproducibility, the complete prompt issued to the orchestrator at inference is reproduced verbatim below; its operational rules are part of the deployed configuration. Figure 13: System prompt issued to the VideoXAgent orchestrator at the start of each trajectory. 
+
+> You are a Video Understanding Agent responsible for understanding video content and, when needed, using tools to analyze , retrieve, and verify information. Your core goals: 1. Accurately understand events, people, actions, scenes, temporal order, and key information in the video. 2. Proactively use appropriate tools when the current information is insufficient to answer the task. 3. Reason based on video content and tool outputs rather than making unsupported guesses. 4. Produce concise, structured, and traceable outputs, clearly distinguishing between observed facts, inferences, and uncertainties. Working principles:
+
+34 - First understand the task, then plan and decide whether tools are needed. Give an initial plan about how to complete the task. Refine the plan and output it mid-course when tool feedback affects the initial judgment. - Prioritize answering from the video itself and avoid irrelevant searches or redundant tool calls. - Treat tool outputs critically. If results are conflicting, incomplete, or low-confidence, explicitly point this out and verify again when necessary. - If the video does not provide enough information, clearly state the limitation instead of inventing details. - Be sensitive to temporal information and carefully distinguish what happens before and after. - Jointly reason over multimodal information, including visual content, subtitles, speech, OCR text, and external tool results. - When the task involves safety, privacy, or sensitive content, act cautiously and only analyze what is necessary. You should demonstrate the following abilities: - Video summarization and fine-grained detail localization - Event recognition and temporal understanding - Extraction of people, scenes, actions, and textual information - Information retrieval and cross-verification using tools - Reflection on intermediate results and correction of earlier mistakes Recommended workflow: 1. Clarify the user’s question and the desired output. 2. Extract direct evidence from the video. 3. Decide whether tools are needed and choose the most suitable ones. 4. Integrate video observations with tool results. 5. Provide the final answer and explicitly note uncertainties. Prohibited behaviors: - Do not fabricate information that does not appear in the video. - Do not call tools frequently when they are not necessary. - Do not ignore tool failures, missing results, or conflicting evidence. - Do not present guesses as certain facts. Tool usage requirements: - When calling any tool, you MUST explicitly provide ALL required parameters. - Never omit required parameters or pass empty values for them. - Double-check that each tool call includes all parameters marked as [REQUIRED] in the tool description. - If you are unsure about a parameter value, state the uncertainty but still provide a reasonable value. Efficiency & tool call limits: - LIMIT: Do NOT call the same tool more than 5 times consecutively. After 5 consecutive calls to one tool, you MUST switch to a more efficient alternative, or use tools from other modalities when appropriate. - When you need to inspect multiple moments from the same video, prefer multi-frame overview tools over many repeated single-frame calls: - generate_thumbnail_grid vs concat_images: the former takes a video and auto-samples low-res thumbnails; the latter takes existing image files and stitches them at original resolution. Choose by input source --- not interchangeable .- Feed a grid or composite to inspect_image once, instead of calling inspect_image on each frame individually. - When you find unexpected errors such as a missing key video file, stop invoking tools and report the error. - When you use get_video_duration, you must use an accurate video path (be careful with relative vs. absolute paths) from the user query. ===== SHORT VIDEO STRATEGY (< 60 seconds) ===== For short videos, strongly prefer using VLM tools to analyze the entire video at once --- use query_segment_detail covering the full time range, or generate_thumbnail_grid + inspect_image to get a holistic view. A single VLM pass may suffice for straightforward questions --- if the VLM answer is confident and consistent with the question, proceed to output immediately. However, for questions requiring fine-grained details, temporal precision, or cross-modal verification, continue investigating rather than trusting the initial answer blindly. ===== INVESTIGATION STRATEGY ===== Plan your investigation in three phases: Phase 1: Overview (2-3 calls) - It is recommended to get video duration and a scene-level summary. - Understand the full video structure before diving into details. Phase 2: Targeted Investigation Focus on the most relevant scene(s) for the question. Choose tools strategically based on question type: - Spoken content or dialogue timing: Prefer audio transcription and subtitle tools to get precise timestamps. Do NOT rely solely on VLM reading subtitles from frames --- VLM often misaligns subtitle timestamps by several seconds. Always prefer SRT subtitle files for accurate timing. - Visual details (colors, objects, spatial relationships): Extract key frames and use VLM inspection tools (e.g., inspect_image). Include the answer options in your query so the VLM can directly match its observation to the correct option. - Temporal order or sequence: Combine audio transcription and scene captioning tools to get both audio and visual timelines, then cross-reference them. When initial results are uncertain or conflicting, verify before concluding: - If VLM inspection on a concatenated composite gives a result, verify on a single full-resolution frame. - When visual evidence is ambiguous, check audio/subtitle/OCR data for confirmation, and vice versa. Phase 3: Conclude & Answer When to stop investigating: - Evidence reasonably supports one option --- further calls are unlikely to change your judgment. - You are repeating similar queries, re-analyzing the same time range, or growing less confident with each call. 
+
+35 How to choose your answer: - Evidence clearly supports one option -> Output it. - Evidence partially supports multiple options -> Choose the one with more supporting details. - No clear evidence -> Eliminate wrong options and pick the best remaining guess. - Accept imperfect matches -> questions may contain typos or approximate descriptions. Trust your observations and pick the closest option rather than continuing to search. You MUST write your final answer explicitly in your response, ending with: Answer: X 
+
+36

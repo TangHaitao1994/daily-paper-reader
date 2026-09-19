@@ -1,0 +1,188 @@
+Title: Beyond the Stability–Plasticity Frontier in Streaming Target Speaker Extraction
+
+URL Source: https://arxiv.org/pdf/2609.20463v1
+
+Published Time: Fri, 18 Sep 2026 01:24:08 GMT
+
+Number of Pages: 5
+
+Markdown Content:
+# BEYOND THE STABILITY–PLASTICITY FRONTIER IN STREAMING TARGET SPEAKER EXTRACTION 
+
+# Yuesheng Ma Linyang He Nima Mesgarani 
+
+# Department of Electrical Engineering, Columbia University, New York, NY, USA 
+
+ABSTRACT 
+
+Streaming target speaker extraction must maintain a representa-tion of whom to extract while the target may fall silent, be masked by interference, or drift acoustically away from enrollment. Ex-isting systems typically hold this state as a stored embedding updated by hand-designed rules. Across 22 configurations, in-cluding confidence-gated and oracle-activity-gated updates, we show that this family lies on a stability–plasticity frontier: even perfect target-activity information cannot combine robustness to target absence with adaptation to enrollment–mixture mis-match. We therefore meta-train speaker-state dynamics through the closed streaming loop, exposing the updater to its own con-taminated evidence. Our proposed 41k-parameter anchored fast-weights (AFW) memory moves beyond the measured heuristic frontier, gaining 3.0 dB over the best heuristic under severe mis-match while staying within 0.9 dB of static enrollment after 30 s of absence, at under 5% runtime overhead. A gated recurrent unit (GRU) control confirms that the gain is not AFW-specific, while AFW is smaller and more interpretable: under severe mismatch, its write residual grows and aligns with the target rather than the interferer. Code is publicly available at https: //github.com/ym2976/anchor-fast-weight .
+
+Index Terms — target speaker extraction, streaming, speaker-state maintenance, fast weights, test-time learning 
+
+1. INTRODUCTION 
+
+Target speaker extraction (TSE) uses an enrollment recording to specify whom to extract from a mixture [1, 2, 3, 4]. In streaming systems [5], that identity must remain useful beyond the initial recording. Two situations demand opposite responses (Fig. 1). When the target sounds different from enrollment, the state should adapt; when the target disappears, it should resist interference. Keeping the cue fixed avoids state drift but forfeits adaptation, whereas updating it from the separator’s own imperfect output can reinforce a wrong-speaker estimate. This creates a stability– plasticity dilemma [10]. Recent work uses momentum [6], memory banks [7], and previously extracted speech [8, 9] to update speaker cues. These systems establish the value of historical evidence, and autoregres-sive or artifact-aware training can expose models to estimated references [7, 8, 9]. However, state maintenance in these systems is still largely governed by hand-designed momentum, gating, or retrieval rules. It therefore remains unclear whether such update rules can both preserve identity through target absence and adapt to enrollment–mixture mismatch. This leads to our central ques-tion: how can a speaker state adapt without losing identity? The 
+
+> Retain identity
+
+Adapt to mismatch Hold state Update readily Heuristic frontier 
+
+# ⋆
+
+Learned states Fig. 1 . Conceptual stability–plasticity frontier. Heuristic tuning trades retention for adaptation; learned state dynamics can reach operating points beyond this boundary. 
+
+key difficulty is that activity is not identity: even while the target is active, the separator output can contain interferer evidence, so an activity gate may still write the wrong speaker into state. Be-cause this failure lives in the update rule, we freeze the separation backbone and speaker encoder and vary only the state mechanism. We make three contributions. First, we empirically charac-terize this trade-off across 22 adaptive heuristic settings. The fact that oracle target-activity-gated updates form the heuristic frontier shows that even perfect timing does not determine whose evidence gets written. Second, we show that meta-training state dynamics through the closed streaming loop can move beyond this frontier by exposing the updater to the consequences of its earlier decisions, consistent with training on self-generated histo-ries [11, 12]. Third, we propose anchored fast weights (AFW), a compact and interpretable realization of this principle. AFW per-forms online adaptation through a content-addressed directional residual around a fixed enrollment anchor. 
+
+2. ANCHORED FAST WEIGHTS FOR CLOSED-LOOP STATE LEARNING Closed-loop setting. Let a = E(enroll) denote the fixed iden-tity anchor, st the speaker state used for subsequent extraction, and et = E(ˆ yt) the evidence encoded from the current output. Figure 2 separates these roles. Importantly, the evidence is not an independent observation: it comes from an output produced using the previous state. A state update therefore changes the evidence available to later updates, making state maintenance a closed-loop problem. 
+
+Frozen extraction modules. The frozen system comprises a separation backbone F and speaker encoder E (Fig. 2). The backbone encodes each 250 ms mixture chunk, estimates a tar-get mask with a causal Feature-wise Linear Modulation (FiLM)-conditioned Temporal Convolutional Network (TCN) [13, 14], and decodes ˆyt; E embeds enrollment and ˆyt in R128 . Both arXiv:2609.20463v1 [eess.AS] 17 Sep 2026 Separator F                  
+
+> frozen: 2.9M Encoder E
+> frozen: 0.26M
+> xtˆyt
+> AFW memory Wt
+> 41k meta-params
+> et
+> Anchor + residual
+> norm( a+Wtq)
+> stto chunk t+1
+> Own output becomes future evidence
+> Train through 52–104 chunks; freeze Fand E
+> Fig. 2 .Anchored fast weights (AFW) in the closed streaming loop.
+> The output ˆytis re-encoded as evidence et, which updates the AFW memory for the next chunk. The state is read out as a residual over the fixed enrollment anchor; Fand Eremain frozen.
+
+are pretrained with static enrollment and frozen (2.9M/0.26M parameters), so all comparisons isolate the state mechanism. 
+
+Anchored fast weights (AFW). We use an associative mem-ory [15, 16] with W0 = 0 and Wt ∈ R128 ×128 . Evidence produces a key and value, kt = Ket and vt = V et. A delta-rule write with forgetting [17] updates the memory: 
+
+Wt = (1 − λt)Wt−1 − ηt(Wt−1kt − vt)k⊤ 
+
+> t
+
+. (1) The write is a gradient step on 12 ∥Wk t − vt∥2, combined with matrix decay. A 64-unit gate MLP takes et, cos( et, st−1), and the clipped log-energy of ˆyt, and outputs write and forgetting rates ηt ∈ (0 , 1) and λt ∈ (0 , 0.1) . A learned query q reads the residual rt = Wtq over the original enrollment: 
+
+st = norm( a + rt) . (2) where norm( z) = z/∥z∥2. The anchor remains present in every readout, while the memory models a context-dependent deviation from enrollment. The 41k trainable parameters are K, V, q, and the rate network. Following the fast-weights view of test-time learning [18, 19], these parameters learn how to update offline while Wt changes online. Inference requires only a rank-1 write and matrix–vector products, not autograd. Unlike model adapta-tion through auxiliary speech-enhancement losses [20, 21], the separator weights remain unchanged. 
+
+Closed-loop meta-training and GRU control. We backprop-agate through 13–26 s scenarios (52–104 chunks). Let ˆyA and 
+
+yA concatenate target-active samples, and ˆy ¯A the target-absent samples. We optimize 
+
+L = −SI -SNR(ˆ yA, yA) + 0 .1Pabs , (3) 
+
+Pabs = 10 log 10 
+
+
+
+mean ˆ y2¯A + 10 −8
+
+.
+
+No explicit speaker-identity loss is used. Training includes ab-sences up to 4 s and channel severities 0–3. To test whether the benefit of closed-loop learning depends specifically on AFW, we train a 128-dimensional GRUCell with the same objective and unroll, initialized from enrollment and read out as an enrollment residual. 
+
+3. MEASURING THE STABILITY–PLASTICITY FRONTIER Common protocol. We use LibriSpeech [22] train-clean-360 for training and speaker-disjoint test-clean for evaluation, with 150 sequences per condition. The base condition has no scripted ab-sence ( D=0 ), no channel mismatch ( s=0 ), and Target-to-Masker Ratio (TMR) = 0 dB. Each test changes one factor at a time. 
+
+Two evaluation axes. Stability measures SI-SNR improvement (SI-SNRi) after the target returns: 5 s of target-active speech, D sof absence, then 8 s of active speech, with s=0 . We sweep D ∈{1, 4, 8, 16 , 30 , 45 , 60 } s; durations above 4 s exceed the training range. Plasticity measures SI-SNRi under enrollment–mixture mismatch with D=0 . The in-mixture target is filtered with ran-dom spectral tilt and peaking filters, scaled by s ∈ { 1, 2, 3}; s=3 
+
+additionally applies a telephone bandpass. Test filters use new parameter draws from the training family. The two scores assess separate conditions, not simultaneous mismatch and absence. A configuration lies on the empirical heuristic frontier if improving one axis requires sacrificing the other. No monotonicity of an individual sweep is assumed. 
+
+State-update controls. Static conditioning keeps st = a. All adaptive heuristic baselines use the same Exponential Moving Average (EMA) update, st = αst−1 + (1 − α)et, but differ in when the update is applied. Plain EMA updates every chunk; confidence-gated EMA updates only when cos( et, st−1) > θ ;and oracle activity-gated EMA updates only when the target is active, using ground-truth Voice Activity Detection (VAD) labels to remove detection error [23]. We evaluate 9 plain-EMA, 8 confidence-gated, and 5 oracle-activity-gated settings (22 adaptive heuristics), plus static enrollment. These are controlled state rules on one backbone. An oracle-evidence diagnostic feeds clean-target encodings to the trained AFW state without changing the separator. It isolates the headroom available from better evidence with the same trained state and separator. 
+
+Metrics and reporting. SI-SNRi [24] is evaluated on target-active speech; during absence, we report output suppression in dB. Speaker confusion counts 1.6 s windows whose output is closer to the interferer than the target according to an external ECAPA-TDNN [25], not the trained encoder. Learned main results average three seeds. Ablation variants use one seed; Table 2 separately reports sequence-level uncertainty for the full system. For the AFW diagnostic, we compare rt with target- and interferer-offset directions relative to enrollment, random directions, and its norm at s = 0 and s = 3 . Additional tests vary TMR, training coverage, and 325 held-out measured room impulse responses (RIRs) from RWCP [26], AIR [27], and REVERB [28], with no test RIR seen during training. 
+
+4. RESULTS Oracle timing defines the heuristic frontier. The frontier curve in Fig. 3 is traced entirely by oracle target-activity-gated heuristics. Table 1 shows the corresponding values: the aggressive oracle gate reaches 7.9 dB under severe mismatch but only 1.1 dB after 30 s absence, whereas the conservative setting reaches 7.2 dB after absence but only 3.8 dB under mismatch. Confidence gating offers no escape: θ = .7 is static-like, while θ = .3 raises mismatch performance to 6.7 dB but lowers post-absence performance to Table 1 . One backbone, different speaker states. All separation scores are SI-SNRi in dB. Absence columns fix s=0 ; mismatch columns fix 
+
+D=0 ; TMR columns fix D=0 and s=0 ; TMR is 0 dB except in its own columns. Suppression is measured during a 16 s absence; confusion is reported at s=3 . Bold heuristic entries mark the best marginal score on each main axis. Learned rows average three seeds. Figure 3 includes the full 22-setting sweep. Base Absence D (s) Mismatch s TMR (dB) Supp. Conf. Speaker state 4 16 30 1 2 3 −10 −15 (dB) (%) Oracle VAD, α=.995 9.9 9.0 8.3 7.2 9.6 9.1 3.8 13.4 13.2 8.0 28 Static enrollment 9.9 9.0 8.3 7.1 9.7 9.1 3.0 13.7 13.5 8.2 31 Gated EMA, θ=.7 9.9 9.0 8.2 7.0 9.6 9.1 3.0 13.7 13.5 8.2 31 EMA, α=.99 9.8 8.9 8.1 6.5 9.5 9.1 4.5 13.1 13.0 8.3 26 Gated EMA, θ=.5 9.3 8.4 7.6 5.3 9.1 8.7 3.4 12.7 12.5 8.1 30 Oracle VAD, α=.90 3.5 3.4 2.2 1.1 3.5 4.6 7.9 6.5 7.0 5.8 15 Gated EMA, θ=.3 5.5 4.6 0.5 -2.2 5.8 5.8 6.7 8.1 8.5 7.2 19 EMA, α=.90 3.4 1.7 -3.3 -4.2 3.4 4.5 7.6 6.3 6.9 7.4 16 EMA, α=.95 6.1 5.0 -2.1 -5.9 6.1 6.6 7.7 9.1 9.4 8.6 16 
+
+GRU state 9.7 9.0 8.5 7.3 9.6 9.5 10.5 13.4 13.7 18.7 5
+
+AFW memory 9.8 8.8 7.8 6.2 9.6 9.6 10.9 13.6 14.0 17.2 4+ oracle evidence 10.6 9.7 9.0 7.9 10.7 10.8 11.3 14.6 15.0 20.7 32 4 6 8 10 12 Plasticity: mismatch SI-SNRi (dB) 
+
+> −6
+> −3
+> 0
+> 3
+> 6
+> 9Stability: post-absence SI-SNRi (dB)
+> Oracle-VAD frontier Learned states
+> Static
+> EMA
+> Gated EMA
+> Oracle VAD GRU AFW α=0.90 α=0.995
+
+Fig. 3 . The measured frontier. Oracle-activity gating defines the empirical heuristic frontier; AFW and the GRU control lie beyond it. 
+
+−2.2 dB. Without scripted absence, the oracle VAD gate opens on 98.2% of chunks and matches EMA at α = .90 within 0.1 dB (3.5 versus 3.4). Perfect update timing therefore improves the heuristic trade-off but does not resolve whose evidence is written. 
+
+AFW moves beyond the frontier; GRU verifies the learning principle. AFW reaches 10.9 dB under severe mismatch and 6.2 dB after 30 s absence, compared with the best heuristic score on each axis, 7.9 and 7.2 dB, achieved by different configurations. The GRU control reaches 10.5 and 7.3 dB on the same axes, confirming that moving beyond the heuristic frontier is not specific to fast weights. AFW therefore favors adaptation with 41k state parameters, whereas the 115k-parameter GRU favors retention. This improvement is consistent across secondary metrics: both learned states remain robust at TMR = −10 / − 15 dB, reduce speaker confusion to 4–5%, and increase absence suppression to 17.2–18.7 dB. 
+
+Retention extends beyond the training duration. Figure 4 iso-lates the stability axis. Although training contains absences only 1 4 16 30 60 Target absence (s; log scale) 
+
+> −10
+> −5
+> 0
+> 5
+> 10 Post-return SI-SNRi (dB)
+
+Training limit  
+
+> Static
+> EMA . 95 GRU AFW ,λmax×8 AFW
+
+Fig. 4 . Retention extrapolates beyond the training range. Post-return SI-SNRi versus absence length; training saw only D ≤ 4 s. GRU stays close to static through 60 s. The AFW λmax × 8 points show an inference-time retention dial at D = 30 and 60 s. 
+
+up to 4 s, the GRU architecture control remains close to static en-rollment through 60 s (6.0 versus 5.7 dB), whereas AFW reaches 3.6 dB. AFW additionally exposes an inference-time retention control: raising its forgetting-rate cap shifts performance from 6.2 to 6.6 dB at 30 s and from 3.6 to 5.3 dB at 60 s without retraining, for only a 0.2 dB cost at s = 3 .
+
+AFW reveals how the frontier is crossed. AFW makes the learned update directly inspectable through the residual rt =
+
+Wtq added to the enrollment anchor. If the memory merely wrote more of whatever evidence arrived, this residual would not preferentially point toward the target. Figure 5 shows the opposite. In matched speech ( s = 0 ), the residual is small (∥Wtq∥ = 1 .016 ±0.282 ), has almost no target-offset alignment (0.013 ± 0.007 ), negative interferer alignment ( −0.128 ), and random-direction cosine near zero ( −0.006 ). Under severe mis-match ( s = 3 ), the residual grows substantially ( 3.100 ± 0.637 )and aligns strongly with the target offset ( 0.419 ± 0.003 ), while remaining near orthogonal to the interferer ( −0.018 ) and random directions ( −0.008 ). AFW therefore applies a content-addressed directional correction rather than simply increasing the amount Target Δ Interferer Δ Random 
+
+> −0.15
+> 0.00
+> 0.15
+> 0.30
+> 0.45 cos( rt, direction)
+
+Direction of rt = Wtq   
+
+> s= 0 s= 3
+> 0
+> 1
+> 2
+> 3‖rt‖∼ 3×
+
+Magnitude                                                           
+
+> s= 0 s= 3 Fig. 5 .What AFW writes. For the residual rt=Wtqadded to the enrollment anchor, the left axis shows directional cosine and the right axis its norm. Under severe mismatch, AFW writes a larger correction aligned with the target offset rather than the interferer.
+> Table 2 .AFW ablations under the same conditions as Table 1: mismatch and confusion at s=3 , absence at D=30 , and suppression at D=16 . The full system averages three seeds; variants are single-seed. AFW variant s=3 D=30 Supp. Conf. (dB) (dB) (dB) (%) Full system 10.9 6.2 17.2 4Fixed scalar rates 10.7 6.0 17.4 5No enrollment anchor 10.8 5.0 17.1 4No suppression loss 11.0 5.7 7.8 5No channel augmentation 4.7 7.3 17.3 23 Channel aug. s≤26.3 7.2 16.9 18 Oracle evidence 11.3 7.9 20.7 30510 15 20 25 30
+
+Time (s)     
+
+> 0.0
+> 0.5
+> 1.0 State cosine to enrollment Target absent
+> Static EMA AFW
+> Fig. 6 .A target can return before its identity state recovers. Arepresentative 16 s absence drives the EMA state away from enroll-ment, and it remains displaced after the target returns. AFW retains more of the original state and moves back toward the anchor.
+
+written. The fixed-rate ablation further separates direction from scalar scheduling: replacing the gate network with constants (η = .10 , λ = .010 ) changes mismatch and post-absence SI-SNRi by only −0.2 dB each. The learned keys, values, query, and prediction error still determine the correction direction, whereas EMA-style heuristics can only control how much evidence enters the state. 
+
+The anchor and suppression objective have distinct roles. Fig-ure 6 illustrates the identity-recovery problem over time: EMA’s state cosine approaches 0.03 during absence and remains dis-placed after the target returns, whereas AFW retains more of the original state and moves back toward the anchor. The ablations in Table 2 separate the roles of the anchor and suppression objective. Removing the enrollment anchor reduces post-absence SI-SNRi from 6.2 to 5.0 dB while mismatch and suppression change little (10.9 to 10.8 dB and 17.2 to 17.1 dB), showing that the residual can still adapt but the fixed identity reference supports recovery. Conversely, removing the absence-power loss lowers suppres-sion from 17.2 to 7.8 dB, with smaller changes in mismatch and post-absence SI-SNRi (to 11.0 and 5.7 dB). The anchor therefore chiefly supports post-absence identity recovery, whereas the sup-pression objective chiefly controls output during target absence. 
+
+Training coverage controls AFW’s operating point. At s = 3 ,performance follows 3.04 → 4.68 → 6.29 → 10 .87 dB for static conditioning, AFW trained without channel augmentation, AFW trained only through s ≤ 2, and AFW trained through 
+
+s ≤ 3, respectively. The s ≤ 2 model is evaluated at the unseen severity s = 3 and still exceeds static by 3.25 dB, demonstrating extrapolation beyond the trained severity range. Broader training coverage then moves AFW to a stronger operating point, an axis unavailable to fixed heuristics because additional training diversity cannot alter a hand-specified update rule. The same pattern extends across corruption families. On measured room responses absent from training, base AFW scores 3.3 dB (static: 3.3; EMA: 5.8; oracle evidence: 7.9). Expanding training to two and three corruption families raises AFW to 3.7 and 4.0 dB, and adding synthetic reverberation [29] reaches 4.6 dB. Separately, clean-target evidence raises the 30 s score from 6.2 to 7.9 dB, leaving evidence quality as additional headroom. 
+
+AFW remains a lightweight state mechanism. AFW adds 41k trainable parameters. Its measured real-time factor is 0.074 on an A100 and 0.235 on CPU, versus 0.071 and 0.241 for static conditioning, corresponding to under 5% measured runtime dif-ference. On matched, short-form Libri2Mix [30] test-clean, AFW scores 7.93 dB versus 8.40 dB for static conditioning. This lo-calizes the contribution: AFW is not intended as a replacement separator, but as a lightweight state mechanism for conditions that require adaptation across enrollment mismatch and prolonged target absence. 
+
+5. CONCLUSION 
+
+We identify a measurable stability–plasticity frontier in streaming speaker-state maintenance whose empirical heuristic boundary is traced by oracle target-activity-gated updates. Closed-loop meta-training can move speaker-state dynamics beyond this boundary; a GRU architecture control shows that this principle is not spe-cific to one state representation. Our proposed AFW realizes the same principle with a compact, interpretable state: a fixed enroll-ment anchor is corrected online by a content-addressed directional residual that aligns with the target offset under mismatch. Its abla-tions separate directional adaptation, identity retention, and output suppression, while the training-coverage experiments show that learned state dynamics gain an additional design axis unavailable to fixed update rules. AFW therefore provides a lightweight and inspectable realization of state adaptation beyond the measured heuristic frontier. 6. ACKNOWLEDGEMENTS 
+
+The conceptual illustration in Fig. 1 and the architecture diagram in Fig. 2 were generated with ChatGPT (OpenAI), which was also used to refine the manuscript’s language. The manuscript was written by the authors, who reviewed the final text and figures and take full responsibility for their content. This work was funded by the National Institutes of Health (NIH-NIDCD) and a grant from Marie-Josee and Henry R. Kravis. 
+
+7. REFERENCES 
+
+[1] K. Žmolíková, M. Delcroix, T. Ochiai, K. Kinoshita, J. ˇ Cer-nocký, and D. Yu, “Neural target speech extraction: An overview,” IEEE Signal Process. Mag. , vol. 40, no. 3, 2023. [2] K. Žmolíková, M. Delcroix, K. Kinoshita, T. Ochiai, T. Nakatani, L. Burget, and J. ˇCernocký, “SpeakerBeam: Speaker aware neural network for target speaker extraction in speech mixtures,” IEEE J. Sel. Topics Signal Process. , vol. 13, no. 4, 2019. [3] Q. Wang et al., “VoiceFilter: Targeted voice separation by speaker-conditioned spectrogram masking,” in Interspeech ,2019. [4] M. Ge, C. Xu, L. Wang, E. S. Chng, J. Dang, and H. Li, “SpEx+: A complete time domain speaker extraction network,” in Inter-speech , 2020. [5] Q. Wang et al., “VoiceFilter-Lite: Streaming targeted voice separation for on-device speech recognition,” in Interspeech ,2020. [6] J. Li, K. Zhang, S. Wang, K. A. Lee, M.-W. Mak, and H. Li, “MoMuSE: Momentum multi-modal target speaker ex-traction for real-time scenarios with impaired visual cues,” arXiv:2412.08247, 2024. [7] J. Li, W. Wu, S. Wang, Z. Pan, K. A. Lee, H. Meng, and H. Li, “MeMo: Attentional momentum for real-time audio-visual target speaker extraction under impaired visual condi-tions,” arXiv:2507.15294, 2025. [8] Z. Pan et al., “Online audio-visual autoregressive speaker ex-traction,” in Interspeech , 2025. [9] Z. Liu, Z. Wang, X. Li, Y. Zhu, S. Wang, L. Xiao, and L. Xie, “EvoTSE: Evolving enrollment for target speaker extraction,” arXiv:2604.06810, 2026. [10] S. Grossberg, “Competitive learning: From interactive activa-tion to adaptive resonance,” Cognitive Science , vol. 11, no. 1, 1987. [11] S. Ross, G. J. Gordon, and J. A. Bagnell, “A reduction of im-itation learning and structured prediction to no-regret online learning,” in AISTATS , 2011. [12] S. Bengio, O. Vinyals, N. Jaitly, and N. Shazeer, “Scheduled sampling for sequence prediction with recurrent neural net-works,” in NeurIPS , 2015. [13] Y. Luo and N. Mesgarani, “Conv-TasNet: Surpassing ideal time–frequency magnitude masking for speech separation,” 
+
+IEEE/ACM Trans. Audio, Speech, Lang. Process. , vol. 27, no. 8, 2019. [14] E. Perez, F. Strub, H. de Vries, V. Dumoulin, and A. Courville, “FiLM: Visual reasoning with a general conditioning layer,” in 
+
+AAAI , 2018. [15] J. Ba, G. E. Hinton, V. Mnih, J. Z. Leibo, and C. Ionescu, “Using fast weights to attend to the recent past,” in NeurIPS , 2016. [16] I. Schlag, K. Irie, and J. Schmidhuber, “Linear transformers are secretly fast weight programmers,” in ICML , 2021. [17] S. Yang, J. Kautz, and A. Hatamizadeh, “Gated delta networks: Improving Mamba2 with delta rule,” in ICLR , 2025. [18] Y. Sun et al., “Learning to (learn at test time): RNNs with expressive hidden states,” in ICML , 2025. [19] A. Behrouz, P. Zhong, and V. Mirrokni, “Titans: Learning to memorize at test time,” arXiv:2501.00663, 2025. [20] Y. Sun, X. Wang, Z. Liu, J. Miller, A. A. Efros, and M. Hardt, “Test-time training with self-supervision for generalization under distribution shifts,” in ICML , 2020. [21] A. Behera, R. A. Easow, V. Parvathala, and K. S. R. Murty, “Test-time training for speech enhancement,” in Interspeech ,2025. [22] V. Panayotov, G. Chen, D. Povey, and S. Khudanpur, “Lib-riSpeech: An ASR corpus based on public domain audio books,” in ICASSP , 2015. [23] S. Ding, Q. Wang, S.-Y. Chang, L. Wan, and I. Lopez Moreno, “Personal VAD: Speaker-conditioned voice activity detection,” in Odyssey , 2020. [24] J. Le Roux, S. Wisdom, H. Erdogan, and J. R. Hershey, “SDR— half-baked or well done?” in ICASSP , 2019. [25] B. Desplanques, J. Thienpondt, and K. Demuynck, “ECAPA-TDNN: Emphasized channel attention, propagation and aggre-gation in TDNN based speaker verification,” in Interspeech ,2020. [26] S. Nakamura, K. Hiyane, F. Asano, T. Nishiura, and T. Ya-mada, “Acoustical sound database in real environments for sound scene understanding and hands-free speech recognition,” in Proc. LREC , 2000, pp. 965–968. [27] M. Jeub, M. Schäfer, and P. Vary, “A binaural room impulse response database for the evaluation of dereverberation algo-rithms,” in Proc. IEEE Int. Conf. Digital Signal Processing (DSP) , 2009, pp. 1–4. [28] K. Kinoshita, M. Delcroix, T. Yoshioka, T. Nakatani, E. A. P. Ha-bets, R. Haeb-Umbach, V. Leutnant, A. Sehr, W. Kellermann, R. Maas, S. Gannot, and B. Raj, “The REVERB challenge: A common evaluation framework for dereverberation and recogni-tion of reverberant speech,” in Proc. IEEE Workshop Applica-tions of Signal Processing to Audio and Acoustics (WASPAA) ,2013, pp. 1–4. [29] T. Ko, V. Peddinti, D. Povey, M. L. Seltzer, and S. Khudanpur, “A study on data augmentation of reverberant speech for robust speech recognition,” in ICASSP , 2017. [30] J. Cosentino, M. Pariente, S. Cornell, A. Deleforge, and E. Vin-cent, “LibriMix: An open-source dataset for generalizable speech separation,” arXiv:2005.11262, 2020.

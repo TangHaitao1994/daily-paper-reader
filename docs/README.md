@@ -48,17 +48,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-18</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-19</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 19 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 7 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>7</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>12</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>2</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>5</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-18 21:22:59 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-19 21:53:34 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -69,9 +69,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共生成 19 篇推荐（精读 7 篇，速读 12 篇）</p>
-<p>精读：《High-Fidelity Video Quality Assessment with VQA-Specific Saliency》（9.0/10）, 《DUPAR: Dual-Path Conversational Retrieval via Speech Retriever with Cross-Turn Evidence Caching》（9.0/10）</p>
-<p>速读：《CAL-MOS: Bridging Layers with Adapters for Robust MOS Prediction Across Speech Foundation Models》（8.0/10）, 《SVMemAgent: A Streaming Video Memory Agent for Query-Agnostic Online Frame Selection》（8.0/10）, 《Multimodal Conversational Context for LLM-Based ASR: Data Construction, Training, and Benchmark》（8.0/10）</p>
+<p>今日共生成 7 篇推荐（精读 2 篇，速读 5 篇）</p>
+<p>精读：《Modality-Autoregressive World-Action Models》（9.0/10）, 《Model-Agnostic and Language-Agnostic Voice Pipeline Improvement for the Agriculture Domain》（9.0/10）</p>
+<p>速读：《Online Video Agent Harness for Long Video Understanding》（6.0/10）, 《How to Better Train VLAs: Lessons Learned From the REAL-I Challenge at ICRA 2026》（6.0/10）, 《Voice of Reason: Reinforcement Learning for Spoken Math》（6.0/10）</p>
 <p>这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。</p>
   </div>
 </section>
@@ -81,12 +81,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">7 篇</strong>
+    <strong class="dpr-home-dashboard-count">2 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="High-Fidelity Video Quality Assessment with VQA-Specific Saliency">High-Fidelity Video Quality Assessment with VQA-Specific Saliency</span></li><li><span class="dpr-home-dashboard-paper-title" title="DUPAR: Dual-Path Conversational Retrieval via Speech Retriever with Cross-Turn Evidence Caching">DUPAR: Dual-Path Conversational Retrieval via Speech Retriever with Cross-Turn Evidence Caching</span></li><li><span class="dpr-home-dashboard-paper-title" title="PersianVox: A Prosody-Aware Approach for Speech Dataset Generation from In-the-Wild Data">PersianVox: A Prosody-Aware Approach for Speech Dataset Generation from In-the-Wild Data</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Modality-Autoregressive World-Action Models">Modality-Autoregressive World-Action Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Model-Agnostic and Language-Agnostic Voice Pipeline Improvement for the Agriculture Domain">Model-Agnostic and Language-Agnostic Voice Pipeline Improvement for the Agriculture Domain</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">duplex-agent <strong>4</strong></span><span class="dpr-home-dashboard-tag">data-agent <strong>3</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">data-agent <strong>1</strong></span><span class="dpr-home-dashboard-tag">duplex-agent <strong>1</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -94,12 +94,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">12 篇</strong>
+    <strong class="dpr-home-dashboard-count">5 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="CAL-MOS: Bridging Layers with Adapters for Robust MOS Prediction Across Speech Foundation Models">CAL-MOS: Bridging Layers with Adapters for Robust MOS Prediction Across Speech Foundation Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="SVMemAgent: A Streaming Video Memory Agent for Query-Agnostic Online Frame Selection">SVMemAgent: A Streaming Video Memory Agent for Query-Agnostic Online Frame Selection</span></li><li><span class="dpr-home-dashboard-paper-title" title="Multimodal Conversational Context for LLM-Based ASR: Data Construction, Training, and Benchmark">Multimodal Conversational Context for LLM-Based ASR: Data Construction, Training, and Benchmark</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Online Video Agent Harness for Long Video Understanding">Online Video Agent Harness for Long Video Understanding</span></li><li><span class="dpr-home-dashboard-paper-title" title="How to Better Train VLAs: Lessons Learned From the REAL-I Challenge at ICRA 2026">How to Better Train VLAs: Lessons Learned From the REAL-I Challenge at ICRA 2026</span></li><li><span class="dpr-home-dashboard-paper-title" title="Voice of Reason: Reinforcement Learning for Spoken Math">Voice of Reason: Reinforcement Learning for Spoken Math</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">duplex-agent <strong>8</strong></span><span class="dpr-home-dashboard-tag">data-agent <strong>4</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">duplex-agent <strong>3</strong></span><span class="dpr-home-dashboard-tag">data-agent <strong>2</strong></span></div>
 </section>
 </div>
 
