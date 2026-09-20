@@ -1,0 +1,163 @@
+Title: Dictionary-Constrained Grapheme-to-Phoneme for Unsegmented Languages from LLM-Annotated Data
+
+URL Source: https://arxiv.org/pdf/2609.19805v1
+
+Published Time: Fri, 18 Sep 2026 00:57:03 GMT
+
+Number of Pages: 5
+
+Markdown Content:
+# DICTIONARY-CONSTRAINED GRAPHEME-TO-PHONEME FOR UNSEGMENTED LANGUAGES FROM LLM-ANNOTATED DATA 
+
+# Rui Hu, Zhenpeng Zhan, Xiaolong Lin ∗
+
+# Baidu Inc., Shenzhen, China 
+
+ABSTRACT 
+
+Grapheme-to-phoneme (G2P) conversion turns raw text into its phonemic form and is an essential part of both text-to-speech (TTS) and automatic speech recognition (ASR) systems. It is required to be fast, stable and context-aware. For unsegmented languages such as Japanese, G2P additionally couples word segmentation with highly context-dependent polyphone disambiguation, and the scarcity of accurately annotated data remains a bottleneck. In this paper, we present a context-aware neural G2P method that scores paths of a discriminative conditional random field (CRF) over a word lattice constructed from dictionaries. To tackle data scarcity, we utilize large language models (LLMs) to generate more than 2 million sentences. Experimental results demonstrate that our method strongly outperforms conventional morphological analyzer-based methods and neural sequence models. On the Joyo-Kanji-Yomi benchmark, our method reaches 99.62% target word reading accuracy, 0.32% target word phoneme error rate (PER) and 0.14% sentence PER. 
+
+Index Terms — Grapheme-to-phoneme, polyphone disam-biguation, unsegmented languages, large language model, data annotation 
+
+1. INTRODUCTION 
+
+Grapheme-to-phoneme (G2P) conversion, which maps text into its phonemic form, serves as a fundamental module in text-to-speech (TTS) and automatic speech recognition (ASR) systems[1, 2, 3]. Although recent state-of-the-art (SOTA) TTS models based on large language models (LLMs)[4, 5, 6] generate speech directly from raw text at scale, G2P remains useful in TTS systems where controlla-bility and robustness are demanded[7]. It also finds application in TTS evaluation and data filtering[8]. The complexity of G2P varies fundamentally across language families, dictated by their underlying writing systems and seg-mentation properties. G2P for alphabetic languages with natural word boundaries, such as English, can largely rely on direct dic-tionary lookup supplemented by contextual disambiguation for heteronyms[9]. Chinese is an unsegmented language with nu-merous polyphones. Nevertheless, its strict one-character-to-one-syllable nature allows polyphone disambiguation to be naturally framed as character-level sequence labeling[10]. In contrast, Japanese presents a far more intricate challenge. Beyond being unsegmented, it employs a mixed writing system of logographic Kanji ( 漢字) and phonographic Kana ( カナ ), where a single Kanji character often corresponds to a variable number of syllables and carries highly divergent readings across contexts. Furthermore, lexical compounding frequently triggers irregular phonological 
+
+> ∗
+
+Corresponding author: linxiaolong01@baidu.com 
+
+changes. For instance, 恋 (love) can be read as koi or ren , and 
+
+人 (person) as hito , nin , or jin , yet their compound 恋人 (lover) becomes koibito .Conventional approaches are mainly built upon morphological analyzers and dictionaries[11, 12, 13, 14]. Despite being fast and stable, they capture only local context and rely on explicit segmen-tation, which propagates errors to reading estimation. More re-cently, neural sequence models have been applied to Japanese G2P by directly translating graphemes into phonemes[15, 16]. How-ever, without dictionary constraints, these models can occasionally hallucinate, producing unstable readings. Methods in [17, 18] uti-lize pre-trained masked language models (MLMs) and dictionaries for better polyphone disambiguation, but they still heavily rely on morphological analyzers for segmentation and feature extraction. Moreover, due to data scarcity, they are often trained on limited human annotations or pseudo-labels from conventional analyzers. Recently, LLMs have prompted initial efforts to evaluate their per-formance and limits on G2P[19, 3], but training G2P models on large-scale LLM-annotated data remains under-explored. In this work, we propose a dictionary-constrained, context-aware G2P model trained on large amounts of LLM-annotated data. We formulate Japanese G2P as a conditional random field (CRF) over the paths of a word lattice constructed from dic-tionaries and use a DeBERTa-based[20] character-level text en-coder to resolve context-dependent polyphone disambiguation. To tackle data scarcity, we utilize frontier LLMs to generate over 2M sentences, taking into consideration the linguistic attributes of Japanese. To validate the effectiveness of the proposed method, we test against the Joyo-Kanji-Yomi (readings of regular-use Kanji) benchmark[21] and compare it with several baselines. Experimen-tal results demonstrate that our method achieves 99.62% target word reading accuracy, 0.32% target word phoneme error rate (PER) and 0.14% sentence PER, strongly surpassing conventional methods and neural network counterparts. 
+
+2. METHOD 2.1. Problem formulation 
+
+Conventional methods typically combine a morphological analyzer with a dictionary containing rich lexical information, such as word and transition costs, surface and reading forms, part-of-speech (POS) tags, and conjugation attributes. They first construct a word lattice and search for the path with the lowest accumulated cost. However, for G2P, these methods face two main challenges: (1) they rely on morphologically plausible word segmentation before retrieving readings, causing segmentation errors to propagate to reading prediction; and (2) they primarily rely on local context, making them less effective at disambiguating context-dependent polyphones. arXiv:2609.19805v1 [cs.CL] 17 Sep 2026 外国 gaikoku (foregin country)           
+
+> 外gai (outside)
+> 国koku (country)
+> 人参 ninjin (carrot)
+> 人jin (person)
+> 参san (three)
+> 政sei (politics)
+> 権ken (right)
+> 政権 seiken (regime)
+> 国人 kunito (a person name)
+> 参政 sansei (voting)
+
+## 外 国 参 政 権人Fig. 1 . An example of a word lattice (adapted from [22]). Since we only need the full-sentence reading, we relax segmen-tation and treat any path as valid as long as it yields the correct target reading sequence. In other words, we model the joint segmentation-and-reading hypothesis space supervised by the full-sentence read-ing. Figure 1 shows an example of a word lattice for the input sen-tence 外国人参政権 (voting rights for foreign residents). While morphological analysis strictly favors the path traversing the green edges, for the G2P task, those traversing the blue edges are also considered valid. This relaxation also greatly simplifies data prepa-ration, making LLM annotation more feasible. 
+
+2.2. Model architecture 
+
+To identify nodes that yield correct readings during inference, we design a neural node scorer built on an MLM. As shown in Figure 2, the input sentence is first passed through a character-level text en-coder initialized with an MLM to obtain contextual representations. Meanwhile, the input sentence is fed into the lattice constructor to build a word lattice. For each node v in the lattice, we slice its cor-responding hidden states from the contextual representations based on the position indices of its surface form. The node’s reading in Katakana is passed through an embedding layer and a linear projec-tion to obtain reading representations. The two representations are then concatenated along the sequence dimension and fed into sev-eral transformer[23] encoder blocks. These concatenated represen-tations then serve as queries in the subsequent transformer decoder blocks, with the entire contextual representations as keys and val-ues. Note that the self-attention layers in the decoder blocks do not use causal masking. Finally, the fused representations pass through a mean pooling layer and a linear projection to compute a scalar score s(v).
+
+2.3. Training & inference 
+
+Let X denote the input sentence and Y denote the target full-sentence reading. During training, we formulate the node scores as a CRF over the lattice DAG. Defining P as the set of all possible paths in the lattice and G ⊂ P as the subset of valid paths that yield 
+
+Y , the loss is defined as the negative log-marginal-likelihood of the target reading: 
+
+Lcrf = log X
+
+> π∈P
+
+exp( s(π)) − log X
+
+> π∈G
+
+exp( s(π)) , (1) where s(π) = P 
+
+> v∈π
+
+s(v) represents the score of a path π,and both partition functions are computed exactly via a level-wise forward algorithm over the DAG. Because word segmentation is marginalized out in both terms, the objective is indifferent to how 外 国 人 参 政 権  
+
+> Char-level Text Encoder 参政 サンセイ
+> Lattice Constructor Transformer Encoder Blocks Tranformer Decoder Blocks Pooling & Projection Embedding Layer Span Extraction Node Score Query Context Key & Value [3:5]
+
+Fig. 2 . Architecture of the neural node scorer. a reading is produced and sensitive only to which reading is pro-duced. Notably, unlike conventional CRFs, we omit explicit tran-sition features between adjacent nodes, as the neural node scorer can capture contextual dependencies through the bidirectional text encoder and cross-attention mechanism. To disambiguate competing readings that share the same sur-face span, we introduce a margin loss over pairs of valid nodes vg
+
+and competitor nodes vc covering the same span: 
+
+Lmargin = 1
+
+|C| 
+
+X 
+
+> (vg,v c)∈C
+
+max (0 , m − (s(vg ) − s(vc))) , (2) where C denotes the set of such pairs in the sentence (we set 
+
+Lmargin = 0 if C = ∅), and m > 0 is a predefined margin hyperparameter. The total objective is then formulated as: 
+
+L = Lcrf + λLmargin , (3) where λ controls the trade-off between the two loss terms. During inference, we decode the highest-scoring path via Viterbi search on the lattice DAG and extract its corresponding reading sequence. 
+
+3. DATA 3.1. Dictionary Preparation 
+
+Two dictionaries are required for lattice construction and LLM an-notation, respectively. Both dictionaries are constructed from the widely used UniDic [12], which comprises approximately 870k en-tries, encompassing common words, proper nouns, and symbols. For lattice construction, the dictionary should provide the broadest possible coverage, even though there could be a few noisy entries. Therefore, we retain all entries in UniDic. However, we find that many Kanji characters have standalone readings that are not explicitly listed as independent entries in UniDic, but only oc-cur within compound words. For example, the character 及 has no standalone entry for kyuu , despite this reading occurring frequently in compounds such as 普及 (fukyuu ) and 言及 (genkyuu ). To rem-edy this, we employ mpaligner [24] to mine all UniDic entries, yielding approximately 16.6k additional single-character entries. Conversely, for LLM annotation, the dictionary must be accu-rate, compact and information-dense. Since UniDic targets fine-grained morphological analysis, words derived from the same base form are fragmented across entries due to conjugation or phonolog-ical variations. To streamline this, we group entries by their base form while retaining their POS tags and conjugation attributes. Fur-thermore, as the primary objective of Japanese G2P is to accurately disambiguate Kanji readings, we filter out entries whose surface forms contain no Kanji characters. Proper nouns are also excluded, as many are context-independent and a single surface form often exhibits multiple equally valid readings. This refinement yields a consolidated dictionary of approximately 151k entries. To im-prove annotation quality, we categorize entries into monophonic and polyphonic entries, with unique and multiple readings, respec-tively. This yields approximately 145k monophonic and 6k poly-phonic entries. 
+
+3.2. LLM Annotation 
+
+We subsequently leverage Gemini 3.1 Pro 1 with thinking level set to high for downstream data annotation tasks. For each monophonic entry, we prompt the LLM to generate 15 sentences accompanied by their readings, providing the surface form, reading form, POS tags, and conjugation attributes as context. During annotation, the LLM is instructed to first evaluate the validity of the entry and gen-erate instances solely for valid ones, yielding approximately 2.05M sentences. Since polyphone annotation quality dictates the upper bound of disambiguation performance, we annotate polyphonic entries in two stages: verification and generation . In the verification stage, the LLM assesses the validity of each candidate reading, clusters valid readings that share nearly identical semantics, provides a con-cise gloss per cluster, and designates a dominant reading for each, resulting in approximately 10.2k groups. In the generation stage, sentences are synthesized per group by prompting the LLM to con-struct contexts strictly matching the dominant reading. Besides POS tags and conjugation details, we inject the verification glosses and the competing readings of the same surface form, instructing the LLM to build contexts informative enough for a native speaker to uniquely infer the target reading. We generate 30 sentences per group, producing approximately 306k sentences. Finally, we apply data filtering for the generated data. First, for each generated sentence and its corresponding reading, we construct a word lattice to verify whether the target reading is reachable. This lattice coverage check filters out roughly 0.76% of monophonic data and 0.88% of polyphonic data. Next, in the re-maining sentences, we detect any non-dominant or invalid readings identified during polyphone verification: non-dominant readings are mapped to their dominant counterparts, and sentences with invalid readings are discarded. Only 0.06% of sentences need replacement, and no sentence contains invalid readings, which is reasonable as LLMs rarely generate such readings. As a result, we obtain a final dataset of approximately 2.04M and 303k sentences from monophonic and polyphonic entries, re-spectively. 
+
+4. EXPERIMENTS 4.1. Evaluation metrics 
+
+We evaluate the proposed method on a revised version of the Joyo-Kanji-Yomi benchmark [21] 2. The benchmark is constructed based 
+
+> 1https://deepmind.google/models/gemini/pro/
+> 2https://github.com/Parakeet-Inc/ Joyo-Kanji-Yomi-Benchmark-Parakeet-Edition
+
+on the 2,136 Joyo Kanji (regular-use Kanji) and their 4,378 official readings specified by the Agency for Cultural Affairs of Japan. Each sentence is annotated with its target word’s position and reading, alongside the full-sentence reading, totaling 13,536 test sentences. Note that our annotator (Gemini 3.1 Pro) predates the benchmark release, avoiding test-set leakage into the training data. This revised version rectifies annotation errors in the original benchmark and properly addresses cases where target words admit multiple acceptable readings. Its codebase provides the following evaluation metrics: • Accuracy : The percentage of sentences where the predicted target word reading exactly matches the ground truth. • Target PER : The PER on the target word reading, i.e., the character error rate (CER) over kana sequences, capped at 100%. • Sentence PER : The PER on the full-sentence reading, de-fined likewise, capped at 100%. All metrics are computed per sentence with punctuation re-moved, then averaged across the benchmark. We report relaxed ac-curacy and target PER: a prediction matching any acceptable read-ing is counted as correct. 
+
+4.2. Model details 
+
+The character-level text encoder uses a pretrained Japanese De-BERTa [20] 3 model with all parameters unfrozen, followed by a linear projection layer that maps the representations to 512 dimen-sions. The reading embedding has a dimensionality of 256 and is linearly projected to the 512-dimensional model space. The character-level and reading representations are jointly processed by two Transformer encoder blocks with bidirectional self-attention, followed by two Transformer decoder blocks for cross-attention with the sentence-level context representations. No causal masking is applied in the decoder self-attention. All Transformer blocks use 8 attention heads, a hidden dimension of 512, an FFN dimension of 2048, and a dropout rate of 0.1. During training, the margin 
+
+m in the margin loss is set to 2.0, and the loss weight λ is set to 0.5. We randomly select 5k sentences for validation and use the remaining sentences for training. We train the model for 10 epochs on 4 H100 GPUs. After a warmup period covering 5% of the total training steps, the peak learning rates for the pretrained DeBERTa and the remaining modules are set to 5 × 10 −5 and 3 × 10 −4, re-spectively. We optimize the model with AdamW at a batch size of 640, using a cosine learning rate scheduler with a weight decay of 0.01. The checkpoint with the best validation accuracy is selected for comparison. 
+
+4.3. Baselines 
+
+We compare the proposed method against both conventional mor-phological analyzers and neural network-based approaches. For the former, we evaluate MeCab [11] with UniDic [12], Open-JTalk [13], Juman++ [22], and Sudachi (Mode C) [14]. For the latter, we train three neural baselines. The first is an autoregressive model based on ByT5 [25, 26], using the Small variant backbone comprising 300M parameters. The second is a non-autoregressive CTC-based model [27, 16], whose backbone is initialized from the same Japanese DeBERTa model used as our character-level text 
+
+> 3https://huggingface.co/ku-nlp/ deberta-v2-base-japanese-char-wwm
+
+encoder. These two are trained via a two-stage pipeline: they are first pre-trained on pseudo-labeled readings generated by MeCab with UniDic over 17M sentences from Japanese Wikipedia 4 for 15 epochs, and subsequently fine-tuned on the same LLM-annotated dataset used for our proposed method for 10 epochs. The third is an instruction-tuned LLM, Qwen3-0.6B [28]. We directly fine-tune it on the LLM-annotated data for 3 epochs at a learning rate of 
+
+5 × 10 −5.Additionally, we include several frontier LLMs, including the Gemini 3 Series 5 and GPT-5.6 Series 6, as competitive reference baselines. All LLMs are evaluated under a high reasoning effort set-ting. To ensure statistical reliability, each LLM is evaluated across 3 independent runs per sample, and we report the averaged perfor-mance. 
+
+4.4. Results 
+
+Table 1 presents the evaluation results on the Joyo-Kanji-Yomi benchmark. Overall, our proposed method significantly outper-forms previous approaches and achieves comparable performance with some frontier LLMs, reaching an accuracy of 99.62%, a target word PER of 0.32%, and a sentence PER of 0.14%. Compared with conventional morphological analyzer-based methods, our model demonstrates a substantial performance leap. This highlights the superiority of leveraging contextualized neural scoring over static shallow features for polyphone disambigua-tion. Take 米の収穫時期 (the rice harvest season) as an example, Sudachi fails to disambiguate the two readings of the polyphonic character 米, kome and bei , and incorrectly predicts bei instead of the more appropriate kome in this context. Our approach also surpasses strong neural baselines, confirm-ing that integrating a constrained word lattice DAG with a neural node scorer provides a stronger structured prior and better mitigates generation instability. For instance, when predicting the reading of 
+
+遠くで 稲光が見えた (I could see a flash of lightning in the dis-tance), the CTC baseline incorrectly reads 稲光 as irigabi , a nonex-istent reading, instead of the correct reading inabikari .Notably, our model achieves competitive accuracy and PER on par with frontier LLMs such as Gemini 3.1 Flash, and approaches the performance of its data generator Gemini 3.1 Pro. Since our method can only emit readings that are reachable in the lattice, we further report an oracle upper bound by selecting the lattice path closest to the ground truth. This yields an accuracy of 100.00% and a target PER of 0.00%. These results confirm that lat-tice coverage is not a bottleneck for Kanji characters. Through case analysis, we find that the remaining sentence-level PER of 0.01% primarily originates from Arabic numerals, consistent with the lim-itation discussed in Section 5. We also conduct ablation studies to investigate the impact of the margin loss and model capacity. The results are summarized in Table 2. All ablated variants are compared against our full model (DeBERTa-base with the margin loss). Removing the margin loss leaves the sentence PER nearly unchanged, but causes a noticeable decrease in accuracy and an increase in target PER. This suggests that the margin loss helps the model distinguish the correct can-didate node from competing candidate nodes, thereby improving polyphone disambiguation. Varying the size of the pretrained De-BERTa model reveals a clear scaling trend. Reducing the backbone 
+
+> 4https://huggingface.co/datasets/singletongue/ wikipedia-utils
+> 5https://deepmind.google/models/gemini/
+> 6https://openai.com/index/gpt-5-6/
+
+Table 1 . Results of different G2P methods tested against the Joyo-Kanji-Yomi benchmark. All metrics are reported in %. Method Accuracy Target PER Sentence PER Gemini 3.1 Flash 99.52 0.36 0.17 Gemini 3.1 Pro 99.78 0.18 0.10 GPT-5.6-Luna 99.38 0.52 0.26 GPT-5.6-Sol 99.85 0.14 0.12 MeCab +UniDic 96.66 2.82 1.23 OpenJTalk 96.63 3.00 0.80 Sudachi 97.32 2.27 1.02 Juman++ 90.29 9.23 2.42 CTC 98.09 1.22 0.42 ByT5 98.45 1.34 0.38 Qwen3-0.6B 98.78 1.07 0.35 
+
+Proposed 99.62 0.32 0.14 
+
+Oracle 100.00 0.00 0.01 
+
+Table 2 . Results of ablation studies on the Joyo-Kanji-Yomi bench-mark. All metrics are reported in %. Method Accuracy Target PER Sentence PER w/o margin loss 99.53 0.43 0.15 DeBERTa-tiny 99.34 0.54 0.19 DeBERTa-base 99.62 0.32 0.14 DeBERTa-large 99.61 0.33 0.13 
+
+from DeBERTa-base (100M) to DeBERTa-tiny (10M) degrades all metrics, indicating the importance of sufficient model capacity. In contrast, scaling up to DeBERTa-large (300M) yields only a marginal improvement in sentence PER, from 0.14% to 0.13%, at the cost of slight degradation in accuracy and target PER. We conjecture that, under the current data scale, the DeBERTa-base 
+
+backbone already provides sufficiently rich contextual represen-tations for Japanese G2P, offering a favorable balance between performance and computational efficiency. 
+
+5. LIMITATION 
+
+Two limitations point to future work. First, proper nouns were excluded during dictionary filtering to reduce annotation ambigu-ity and cost, so domain-specific proper nouns require targeted data augmentation. Second, our lattice-based pipeline focuses on Kanji readings and is less suited for Arabic numerals, Latin-script loan-words, units, and mathematical expressions, which are better han-dled by an upstream text normalization module. 
+
+6. CONCLUSION 
+
+In this paper, we proposed a G2P framework for unsegmented lan-guages that scores the paths of a dictionary-constructed word lattice DAG with a contextualized neural network, and leveraged frontier LLMs to generate large amounts of training sentences to mitigate data scarcity. Experiments show that our method significantly out-performs previous morphological analyzer-based methods and neu-ral network counterparts. 7. REFERENCES 
+
+[1] Stanley F Chen, “Conditional and joint models for grapheme-to-phoneme conversion,” in Proc. Eurospeech 2003 , 2003, pp. 2033–2036. [2] Aliya Deri and Kevin Knight, “Grapheme-to-phoneme mod-els for (almost) any language,” in Proceedings of the 54th An-nual Meeting of the Association for Computational Linguis-tics (Volume 1: Long Papers) , 2016, pp. 399–408. [3] Tomoki Koriyama, “Benchmarking large language models for grapheme-to-phoneme conversion: A japanese case study,” 
+
+arXiv preprint arXiv:2606.22009 , 2026. [4] Shijia Liao, Yuxuan Wang, Tianyu Li, Yifan Cheng, Ruoyi Zhang, Rongzhi Zhou, and Yijin Xing, “Fish-speech: Lever-aging large language models for advanced multilingual text-to-speech synthesis,” arXiv preprint arXiv:2411.01156 , 2024. [5] Hangrui Hu, Xinfa Zhu, Ting He, Dake Guo, Bin Zhang, Xiong Wang, Zhifang Guo, Ziyue Jiang, Hongkun Hao, Zis-han Guo, et al., “Qwen3-tts technical report,” arXiv preprint arXiv:2601.15621 , 2026. [6] Han Zhu, Lingxuan Ye, Wei Kang, Zengwei Yao, Liyong Guo, Fangjun Kuang, Zhifeng Han, Weiji Zhuang, Long Lin, and Daniel Povey, “Omnivoice: Towards omnilingual zero-shot text-to-speech with diffusion language models,” arXiv preprint arXiv:2604.00688 , 2026. [7] Zhihao Du, Changfeng Gao, Yuxuan Wang, Fan Yu, Tianyu Zhao, Hao Wang, Xiang Lv, Hui Wang, Chongjia Ni, Xian Shi, et al., “Cosyvoice 3: Towards in-the-wild speech gen-eration via scaling-up and post-training,” arXiv preprint arXiv:2505.17589 , 2025. [8] Xingchen Song, Mengtao Xing, Changwei Ma, Shengqiang Li, Di Wu, Binbin Zhang, Fuping Pan, Dinghao Zhou, Yuekai Zhang, Shun Lei, et al., “Touchtts: An embarrassingly sim-ple tts framework that everyone can touch,” arXiv preprint arXiv:2412.08237 , 2024. [9] Kyubyong Park and Jongseok Kim, “g2pe,” https:// github.com/Kyubyong/g2p , 2019. [10] Yi-Chang Chen, Yu-Chuan Chang, Yen-Cheng Chang, and Yi-Ren Yeh, “g2pw: A conditional weighted softmax bert for polyphone disambiguation in mandarin,” arXiv preprint arXiv:2203.10430 , 2022. [11] Taku Kudo, “Mecab: Yet another part-of-speech and morpho-logical analyzer,” http://mecab. sourceforge. net/ , 2005. [12] Yasuharu Den, “A proper approach to japanese morphological analysis: Dictionary, model, and evaluation,” 2008. [13] Keiichi Tokuda and Akinobu Lee, “Open JTalk,” https: //open-jtalk.sourceforge.net/ .[14] Kazuma Takaoka, Sorami Hisamoto, Noriko Kawahara, Miho Sakamoto, Yoshitaka Uchida, and Yuji Matsumoto, “Sudachi: a japanese tokenizer for business,” in Proceedings of the Eleventh International Conference on Language Resources and Evaluation (LREC 2018) , 2018. [15] Naoto Kakegawa, Sunao Hara, Masanobu Abe, and Yusuke Ijima, “Phonetic and prosodic information estimation from texts for genuine japanese end-to-end text-to-speech,” in Proc. Interspeech 2021 , 2021, pp. 126–130. [16] Yuma Shirahata and Ryuichi Yamamoto, “Cc-g2pnp: Stream-ing grapheme-to-phoneme and prosody with conformer-ctc for unsegmented languages,” in ICASSP 2026-2026 IEEE In-ternational Conference on Acoustics, Speech and Signal Pro-cessing (ICASSP) . IEEE, 2026, pp. 18617–18621. [17] Rem Hida, Masaki Hamada, Chie Kamada, Emiru Tsunoo, Toshiyuki Sekiya, and Toshiyuki Kumakura, “Polyphone disambiguation and accent prediction using pre-trained lan-guage models in japanese TTS front-end,” in IEEE Interna-tional Conference on Acoustics, Speech and Signal Process-ing, ICASSP 2022 . 2022, pp. 7132–7136, IEEE. [18] Kiyoshi Kurihara and Masanori Sano, “Enhancing japanese text-to-speech accuracy with a novel combination transformer-bert-based g2p: Integrating pronunciation dictio-naries and accent sandhi.,” in Interspeech , 2024. [19] Mahta Fetrat Qharabagh, Zahra Dehghanian, and Hamid R Rabiee, “Llm-powered grapheme-to-phoneme conversion: Benchmark and case study,” in ICASSP 2025-2025 IEEE In-ternational Conference on Acoustics, Speech and Signal Pro-cessing (ICASSP) . IEEE, 2025, pp. 1–5. [20] Pengcheng He, Xiaodong Liu, Jianfeng Gao, and Weizhu Chen, “Deberta: Decoding-enhanced bert with disentangled attention,” in International Conference on Learning Repre-sentations , 2021. [21] Lianbo Liu, Shiao Zhu, Kai Washizaki, Reo Yoneyama, Hae-sung Jeon, Mengjie Zhao, Yusuke Fujita, Hao Shi, Nao Yoshida, Yuan Gao, et al., “Sarashina2. 2-tts: Tackling kanji polyphony in japanese speech generation via data scaling and targeted data synthesis,” arXiv preprint arXiv:2606.25369 ,2026. [22] Hajime Morita, Daisuke Kawahara, and Sadao Kurohashi, “Morphological analysis for unsegmented languages using re-current neural network language model,” in Proceedings of the 2015 Conference on Empirical Methods in Natural Lan-guage Processing , 2015, pp. 2292–2297. [23] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszko-reit, Llion Jones, Aidan N Gomez, Lukasz Kaiser, and Illia Polosukhin, “Attention is all you need,” Advances in neural information processing systems , vol. 30, 2017. [24] Keigo Kubo, Hiromichi Kawanami, Hiroshi Saruwatari, and Kiyohiro Shikano, “Unconstrained many-to-many alignment for automatic pronunciation annotation,” 2011. [25] Linting Xue, Aditya Barua, Noah Constant, Rami Al-Rfou, Sharan Narang, Mihir Kale, Adam Roberts, and Colin Raffel, “Byt5: Towards a token-free future with pre-trained byte-to-byte models,” Transactions of the Association for Computa-tional Linguistics , vol. 10, pp. 291–306, 2022. [26] Jian Zhu, Cong Zhang, and David Jurgens, “Byt5 model for massively multilingual grapheme-to-phoneme conversion,” in 
+
+Interspeech 2022 , 2022. [27] Alex Graves, Santiago Fern´ andez, Faustino Gomez, and J¨ urgen Schmidhuber, “Connectionist temporal classification: labelling unsegmented sequence data with recurrent neural networks,” in Proceedings of the 23rd international confer-ence on Machine learning , 2006, pp. 369–376. [28] Qwen Team, “Qwen3 technical report,” arXiv preprint arXiv:2505.09388 , 2025.

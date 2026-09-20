@@ -1,0 +1,477 @@
+Title: Pull: Lazy Materialization of Working Memory for Stateful LLM Conversations
+
+URL Source: https://arxiv.org/pdf/2609.14773v1
+
+Published Time: Tue, 15 Sep 2026 02:00:48 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# Pull: Lazy Materialization of Working Memory for Stateful LLM Conversations 
+
+Jiangang Chen *
+
+Abstract 
+
+As LLM conversations grow to hundreds of turns, full-context injection incurs O(N 2) cu-mulative token costs, while lossy summariza-tion or hard truncation irreversibly discards historical state. We propose Pull , a session router that maintains an addressable metadata directory via a local, deterministic Purifier (zero LLM calls, millisecond-level latency). At query time, the LLM lazily materializes only the turns it needs; unmaterialized turns remain accessible but collapsed. Unlike irre-versible compression, Pull’s materialization is reversible—subsequent queries can expand any collapsed turn. On LoCoEval (128 conversa-tions, 12,780 turns), Pull reduces per-query con-text tokens (Phase 2) by 75.1% on single-hop tasks with equivalent quality ( ∆ = −0.002 ,n.s.) and by 72.0% on multi-hop tasks with no quality loss ( ∆ = +0 .017 ). A controlled rout-ing benchmark (7,831 queries × 10 methods) shows that entity lifecycle tracking is empir-ically a prerequisite for distance-independent routing. On BEAM 1M (14 conversations, 263 questions), Pull improves F1 by +55.2% over a truncation baseline. 1
+
+1 Introduction 
+
+When LLM conversations grow to hundreds of turns, developers face a cost–fidelity tradeoff. Full-context injection—the default behavior of all main-stream LLM APIs—causes per-request context length to grow linearly ( O(N )). Over a complete session lifecycle, cumulative retransmitted tokens grow quadratically ( O(N 2)). An exploratory analysis of 287 coding-assistant sessions (59,520 messages, 5.56 billion billed to-kens) reveals a ∼20 × token amplification (5.56B  
+
+> *Chengdu Beiluoshimen Technology Co., Ltd.
+> 1Code and reproduction scripts are available at https:// github.com/wulun811/kongmen-pull ; evaluation benchmarks (LoCoEval, BEAM) are external and linked from the repository README.
+
+billed / 280M original ≈ 19.9 ×): only 280 million tokens are original content, yet APIs bill 5.56 bil-lion. Entity overlap between queries and history has a median of only 20.7%, meaning the model is forced to search through largely irrelevant history. At the other extreme, lossy summarization (Jiang et al., 2023; Li et al., 2023) or hard trunca-tion irreversibly discards historical details. Once a turn is summarized away, its precise state— variable definitions, branch decisions, deprecated implementations—is permanently lost. Our experiments provide strong evidence: by lazily materializing only query-relevant turns, the input signal-to-noise ratio improves substantially, yielding a +55.2% Overall F1 improvement on million-token conversations (BEAM 1M, ∆ =+0 .165 vs. truncation baseline). This suggests that the “Lost in Conversation” phenomenon (Laban et al., 2025) may stem not from Transformer at-tention itself, but from the input signal-to-noise ratio. Engineering approaches using RAG (Lewis et al., 2020) or long-term memory systems (Packer et al., 2023; Chhikara et al., 2025) excel at cross-session knowledge archival but have architectural limita-tions for intra-session state management. RAG re-turns text fragments divorced from temporal causal-ity; memory systems may lose branch topology and entity lifecycles. In short, the first layer (full con-text) manages “the current query” and the third layer (long-term memory) manages “what hap-pened in past sessions”; but the second layer—a live session state router—lacks a clear system ab-straction. We propose Pull , a session router that fills this gap. Pull redefines session management as lazy materialization : rather than pushing compressed summaries or retrieving dead fragments, it main-tains a live metadata directory. The LLM is given this directory—containing entity lifecycles, branch topology, and causal dependencies—and actively arXiv:2609.14773v1 [cs.CL] 13 Sep 2026 pulls the specific turns it needs into working mem-ory. Unmaterialized turns remain accessible but collapsed; subsequent queries can lazily expand them. Pull’s online metadata construction is performed by a local, deterministic component: the Purifier 
+
+computes structured metadata per turn (entity ex-traction, lifecycle state machine, branch ID, fidelity score) using lightweight ONNX embeddings and rule engines—zero LLM calls. It maintains a Direc-tory Layer (M0) (per-turn extractive summaries, 
+
+∼100 chars each) and a Trace Layer (M10) (entity-level dependency graph with lifecycle labels and branch topology). At query time, a Selector presents the metadata tree to the LLM; the LLM then decides, in a sin-gle call, which turns to materialize, triggering cas-cade expansion to preserve causal chains. The An-swerer receives materialized turn originals plus the global M0 directory. Our contributions are: 1. We identify and formalize the missing layer in LLM session infrastructure—the session router (second layer)—and propose lazy ma-terialization as its governing paradigm. 2. We design Pull, a deterministic metadata-driven session router that maintains branch topology, entity lifecycles, and causal chains for 300+ turn conversations using only local lightweight computation. 3. On LoCoEval (128 conversations, 12,780 turns), Pull reduces Phase 2 tokens by 75.1% (single-hop) and 72.0% (multi-hop) with equivalent or improved quality. On BEAM 1M, Pull improves F1 by +55.2% over truncation. 4. A controlled routing benchmark (7,831 queries × 10 methods) with five-level ablation shows entity lifecycle tracking is empirically a prerequisite for distance-independent rout-ing; LLM Selector validation confirms a 3.9 ×
+
+improvement of M10 over M0. 
+
+2 Related Work 
+
+Hard truncation and sliding windows. Last-K, vLLM PagedAttention (Kwon et al., 2023), and industrial defaults operate on the first layer by irre-versibly discarding history. Once truncated, precise state is permanently lost and causal chains break. 
+
+Lossy summarization and compression. LLM-Lingua (Jiang et al., 2023), ICAE (Ge et al., 2024), LangChain SummaryMemory (LangChain, 2023), and Selective Context (Li et al., 2023) shorten prompts through irreversible merging or token dropping. These methods optimize input format but destroy the information substrate. 
+
+Reversible context orchestration. ACE (Liao et al., 2026) likewise targets reversibility: it re-tains raw agent-trajectory steps alongside LLM-generated abstractions and re-decides at every deci-sion step whether each historical step is presented as raw, abstract, or dropped. R 3Mem (Wang et al., 2025) reconstructs compressed context by invok-ing the model backward. Pull differs from both in two ways: (i) its metadata layer is produced by a deterministic Purifier with zero LLM calls—entity lifecycles, fidelity grades, and branch topology— whereas ACE’s abstractions are LLM summaries without entity-level structure; (ii) Pull targets intra-session conversational working memory with turn-level materialization, whereas ACE orchestrates agent trajectory steps. 
+
+Retrieval-augmented and cross-session archival. 
+
+Mem0 (Chhikara et al., 2025), Zep (Rasmussen et al., 2025), vector RAG (Lewis et al., 2020), GraphRAG (Edge et al., 2024), and HippoRAG (Gutiérrez et al., 2024) index conversation his-tory for recall, primarily addressing cross-session archival. While retrieval augmentation can reduce hallucination (Shuster et al., 2021), retrieved frag-ments lack temporal causality. We use BM25 (Robertson and Zaragoza, 2009) and Dense RAG (ONNX MiniLM (Reimers and Gurevych, 2019)) as minimal instances of this paradigm. 
+
+LLM-driven memory paging. MemGPT/Letta (Packer et al., 2023; Letta, 2024) simulates the sec-ond layer via virtual memory management but del-egates paging decisions to the LLM itself. Pull differs by focusing on turn-level working memory routing with deterministic metadata, rather than agent state and long-term memory runtime. 
+
+Multi-turn degradation. Laban et al. (2025) confirm that all mainstream LLMs degrade by 39% on average in multi-turn conversations. Long-MemEval (Wu et al., 2025) finds 30% accuracy drops in sustained interaction. These works quan-tify degradation but do not propose system-level so-lutions. Pull addresses this architecturally by main-taining the signal-to-noise ratio above a threshold via lazy materialization. 
+
+Companion work. The Purifier builds on our companion work KongMen (Chen, 2026), which introduces training-free entity-redundancy gating for real-time dialogue purification. Pull extends this line from turn-level purification to session-level lazy materialization with entity lifecycle tracking. 
+
+3 Method 
+
+3.1 Problem Formulation 
+
+Let C = [ t1, t 2, . . . , t N ] be a conversation of N
+
+turns. Given query q, the goal is to select a subset 
+
+S ⊆ { 1, . . . , N } minimizing token count while bounding information loss: 
+
+arg min  
+
+> S
+
+TokenCount (prompt (q, S )) 
+
+s.t. L(answer (q, S ), answer (q, C )) ≤ ε
+
+(1) Full history uses S = {1, . . . , N }; Pull finds an S ≪ N . In practice, answer (q, C ) is in-tractable; Pull uses a computable proxy: S =
+
+fθ(q, M 0, M 10 ), where fθ is the Selector. 
+
+3.2 Architecture Overview 
+
+Pull operates in two orthogonal phases: online annotation (per turn, zero LLM calls) and query-time materialization (per query, 2 LLM calls). The key insight is that these two phases are fully decoupled in both time and computation (Figure 1). 
+
+Three-tier storage. Active zone (0–300 turns): originals + metadata. Frozen zone (300–800 turns): block summaries + metadata + archive pointers. External archive: third-party storage. This mirrors the classical OS memory hierarchy (Figure 2). 
+
+M0/M10 division of labor. M0 (Directory Layer) is a global summary directory ( ∼100 chars/turn); the Answerer always reads the full M0 for “posi-tional awareness.” M10 (Trace Layer) is the entity dependency graph + lifecycle labels + branch topol-ogy; the Selector reads M10 for routing decisions without reading originals. 
+
+3.3 Online Annotation: Purifier 
+
+For each turn ti, the Purifier computes a metadata tuple mi comprising six fields: extractive sum-mary, entity set, information density, fidelity score, lifecycle state, and branch ID. Entity extraction compiles 16 regex patterns grouped into 13 type      
+
+> Transition Deterministic trigger
+> →DEF entity’s first-occurrence turn
+> DEF →REF re-occurrence after the first turn
+> →MOD code-signature hash (def/class lines) changes
+> →DEP was code-defined, absent now, replaced via a bridge entity
+> Table 1: Lifecycle state machine. All triggers are rule-based (entity position, signature hash, co-occurrence); no LLM is involved.
+
+families (function/class definitions, code identifiers such as snake_case/camelCase/backtick-quoted names, URLs, and temporal/numeric/named en-tities); e.g. \b(?:def|class)\s+(\w+) cap-tures definition names and [a-z]+_[a-z]+ cap-tures snake_case identifiers (full list in Appendix J). Lifecycle tracking is a 4-state machine over Σ = 
+
+{DEF , REF , MOD , DEP } whose transitions are de-terministic functions of entity position and code-signature hashes (Table 1); DEP and MOD are mu-tually exclusive (an entity absent from the current turn cannot be modified in it). Fidelity is a rule-based scorer combining nine pragmatic and lexical signals (Appendix J). The architecture treats entity extraction as a pluggable domain adapter: the 13 templates target code conversations, and other do-mains substitute their own extractor without chang-ing the Selector/Answerer pipeline (Limitations). All computation is local (MiniLM ONNX 
+
+∼46MB + regex + rules). Measured on a single ma-chine (Intel i5-9400F, 6 cores, 2.90 GHz, 23.4 GB RAM, Python 3.12.3), processing an 800-turn con-versation incrementally (one turn at a time): P50 = 3.22 ms/turn, P99 = 32.5 ms; session-state memory grows ∼linearly to ∼30 MB at 800 turns. 
+
+3.4 Eviction and Archival 
+
+When active turns exceed 300, lowest-priority turns are evicted based on weighted signals (fidelity, ref-erence count, content length, recency). Evicted turns are frozen into block summaries stored in M0’s archive zone. Query-time protection tem-porarily raises retention priority for turns relevant to the current query. 
+
+3.5 Query-Time Materialization: Selector 
+
+The Selector takes M10 metadata + query q and outputs a turn set S. Concretely, it receives M10 as structured plain text—one line per turn carrying entity, lifecycle, density, and branch fields (Ap-pendix K)—and emits, in a single LLM call, a Phase 1: Online Annotation (per turn, zero LLM calls) Phase 2: Query-Time Materialization (per query, 2 LLM calls)                            
+
+> Purifier
+> zero LLM ·ms
+> M0 Directory
+> ∼100 chars/turn
+> M10 Trace
+> entity graph + lifecycle
+> tinew turn
+> entity extraction ·lifecycle branch ID ·fidelity
+> Query qSelector
+> 1 LLM call · ∼ 300 tok S⊆ { 1..N }Answerer
+> M0 + Soriginals + qAnswer a
+> cascade: 1-hop antecedent fill ( |S| ≤ | S0|+ 5); e.g. t5uses entity defined in t3⇒pull t3
+> ∼35K tok vs ∼180K full
+
+Figure 1: Pull architecture. Phase 1 (online): the Purifier annotates each turn with structured metadata (M0 directory + M10 trace layer) using zero LLM calls. Phase 2 (query): the Selector reads M10 to pick relevant turns S; cascade expansion fills missing causal dependencies; the Answerer receives M0 + S originals. 
+
+one-sentence reason plus a comma-separated turn list; the cascade expansion below is deterministic post-processing applied after the LLM output, not an LLM decision. The pipeline: 1. Parse entities from q.2. Match relevant turns in M10. 3. Fidelity check. 4. Cascade expansion : for every entity refer-enced in the LLM’s initial set S0, the turn of its earliest definition is added if not already selected. Expansion is one hop (no transitive closure) and bounded by a fixed budget of 5 extra turns ( |S| ≤ | S0| + 5 ). 5. Validate output (range check, dedup). 6. Fallback to entity matching + M0 similarity on parse failure. 
+
+3.6 Query-Time Materialization: Answerer 
+
+The Answerer receives the full M0 directory + orig-inal text of turns in S + query q, and generates the answer. M0 summaries are extractive (MiniLM-based + rule extraction) and involve no LLM gen-eration, thus ensuring factual consistency. 
+
+4 Experimental Setup 
+
+LoCoEval (Liu et al., 2026) is the first bench-mark for repository-level long-horizon conversa-tional context management: 128 samples (64 single-hop + 64 multi-hop) from 71 real open-source repositories, 60–138 turns each (mean 100), Phase 2 context 35K–224K tokens. Three tasks: In-formation Extraction (IE), Topic Awareness (TA), Function Completion (FC). We focus on IE+TA (256 instances); FC requires a pytest execution en-vironment and is excluded. 
+
+BEAM 1M (Tavakoli et al., 2025) is a public long-conversation memory benchmark: 35 con-versations, 700 questions. We select 14 conver-sations to control topic diversity rather than max-imize count (263 questions). Conversations are 700K–1.8M tokens, exceeding LLM context lim-its. 
+
+Controlled routing benchmark. We stitch 60 SWE-bench traces (code domain) into 12 sessions (140–1407 steps) and derive 7,831 probe questions with deterministic ground truth. 2 Three layers: (A) general retrieval (53%), (B) state-change tracking 
+
+> 2
+
+Ten zero-LLM routing methods, each returning top-10 candidates: Oracle (upper bound), M10-Entity, RAG+Entity, RAG+Timestamp, RAG-Hybrid (BM25+dense, RRF), RAG-BM25, RAG-Dense, M0-BM25, M0-Keyword, and Last-K (K=30 ). Register: LLM Context       
+
+> Full injection O(N) tokens ( ∼180K @ 800 turns) ·fastest access (ns) ·volatile active 0–300 turns, originals expandable
+
+L1 Cache: Pull Active Zone         
+
+> Working memory ( ∼35K @ 300 turns) ·branch topology ·entity lifecycle ·zero LLM ·ms-level frozen 300–800 turns, summaries visible
+
+L2 Cache: Pull Frozen Zone       
+
+> Block summaries ·50 turns/block ·archive pointers ·on-demand retrieval 800+ turns, fully external
+
+Main Memory: Long-term Archive              
+
+> Vector DB ·Mem0 ·RAG ·cross-session recall ·slowest (retrieval + async) ·permanent Access speed: fast medium slow
+
+Pull Session Router Figure 2: Three-tier memory hierarchy. Pull occupies the second layer (L1+L2 cache): deterministic local metadata for active turns, block summaries for frozen turns. Unlike irreversible compression, collapsed turns remain expandable. 
+
+Method F1 ∆ Tokens Save 
+
+Vanilla 0.6694 — 95,406 —
+
+Pull 0.6676 −0.002 23,719 75.1% 
+
+RAG (BM25) 0.3562 −0.313 19,557 79.5% RAG (Dense) 0.4001 −0.269 16,370 82.8% Random-K 0.5572 −0.112 20,721 78.3% Last-K 0.3044 −0.365 22,276 76.7% 
+
+Table 2: LoCoEval single-hop results (64 conversations, batched Answerer). Pull uses batched Answerer (one Selector + one Answerer for all tasks); baselines use per-task calls. 
+
+(22%), (C) adversarial (25%). 
+
+Implementation. Generation and judge model: GLM-5, temperature = 0.0. Pull Selector uses M10 + selection prompt; Answerer uses M0 + expanded turns + answerer prompt. 
+
+Metrics. IE/TA F1 via LLM-as-a-Judge; FC pass@1 via pytest. Token savings: 1 −  
+
+> PTPull PTFull
+
+(Phase 2 only). 
+
+5 Experiments 
+
+5.1 Single-Hop Main Results 
+
+Table 2 shows Pull vs. baselines on LoCoEval single-hop. 
+
+Equivalence. ∆ = −0.0018 is far below judge 
+
+Variant F1 ∆ vs Van. Tokens Save 
+
+Vanilla 0.6694 — 95,406 —Full Pull 0.6676 −0.002 23,719 75.1% w/o Cascade 0.6728 +0.003 22,736 76.2% w/o M0 0.6103 −0.059 22,578 76.3% 
+
+Table 3: Ablation (64 conversations, single-hop, batched Answerer). 
+
+noise (mean per-sample std. dev. = 0.018). TOST (Two One-Sided Tests) passes at the ±0.05 bound-ary ( p < 0.01 ), confirming quality equivalence with 75.1% token savings. To rule out same-model evaluation bias, an independent judge from a dif-ferent model family (Qwen3.7plus) confirms di-rectional consistency ( ∆ = +0 .0148 , Pearson 
+
+r > 0.85 on sample ordering; Table 12). Although 22/64 individual samples flip direction, the near-identical sample ranking places the Pull–Vanilla gap within the judge’s noise floor rather than indi-cating a systematic quality difference. 
+
+5.2 Ablation w/o M0 drops significantly (−0.059, well be-yond judge noise σ = 0 .018 ), confirming M0 is critical for the Answerer’s positional awareness in batched mode. Cascade has only a marginal, non-significant effect in single-hop ( ∆ = +0 .003 ,0.0 0.2 0.4 0.6 0.8    
+
+> F1 Score (IE+TA) Full History Pull Random-K Dense RAG BM25 RAG Last-K (20)
+> 0.6694
+> 0.6676 (=0.002, n.s.)
+> 0.5572 0.4001 0.3562 0.3044
+
+LoCoEval Single-Hop (64 conversations)   
+
+> 050 100
+> Token Savings (%)
+> ---75% 78% 83% 80% 77%
+
+Phase 2 Savings Figure 3: LoCoEval single-hop F1 and Phase 2 token savings. Pull matches full history (dashed line) while saving 75.1% tokens. RAG and truncation baselines suffer catastrophic quality loss.                      
+
+> Method F1 Tokens Save ∆vs Pull Vanilla †0.6326 86,118 ——Full Pull 0.6500 24,115 72.0% —w/o Cascade 0.6372 24,092 72.0% −0.013 w/o M0 0.6331 22,945 73.4% −0.017
+
+Table 4: Multi-hop results (64 conversations). †Vanilla F1 from 32 overlapping samples. 
+
+within σ = 0 .018 ; short chains are already covered by initial matching). 
+
+5.3 Multi-Hop Results 
+
+Pull achieves 72.0% token savings (0/64 negative) with quality on par with full injection. The cascade contribution is larger in multi-hop ( ∆ = +0 .013 )than single-hop ( ∆ = −0.005 ), consistent with increasing cross-segment dependencies. Indepen-dent judge (Qwen3.7plus) confirms direction ( ∆ = +0 .011 ). 
+
+5.4 BEAM 1M Long-Conversation Validation 
+
+BEAM 1M conversations (700K–1.8M tokens) ex-ceed GLM-5’s context window. The truncation baseline uses Last-K hard truncation ( ∼163K to-kens). Pull uses a simplified Purifier (M0 di-rectory only, without the M10 lifecycle layer). This is deliberate: BEAM isolates the lazy-materialization paradigm —directory-guided on-demand expansion—from the lifecycle-routing con-tribution validated independently in §5.5. The two experiments answer orthogonal questions: BEAM tests whether lazy materialization beats truncation at million-token scale; §5.5 tests which metadata signals make routing distance-independent. At comparable token budget (∼65K), Pull (F1=0.464) outperforms the best retrieval baseline             
+
+> Metric Trunc. Pull ∆
+> Overall F1 0.299 0.464 +55.2%
+> Win/Tie/Loss —122/118/23 —Token mean 163K 64.5K 60.4%
+
+Table 5: BEAM 1M results (14 conversations, 263 ques-tions).                     
+
+> Variant Trunc. Pull ∆Tok. Save
+> Full Pull 0.299 0.464 +0.165 64,517 60.4% w/o Cascade 0.298 0.447 +0.149 39,404 75.8% w/o M0 0.293 0.428 +0.135 54,154 66.8%
+
+Table 6: BEAM 1M ablation (263 questions). 
+
+(Hybrid, 63K tokens) by +0 .336 (Table 19). Even when baselines receive 2.5 × more tokens (163K), they reach only F1=0.137 ( −0.327). 
+
+5.5 Controlled Routing: Structured Metadata Ablation 
+
+Table 7 reveals three levels of contribution: (1) BM25 exact matching outperforms dense re-trieval (55.3% vs 46.4%); (2) timestamps and structured entity fields raise Recall from 55.3% to 74.1%; (3) M10’s entity lifecycle tracking (def/mod/dep) provides an additional +21.9%, pushing Recall to 96.0%. Lifecycle tracking is em-pirically a prerequisite for distance-independent routing in this benchmark —without it, Recall plateaus at 74%. M10 shows no distance decay: Recall stays at 78– 98% from ≤30 steps to >200 steps, while Last-K collapses from 75.6% to 0.8% and all RAG variants decay with distance. LLM Selector validation (198 sampled queries) confirms M10 achieves 69.9% vs M0’s 17.9% (3.9 × improvement). Method R@10 MRR Incr. Index                     
+
+> RAG-Dense 46.4% 0.239 —MiniLM dense RAG-BM25 55.3% 0.335 +8.9 Raw text +Timestamp 71.3% 0.495 +16.0 +step prefix +Entity 74.1% 0.514 +2.8 +struct. fields
+> M10 96.0% 0.825 +21.9 +lifecycle
+
+Table 7: Five-level structured metadata ablation (7,831 queries, Recall@10).                     
+
+> Method F1 Tokens Save Recov.
+> Vanilla †0.6326 86,118 —✓
+> Pull 0.6500 24,115 72.0% ✓
+> LLMLingua2 (r50) 0.6118 30,516 64.6% ×
+> LLMLingua2 (r28) 0.5079 15,310 82.2% ×
+
+Table 8: Pull vs LLMLingua2 (Pan et al., 2024) (multi-hop, 64 conversations). †32-sample subset. 
+
+5.6 Comparison with LLMLingua2 
+
+Pull outperforms LLMLingua2 at both compres-sion ratios: ∆ = +0 .038 (vs r50) and +0 .142 (vs r28). The key architectural difference: LLMLin-gua2’s compression is irreversible , while Pull’s materialization is reversible —unmaterialized turns remain accessible for subsequent queries. A reversibility probe on 16 multi-hop sam-ples confirms this: Pull-Adaptive (per-task in-dependent routing) reaches F1=0.6785, whereas LLMLingua2-Fixed (one compression shared across tasks) reaches only F1=0.5272 ( ∆ =+0 .151 ), demonstrating that adaptive routing is the core source of Pull’s quality advantage. The com-parison is multi-hop only: single-hop queries lo-calize to a single turn, and even retrieval baselines collapse there (RAG F1 ≤ 0.40, Table 2), so com-pression robustness is not a differentiating factor on that split (Limitation 3). 
+
+6 Discussion 
+
+6.1 Cost Analysis: Model Tiering 
+
+Pull’s two-phase design enables model tiering : the Selector needs only ∼8K tokens of structured meta-data, allowing a cheap model; the Answerer han-dles originals with a flagship model. Full injection has no such tiering. In multi-hop (72% savings), Pull reduces per-query cost from $0.91 to $0.29 ( −68%). Model tier-ing transforms Selector cost from O(N ×Pexpensive )
+
+to O(N × Pcheap ), where Pcheap /P expensive ≈ 1/70 .                  
+
+> Configuration Selector cost Total cost/query vs Full
+> Full (Fable 5) —$0.91 —Pull same-model $0.095 $0.39 −58% Pull tiered (DS+Fable) $0.001 $0.29 −68% Full (Kimi K3) —$1.37 —Pull tiered (DS+K3) $0.001 $0.44 −68%
+
+Table 9: Per-query cost (100-turn conversation, multi-hop, 2026-07 pricing). Claude Fable 5: $10/$50 per MTok; Kimi K3: $15/$75; DeepSeek V4 Flash: $0.14/$0.28. Token counts from Table 4. 
+
+6.2 Production Deployment 
+
+Pull is integrated into a production coding assistant, running across 13 SWE-bench Pro instances (350+ tool rounds, zero crashes). The M0 directory effectively prevents redundant LLM searches: in one session, the LLM skipped directories already confirmed empty in earlier turns and directly located the target file discovered in turn 3. Production logs show the Selector adaptively adjusts selected turns (2 at round 3, 5 at round 6), consistent with offline analysis (§5). A sliding-window bug discovered during deploy-ment (message loss after resume) inversely vali-dates that Pull’s context management is actively functioning—window miscalculation immediately causes LLM behavioral anomalies. 
+
+6.3 Relation to Long-Context LLMs 
+
+Why not simply use 1M-token context mod-els? First, O(N 2) cumulative retransmission cost means a larger window only postpones the cost col-lapse point rather than eliminating it (§1). Second, the signal-to-noise ratio is low: the entity-overlap median is only 20.7%, so most of a larger window is still irrelevant history. Third, complementarity: Pull reduces prompt length, directly lowering KV cache prefill cost (Kwon et al., 2023; Zhang et al., 2023; Liu et al., 2023), and is orthogonal to recur-sive mechanisms like Transformer-XL (Dai et al., 2019). 
+
+6.4 Pull as the Second Layer 
+
+Table 10 contrasts Pull with existing memory sys-tems along the dimensions that matter for the sec-ond layer. The comparison is complementary rather than competitive: MemGPT/Letta, Mem0, and Zep target cross-session agent state and knowledge archival, whereas Pull targets intra-session working memory with deterministic, reversible materializa-tion. ACE (Liao et al., 2026) likewise retains loss-less storage with reversible expansion, but its main-System Unit Routing decision Reversible Target layer                     
+
+> MemGPT/Letta page LLM (self-directed) partial agent state Mem0 fact LLM extraction lossy cross-session Zep KG edge temporal graph lossy cross-session RAG chunk similarity n/a retrieval
+> Pull turn LLM over determ. metadata yes intra-session
+
+Table 10: Positioning of Pull relative to memory sys-tems. Pull is the only design combining deterministic (zero-LLM) maintenance with fully reversible turn-level materialization for intra-session working memory. 
+
+tenance layer is LLM-driven (LLM-generated ab-stractions, LLM elasticizer); the uniqueness claim here concerns the combination of deterministic zero-LLM maintenance with reversible turn-level materialization. Pull is not a replacement for RAG or long-term memory; it is a precondition. In a full production stack, Pull manages active working memory while evicted turns are archived to third-layer systems for cross-session recall. As formalized in §3 and Figure 2, this layered architecture mirrors classical OS memory hierarchies: registers (LLM context) 
+
+→ L1 cache (active zone) → L2 cache (frozen zone) → main memory (third-layer archive). 
+
+7 Conclusion 
+
+Pull is a session router that fills the missing sec-ond layer in LLM application architecture—session working memory management—via lazy material-ization. On LoCoEval, Pull reduces Phase 2 tokens by 75.1% (single-hop) and 72.0% (multi-hop) with equivalent or improved quality. A controlled rout-ing benchmark shows entity lifecycle tracking is empirically a prerequisite for distance-independent routing. BEAM 1M validates the paradigm on million-token conversations (+55.2% F1 vs trun-cation). Pull’s true value lies not in “how many tokens are saved,” but in defining a missing stan-dard layer in LLM application architecture. This separation of concerns (deterministic local meta-data + on-demand LLM materialization) offers a reusable architectural pattern. 
+
+Limitations 
+
+1. M0 summaries are extractive (no genera-tive hallucination), but extreme summariza-tion omissions may affect routing; token sav-ings are model-dependent (75.1% on GLM-5 batched vs 45.6% on Qwen3.7plus per-task). 2. Entity extraction and the controlled routing benchmark are code-domain-centric (SWE-bench traces); generalization to low-entity-density domains and other benchmarks is fu-ture work. 3. Evaluation scope: the main experiment uses the same model (GLM-5) for generation and evaluation (independent Qwen3.7plus judge confirms directional consistency, ∆ = +0 .0148 , Pearson r > 0.85 , but 22/64 sam-ples show opposite judgments); BEAM uses 14/35 conversations with a simplified Purifier; LLMLingua2 comparison is multi-hop only. 4. The introductory empirical findings derive from a single-user development log (287 ses-sions) and may not generalize to multi-user or non-coding settings. Production deploy-ment uses no A/B control (all instances use Pull); token savings are modest in absolute terms ( ∼10K tokens/instance), with primary value in latency reduction and context-bloat prevention. 
+
+References 
+
+Jiangang Chen. 2026. Kongmen: Real-time dialogue purification via training-free entity-redundancy gat-ing. Prateek Chhikara, Dev Khant, Saket Aryan, Taranjeet Singh, and Deshraj Yadav. 2025. Mem0: Building production-ready AI agents with scalable long-term memory. arXiv preprint arXiv:2504.19413 .Zihang Dai, Han Liu, Quoc V. Le, and Danqi Chen. 2019. Transformer-XL: Attentive language models beyond a fixed-length context. In Proceedings of the 57th Annual Meeting of the Association for Compu-tational Linguistics .Darren Edge, Ha Trinh, Newman Cheng, Joshua Bradley, Alex Chao, Apurva Mody, Steven Truitt, Dasha Metropolitansky, Robert Osazuwa Ness, and Jonathan Larson. 2024. From local to global: A graph RAG approach to query-focused summariza-tion. arXiv preprint arXiv:2404.16130 .Tao Ge, Jing Hu, Lei Wang, Shun Si, and Zhifang Sui. 2024. In-context autoencoder for context compres-sion in a large language model. In International Conference on Learning Representations .Bernal Jiménez Gutiérrez, Yiheng Shu, Yu Gu, Michi-hiro Yasunaga, and Yu Su. 2024. HippoRAG: Neu-robiologically inspired long-term memory for large language models. In Advances in Neural Information Processing Systems .Huiqiang Jiang, Qianhui Wu, Chin-Yew Lin, Yuqing Yang, and Lili Qiu. 2023. LLMLingua: Compressing prompts for accelerated inference of large language models. In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing .Woosuk Kwon, Zhuohan Li, Siyuan Zhuang, Ying Sheng, Lianmin Zheng, Cody Hao Yu, Joseph E. Gon-zalez, Hao Zhang, and Ion Stoica. 2023. Efficient memory management for large language model serv-ing with PagedAttention. In Proceedings of the 29th Symposium on Operating Systems Principles .Philippe Laban, Hiroaki Hayashi, Yingbo Zhou, and Jennifer Neville. 2025. LLMs get lost in multi-turn conversation. arXiv preprint arXiv:2505.06120 .LangChain. 2023. LangChain: Building applications with LLMs through composability. https:// github.com/langchain-ai/langchain .V0.2.16, Accessed: 2026-06-20. Letta. 2024. Letta: Build stateful agents. https: //github.com/letta-ai/letta . V0.3.17, Accessed: 2026-06-20. Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal, Hein-rich Küttler, Mike Lewis, Wen-tau Yih, Tim Rock-täschel, Sebastian Riedel, and Douwe Kiela. 2020. Retrieval-augmented generation for knowledge-intensive NLP tasks. In Advances in Neural Informa-tion Processing Systems .Yucheng Li, Bo Dong, Chenghua Lin, and Frank Guerin. 2023. Compressing context to enhance inference efficiency of large language models. In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing .Ning Liao, Zihao Long, Xiaoxing Wang, Xue Yang, Yaoming Wang, Ziyuan Zhuang, Xunliang Cai, Rongxiang Weng, and Junchi Yan. 2026. ACE: Pluggable adaptive context elasticizer across agents. 
+
+arXiv preprint arXiv:2606.31564 .Yang Liu, Li Zhang, Fang Liu, Ping Lin, and Xinyi Li. 2026. A scalable benchmark for repository-oriented long-horizon conversational context management. 
+
+arXiv preprint arXiv:2603.06358 .Zichang Liu, Jue Wang, Tri Dao, Tianyi Zhou, Binhang Yuan, Zhao Song, Anshumali Shrivastava, Ce Zhang, Yuandong Tian, Christopher Ré, and Beidi Chen. 2023. Scissorhands: Exploiting the persistence of importance hypothesis for LLM KV cache compres-sion at test time. In Advances in Neural Information Processing Systems .Charles Packer, Sarah Wooders, Kevin Lin, Vivian Fang, Shishir G. Patil, Ion Stoica, and Joseph E. Gonzalez. 2023. MemGPT: Towards LLMs as operating sys-tems. arXiv preprint arXiv:2310.08560 .Zhuoshi Pan, Qianhui Wu, Huiqiang Jiang, Fan Meng, Xufang Zhang, and Lili Qiu. 2024. LLMLingua-2: Data distillation for efficient and faithful task-agnostic prompt compression. arXiv preprint arXiv:2403.12968 .Preston Rasmussen, Pavlo Paliychuk, Travis Beauvais, Jack Ryan, and Daniel Chalef. 2025. Zep: A tempo-ral knowledge graph architecture for agent memory. 
+
+arXiv preprint arXiv:2501.13956 .Nils Reimers and Iryna Gurevych. 2019. Sentence-BERT: Sentence embeddings using Siamese BERT-Networks. In Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing .Stephen E. Robertson and Hugo Zaragoza. 2009. The probabilistic relevance framework: BM25 and be-yond. Foundations and Trends in Information Re-trieval , 3(4):333–389. Kurt Shuster, Spencer Poff, Moya Chen, Douwe Kiela, and Jason Weston. 2021. Retrieval augmentation reduces hallucination in conversation. arXiv preprint arXiv:2104.07567 .Mohammad Tavakoli, Alireza Salemi, Carrie Ye, Mo-hamed Abdalla, Hamed Zamani, and J. Ross Mitchell. 2025. Beyond a million tokens: Benchmarking and enhancing long-term memory in LLMs. arXiv preprint arXiv:2510.27246 .Xiaoqiang Wang, Suyuchen Wang, Yun Zhu, and Bang Liu. 2025. R 3mem: Bridging memory retention and retrieval via reversible compression. arXiv preprint arXiv:2502.15957 .Di Wu, Haofen Wang, Wenhao Yu, Yuwei Zhang, Kai-Wei Chang, and Dong Yu. 2025. LongMemEval: Benchmarking chat assistants on long-term interac-tive memory. In International Conference on Learn-ing Representations .Zhenyu Zhang, Ying Sheng, Tianyi Zhou, Tianlong Chen, Lianmin Zheng, Ruisi Cai, Zhao Song, Yuan-dong Tian, Christopher Ré, Clark Barrett, Zhangyang Wang, and Beidi Chen. 2023. H2O: Heavy-hitter oracle for efficient generative inference of large lan-guage models. In Advances in Neural Information Processing Systems .
+
+A Cross-Model Validation           
+
+> Metric GLM-5 (batch) Qwen3.7plus (task)
+> Vanilla F1 0.6694 0.7201 Pull F1 0.6676 0.7225
+> ∆−0.0018 +0.0024 Token savings 75.1% 45.6%
+
+Table 11: Cross-model validation (64 conversations, single-hop). B Independent Judge Validation 
+
+Judge Vanilla Pull ∆
+
+GLM-5 (same-src) 0.6694 0.6676 −0.0018 Qwen3.7plus (indep.) 0.7186 0.7334 +0.0148 
+
+Table 12: Independent judge validation (single-hop, 64 conversations). Pearson r > 0.85 for sample ordering; 42/64 samples show consistent ∆ direction. 
+
+C Selector Precision Analysis         
+
+> Model Simplified Full
+> GLM-5 R=.27 P=.34 H=58% R=.38 P=.83 H=84% Qwen3.7plus R=.78 P=.83 H=88% R=.42 P=.82 H=88% Kimi K2.5 R=.67 P=.84 H=90% R=.40 P=.83 H=88%
+
+Table 13: Selector key-turn recall (50 queries, macro average). Micro precision for GLM-5 + simplified: 381/466 = 81.8%. 
+
+D Pure M0 Ablation and Contribution Chain 
+
+Method Single-hop Multi-hop 
+
+Pure M0 0.5143 0.5672 Full Pull 0.6676 0.6500 Vanilla 0.6694 0.6326 †
+
+Table 14: Pure M0 ablation. †32-sample subset. 
+
+Config M0 Sel. Casc. F1 ∆
+
+Pure M0 ✓ × × 0.5143 −0.153 w/o M0 × ✓ ✓ 0.6103 −0.059 w/o Cascade ✓ ✓ × 0.6728 +0.003 
+
+Full Pull ✓ ✓ ✓ 0.6676 —
+
+Table 15: Contribution chain (single-hop, batched An-swerer). 
+
+E Distance Decay and Layer Analysis 
+
+Distance M10 RAG+Ent RAG-BM25 Last-K 
+
+≤30 78.4% 60.2% 40.3% 75.6% 31–80 98.0% 79.4% 57.2% 3.9% 81–200 97.0% 83.6% 69.9% 9.0% 
+
+>200 98.4% 70.6% 50.5% 0.8% 
+
+Table 16: Recall@10 by distance (7,831 queries). RAG+Ent = RAG-BM25 augmented with structured entity fields (the +Entity row of Table 7). M10 shows no distance decay; Last-K collapses. The slightly lower Re-call at ≤30 steps (78.4%) reflects higher query density in this band: short-range probes target fine-grained state changes where multiple candidate turns compete for the fixed budget, whereas distant queries have sparser signal and less ambiguity. 
+
+F Latency Analysis 
+
+Length Full Sel. Ans. E2E ∆
+
+10K 1.19s 1.01s 0.77s 1.78s −0.59s 50K 1.59s 0.98s 0.82s 1.80s −0.21s 100K 2.09s 1.07s 0.93s 2.00s +0.09s 200K 2.67s 1.08s 0.85s 1.93s +0.74s 
+
+Table 17: End-to-end latency (GLM-5 API, streaming, 20 trials, p50). ∆ = Full − Pull E2E (positive = Pull faster). 
+
+G Archive and Frozen Zone Validation 
+
+Zone Van. (181K) Pull (35K) No Arch. (29K) 
+
+Frozen 0.000 0.473 0.030 Active 0.662 0.796 0.801 Cross 0.024 0.246 0.207 
+
+Table 18: Archive validation (6 stitched conversations, 
+
+∼800 turns each). Token savings: 80.7%. 
+
+H BEAM 1M Retrieval Baselines 
+
+Method Tokens F1 ∆ vs Pull BM25 30,879 0.082 −0.382 Dense 29,413 0.067 −0.397 Hybrid 63,741 0.128 −0.336 BM25 (163K) 163,077 0.137 −0.327 Dense (163K) 163,077 0.109 −0.355 
+
+Pull 64,517 0.464 —
+
+Table 19: BEAM 1M retrieval baselines (263 questions). 163K variants use Last-K truncation at the same token budget. I Failed Alternatives 
+
+LLM-driven entity extraction: per-turn latency from 3.2 ms to ∼2 s, with non-determinism. Gen-erative M0 summaries: hallucination risk; 0.08 F1 lower than extractive M0 in 16-sample pilot. 3-hop cascade: 40% token increase for only +0.002 F1. Selector generating answers directly: −0.15 F1. 
+
+J Purifier Detail 
+
+Entity template families. The extractor com-piles 16 regex patterns that collapse into 13 type families (the three date variants and two capitalized-name variants each count as one family). Table 20 lists each family with a representative pattern. 
+
+Family Representative pattern 
+
+function/class def \b(def|class)\s+(\w+) 
+
+snake_case ident [a-z]+(_[a-z]+)+ 
+
+camelCase ident [a-z]+([A-Z][a-z]*){2,} 
+
+backtick ident ‘(\w+)‘ 
+
+URL https?://\S+ 
+
+@mention @\w+ 
+
+#hashtag #\w+ 
+
+number/currency/pct \d+ , currency prefix, \d+% 
+
+date (EN/ISO/ZH) month-name / ISO / CJK time \d{1,2}:\d{2} 
+
+capitalized name filtered proper nouns 
+
+Table 20: The 13 entity template families (16 under-lying patterns; 11 rows shown after merging date and capitalized-name variants). Identifiers carry minimum-length thresholds (camelCase ≥6, snake_case ≥8chars); all nuggets are lower-cased for case-insensitive matching. 
+
+Fidelity (information-density) scorer. The fi-delity score d ∈ [0 , 2] is a hand-weighted sum of nine signals: five boolean pragmatic detec-tors (entity +0 .5, intent +0 .4, constraint +0 .5,question +0 .3, alignment +0 .2, each an EN+ZH regex), content-keyword density ( +0 .05 per key-word), normalized character entropy ( +0 .06 ), rare-word bonus ( +0 .04 each, capped at 0.2), and a structured-text bonus ( +0 .2). Two multiplicative penalties apply: ×0.5 for texts shorter than 10 chars and ×0.3 for templated agent acknowledge-ments; the result is capped at 2.0. A turn is KEEP/COMPRESS/FILTER-classified by thresh-olding d (aggressive mode: d < 0.35 →FILTER, 
+
+d < 0.65 →COMPRESS), with hard rules forcing KEEP when any pragmatic signal fires. 
+
+K Selector Prompt and M10 Format 
+
+Selector system prompt. The Selector is in-structed to select turns, never to answer. The full system prompt (path example anonymized):                                                                                                         
+
+> YOU ARE ATURN SELECTOR, not an answerer. You are reviewing acompressed index of the conversation history. Each line is one turn --you MUST select which turns to EXPAND so adownstream answerer can read their content. Index fields: path --file path (src/module.py) entities --identifiers in this turn [def:X] --Xfirst defined here [mod:X] --Xmodified here [type_tag] --issue/code/test/err/think d=H/M/L --information density keep:XX% --estimated retention grade: --HIGH /MEDIUM /LOW [pivot:..] --topic shift marker [branch:X] --forked branch RULES: 1. MUST select turns. ALWAYS output nums. 2. Never say "NONE" unless info absent. 3. Do NOT answer. Do NOT summarize. 4. Select only the 3-5 MOST RELEVANT. Output: Reason: <one sentence: which and why> TURNS: <comma-separated numbers>
+
+The vocabulary also declares a [dep:X] (depre-cated) marker; the current extractor emits [def] 
+
+and [mod] in M10 (deprecation is tracked inter-nally for eviction but not rendered to the Selector). 
+
+M10 input format. M10 is structured plain text, one line per turn (not JSON). Two representative lines:                        
+
+> 12: [code] src/order_repo.py OrderRepo save_order [def:OrderRepo] d=H saved:42% keep:78% grade:HIGH Defined OrderRepo with save_order 27: [think] OrderRepo save_order [mod:save_order] d=M saved:30% keep:55% grade:MEDIUM [pivot: save_order drops null fields] Realized save_order drops nulls
+
+Field order: turn_id , type tag, path, enti-ties ( ≤5), lifecycle markers, density, savings, re-tention/grade, pivot/branch markers, and finally the ∼100-char extractive summary (placed last, “identity-first”). 
+
+Output parsing. The LLM emits two lines (Reason: + TURNS: ). The parser is fault-tolerant: it tries, in order, TURNS: NONE → [] ,
+
+TURNS: 2,5,7 , a bare comma-separated list, and a JSON fallback; all IDs are range-checked (0 ≤ t < N ), de-duplicated, and sorted. On total failure it falls back to the last three turns. 
+
+Cascade expansion (rule-based). Cascade is de-terministic post-processing applied after the LLM output, completing causal antecedents by entity co-reference:                        
+
+> def cascade(S0, max_extra=5): first ={e: earliest turn defining e} C={first[e] for tin S0 for ein entities(t) if first[e] not in S0 }return sorted(C)[:max_extra]
+
+Expansion is one hop (no transitive closure) and bounded by a fixed budget of five extra turns ( |S| ≤ |S0|+5 ). It is ablated by replacing it with the empty function (the w/o Cascade variant). 
+
+L Failure Case Studies 
+
+To characterize where Pull fails, we examine three single-hop conversations (repository names anonymized as Repo-A/B/C) from the main evalua-tion set, each isolating one mechanism. Figures are F1 under each ablation; pull counts are the number of materialized turns. 
+
+Case 1: Cascade over-expansion displaces seed turns (Repo-A). F1: vanilla 0.672, full 0.390, w/o cascade 0.668, w/o M0 0.648. Pull materializes 19 turns—fewer than w/o cascade’s 21—yet F1 collapses; removing cascade alone restores vanilla-level quality.                     
+
+> T31 (user): “Add fetch_permission_principals to
+> InMemoryPermission in memory_backend.py .” (cascade anchor)
+> T21 (user): “How do I run the test suite locally with tox?” (causally linked, task-irrelevant)
+> T31 [think] fetch_permission_principals, InMemoryPermission [def:fetch_permission_principals] d=H "Proposes fetch_permission_..." T21 [think] tox, dev-requirements d=L "Asks how to run the test suite"
+
+Root cause. Cascade fired on 
+
+fetch_permission_principals and expanded backward into a contiguous block (T20–33) of causally linked but largely irrelevant turns. Under the fixed pull budget this displaced the dispersed seed turns retained by the w/o-cascade router; the answerer then mis-attributes the unrelated deserialize 
+
+function to memory_backend.py (vanilla and w/o-cascade place it correctly in schema.py ). The failure is isolated to cascade: removing it restores F1 (0.390 →0.668). 
+
+Case 2: ∼100-char M0 summaries collapse dis-tinct drafts (Repo-B). F1: vanilla 0.635, full 0.476, w/o cascade 0.632, w/o M0 0.705. Remov-ing the M0 summary (full text) yields the best F1, surpassing vanilla.      
+
+> T49 (early wrong draft): “For UploadDirManager.add , check
+> is_cloud_uri and cache the auto-name.” T67 (corrected draft): “Use a _names_taken set; the cache is
+> _path_to_name ; check is_uri .”
+
+Root cause. The add method is revised across many turns (T49 →T67); the correct final design differs from early drafts only in fine-grained identi-fier choices. A ∼100-char M0 summary collapses both drafts to roughly “discusses add URI check + unique name,” so the router cannot distinguish the authoritative turn from superseded drafts and spends budget on topically salient but irrelevant turns (an SSH-tunnel discussion). Giving the router full text (w/o M0) lets it select the refined turns, lifting F1 to 0.705—the best of all conditions. The failure is attributable to M0 lossiness, not cascade (w/o cascade stays at 0.632). 
+
+Case 3: Regex extractor never recalls the task-critical cluster (Repo-C). F1: vanilla 0.720, full 0.575, w/o cascade 0.633, w/o M0 0.681. The pull sets are nearly identical across ablations (27/25/24 turns); none contains the T75–104 cluster defining both connect_to_region tasks plus the multi-hop task.       
+
+> T75 (never pulled): “Implementing connect_to_region in
+> service_x , delegating to a region factory.” T93 (never pulled): “The connect_to_region in service_y —is
+> KinesisConnection right?”
+
+Root cause. The regex extractor seeded on sur-face entities it could match ( compute_md5 ,SDK-version diffs) but never recalled the 
+
+connect_to_region definition cluster (T75– 104), which underlies two of four tasks plus the multi-hop task. With those turns absent, the an-swerer conflates the two services and swaps their file paths—a direct swap error. Because the seed was never surfaced, toggling cascade (0.633) or M0 (0.681) cannot recover vanilla (0.720); all ablations plateau at nearly the same pull count, isolating the failure to the entity-recall stage. 
+
+Takeaway. The three failures map cleanly onto the three mechanisms: cascade can over-expand into contiguous irrelevant blocks (bounded by the fixed budget but not eliminated), M0 summariza-tion can collapse fine-grained distinctions between revised drafts, and regex entity recall has a cover-age ceiling in low-signal regions. Each is consistent with the corresponding Limitation and points to a concrete future direction (learned cascade scoring, draft-aware summaries, hybrid neural entity recall).

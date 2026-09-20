@@ -1,0 +1,316 @@
+Title: JustMem: Just-Enough Memory Access for Long-Term Conversations
+
+URL Source: https://arxiv.org/pdf/2609.19877v1
+
+Published Time: Fri, 18 Sep 2026 00:50:08 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+## JustMem: Just-Enough Memory Access for Long-Term Conversations 
+
+Guanhua Chen Yanting Wang Wenjing Zhi Lei Sha *
+
+Beihang University 
+
+Abstract 
+
+Efficient long-term conversational memory re-quires retrieving sufficient evidence without in-discriminately expanding the context presented to the language model. This is challenging because relevant evidence may be distributed across multiple sessions, while compression may discard details needed for answering. Dif-ferent queries therefore require different forms of memory access. To capture these demands, we formulate memory access along two dimen-sions: discovery breadth , which controls how broadly evidence is searched, and reading fi-delity , which controls whether evidence is read in compact form or recovered from the original conversation. Based on this formulation, we introduce J UST MEM , which stores conversa-tion history as compact atomic memories and adapts memory access along these two dimen-sions to each query. Specifically, L OOKUP han-dles local evidence, C OMPOSE broadens dis-covery for distributed evidence, and R EPLAY 
+
+increases reading fidelity for fidelity-sensitive evidence. On LoCoMo and LongMemEval-S, JUST MEM achieves the highest mean accuracy and retrieval recall among the compared mem-ory systems while using substantially fewer generative-model tokens for memory construc-tion and inference. 
+
+1 Introduction 
+
+Language-model assistants increasingly operate across conversations that extend beyond a single context window. Effective long-term memory must recover prior information, integrate evidence across sessions, and retain details from earlier interac-tions. As illustrated in Figure 1, these needs cor-respond to different evidence requirements. Some questions depend on local evidence captured by compact memory; others require distributed evi-dence scattered across multiple sessions; and some 
+
+*Corresponding author. S1 S2 S5     
+
+> Would a quiet Kyoto guesthouse suit me?
+> The user prefers small, quiet hotels and feels anxious in crowded places.
+> S4
+> PERSON User EVENT Visited Kyoto, Japan DATE April 2025 PERSON User EVENT Visited Lisbon, Portugal DATE October 2025
+> S3
+> The assistant created a timed itinerary for the user’s last morning in Kyoto.
+> LOCAL EVIDENCE
+> Yes. You prefer small, quiet places.
+> Can you write a one-line summary of my 2025 trips?
+> DISTRIBUTED EVIDENCE
+> You traveled to Japan in April and Portugal in October.
+> Can you pull up the schedule for my last morning in Kyoto?
+> “Can you plan a relaxed morning in Kyoto before my afternoon train?” “8:00 breakfast near the hotel; 9:30 walk …
+> Original Conversation
+> FIDELITY-SENSITIVE EVIDENCE
+> 8:00 breakfast near the hotel; 9:30 walk along the Kamo River; 12:30 leave for Kyoto Station.
+> Compact Memories
+
+Figure 1: Different questions over the same conver-sation history impose different evidence requirements. Local evidence can be obtained from compact mem-ory, distributed evidence spans multiple memories, and fidelity-sensitive evidence may require details from the original conversation. 
+
+require fidelity-sensitive evidence whose answer-critical details may be lost during compression. Existing memory systems explore persistent stores, summarization, retrieval augmentation, and explicit memory management (Lewis et al., 2020; Zhong et al., 2024; Packer et al., 2023). How-ever, a largely fixed access policy cannot accom-modate these requirements efficiently. Narrow re-trieval may miss distributed evidence, while com-pact representations may omit details needed for high-fidelity recall. Uniformly expanding retrieval or source context can address these limitations, but increases context cost and distractor exposure. The challenge is therefore to provide sufficient evidence without applying the same access strategy to every query. We address this challenge by separating memory access along two dimensions: discovery breadth ,which controls how broadly candidate evidence is considered, and reading fidelity , which controls whether compact memory is sufficient or the orig-inal conversation should be consulted. This sep-arXiv:2609.19877v1 [cs.CL] 17 Sep 2026 aration allows the system to search more broadly without increasing the final compact evidence bud-get, while recovering original content only when compression has removed necessary detail. Building on this formulation, J UST MEM pro-vides three query-conditioned access configura-tions: LOOKUP for local evidence, C OMPOSE 
+
+for distributed evidence, and R EPLAY for fidelity-sensitive evidence. All three operate over the same compact atomic memory store, with broader dis-covery or source recovery invoked according to query demand. Experiments on LoCoMo (Maharana et al., 2024), LongMemEval-S (Wu et al., 2025), and LoCoMo-Plus (Li et al., 2026) show that J UST -MEM achieves strong performance with substan-tially smaller generative budgets than existing memory systems. Controlled experiments further isolate the benefits of global atomic access, query-guided discovery breadth, and adaptive source re-covery. Our main contributions are: • We formulate long-term conversational mem-ory as adaptive evidence allocation along two dimensions: discovery breadth and reading fidelity. • We introduce JUST MEM , a recoverable atomic-memory architecture that adapts mem-ory access to local, distributed, and fidelity-sensitive evidence demands. • We provide controlled evaluations of memory granularity, discovery breadth, and reading fi-delity, showing that adaptive access achieves strong performance while substantially reduc-ing generative budgets. 
+
+2 Related Work 
+
+Memory representation and maintenance. Per-sistent memory has been implemented through ex-ternal memory banks, salience and forgetting mech-anisms, and explicit movement between memory tiers (Zhong et al., 2024; Packer et al., 2023). Re-cent systems organize memory as linked notes, hi-erarchical short-to-long-term stores, or evolving event structures (Xu et al., 2026; Kang et al., 2025; Banerjee et al., 2026). Generative and reflective agents also consolidate experience into higher-level memories (Park et al., 2023; Tan et al., 2025). These approaches primarily improve how con-versational experience is represented, organized, or maintained over time. J UST MEM instead focuses on query-time access: it uses a compact, recover-able memory representation and adapts how that representation is accessed to the evidence demand of each query. 
+
+Memory retrieval and reading. RAG condi-tions generation on retrieved external evidence (Lewis et al., 2020), while long-context studies show that adding relevant text does not guarantee reliable use when evidence competes with distrac-tors (Liu et al., 2024). Recent memory systems introduce adaptive graph traversal, event-to-turn hierarchies, multi-tool retrieval, or coarse retrieval followed by semantic reranking (Van et al., 2026; Cao et al., 2026; Banerjee et al., 2026; Zhang et al., 2026). These approaches motivate flexible memory ac-cess, but broader retrieval and higher-fidelity read-ing impose different costs and address different evidence failures. J UST MEM distinguishes these demands through discovery breadth and reading fidelity: broad discovery allows more evidence to compete before selection under a fixed compact read budget, while selective source recovery in-troduces higher-fidelity context only when needed. This allocation provides a path to stronger mem-ory access without uniformly increasing generative context. 
+
+3 JustMem 
+
+Long-term conversational queries differ not only in what evidence they require, but also in how that evidence should be accessed. Some questions de-pend on localized evidence, others require evidence distributed across memories or sessions, and some require details that compact memory may no longer preserve, such as previously generated plans, code, or structured assistant outputs. We characterize these demands along two dimen-sions: discovery breadth , which determines how broadly candidate evidence is searched, and read-ing fidelity , which determines whether compact memory is sufficient or source-level conversational content is required. Broader discovery is useful when relevant evidence is dispersed across mem-ory, whereas higher-fidelity reading is needed when answer-critical detail may be lost during compres-sion. Figure 2 shows how J UST MEM instantiates these dimensions through three query-conditioned ac-cess configurations. LOOKUP handles local evi-DISCOVERY BREADTH NARROW BROAD        
+
+> READING FIDELITY
+> SOURCE TURNS COMPACT CARDS
+> QUESTION PLANNER
+> REPLAY
+> Narrow Discovery
+> High-Fidelity Reading
+> Narrow Discovery
+> Compact Reading
+> Broad Discovery
+> Compact Reading
+> LOOKUP COMPOSE
+
+Figure 2: Two dimensions of memory access in J UST -MEM . L OOKUP uses localized discovery and compact reading; C OMPOSE broadens discovery while retain-ing a bounded compact evidence budget; and R EPLAY 
+
+increases reading fidelity through selective source re-covery. 
+
+dence with localized discovery and compact read-ing. For distributed evidence , C OMPOSE broad-ens candidate discovery while retaining a bounded compact evidence budget. For fidelity-sensitive evidence , R EPLAY uses compact memories to lo-cate provenance-linked source content for higher-fidelity reading. The central principle is just-enough memory access: broaden discovery or re-cover source content only when required by the query. Building on this allocation view, J UST MEM or-ganizes memory access around a compact but re-coverable memory store, as shown in Figure 3. At query time, it predicts the evidence require-ments and selects how that memory should be ac-cessed. All three configurations operate over the same atomic memory representation. 
+
+3.1 Recoverable Memory Encoding 
+
+For each conversation session, J UST MEM extracts a set of atomic memory cards from the conversa-tional contents. Each card contains compact mem-ory content, temporal information, a provenance link to its source conversation, and lightweight metadata describing its memory type and access at-tributes. All cards and their attributes for a session are produced jointly in a single extraction-model call. A session may yield multiple cards correspond-ing to distinct facts, events, preferences, states, or interactions. We use atomic in the retrieval sense: each card represents a piece of information that can be retrieved and interpreted independently. This granularity allows individual memories, including multiple cards from the same session, to compete globally during retrieval. Memory types retain the structure needed for subsequent access. Factual memories are stored as subject-explicit natural-language statements, while event-oriented memories additionally preserve ex-plicit subject and temporal information for compo-sitional access. Provenance makes the compact representation recoverable. A card can serve directly as evidence when its content is sufficient, while its provenance provides access to the original conversation when source-level detail is required. Section 5.2 isolates the effect of atomic retrieval granularity while hold-ing memory content fixed. 
+
+3.2 Query-Adaptive Memory Access 
+
+Given a query, J UST MEM first predicts its evidence requirements, executes one of three access configu-rations, and provides the selected evidence to the answer model. The answer is grounded in this evidence, with multiple memories combined ac-cording to the planned operation when needed. 
+
+3.2.1 Access Planning 
+
+The planner produces a structured retrieval spec-ification containing target entities, temporal con-straints, and the operation to be performed over retrieved evidence. These fields specify the rel-evant evidence scope and how selected evidence should be used, including direct lookup, aggrega-tion, temporal selection, ordering, or comparison. The planner additionally predicts two binary ac-cess demands, which determine the access configu-ration: 
+
+zq =
+
+
+
+REPLAY , fq = 1 ,
+
+COMPOSE , fq = 0 ∧ dq = 1 ,
+
+LOOKUP , otherwise (1) where zq is the access configuration, and dq, f q ∈{0, 1} indicate distributed-evidence and source-fidelity demand, respectively. For distributed-evidence queries, the planner also generates up to two answer-free retrieval rewrites that provide complementary views of the same information need while preserving the en-tities and constraints of the original query. The retrieval specification, access-demand indicators, and applicable rewrites are produced jointly in a single planner call. The access configuration is then assigned by the deterministic rule in Eq. 1, without an additional model call. S1 S2 S3 S4 S5 S6 S7      
+
+> LOCAL EVIDENCE
+> LOOKUP
+> Direct Compact Evidence
+> FIDELITY-SENSITIVE EVIDENCE
+> REPLAY
+> Multi-Query Candidate Union Query-Gated Source Recovery
+> QUESTION ANSWER LOOKUP COMPOSE REPLAY
+> RERANK PLANNER
+> DISTRIBUTED EVIDENCE
+> +COMPOSE
+> Query Rewrites
+> Multi-Query Candidate Union CONVERSATION HISTORY ATOMIC MEMORY CARDS
+> ATOMIC FACT EXTRACTION
+> PROVENANCE LINKING ADAPTIVE SOURCE RECOVERY
+
+Recoverable Memory Encoding Query-Adaptive Memory Access 
+
+> JUST-ENOUGH MEMORY REPRESENTATION JUST-ENOUGH EVIDENCE ACCESS
+> TOP-K CARDS ACCESS CONFIGURATION
+
+Figure 3: Overview of J UST MEM . Conversation history is encoded as compact atomic memories with provenance links to their source conversations. At inference time, a structured planner estimates the evidence demand and selects an access configuration: L OOKUP for local evidence, C OMPOSE for distributed evidence, and R EPLAY 
+
+for fidelity-sensitive evidence. The selected evidence is provided to the answer model under a bounded compact-memory budget, with source content recovered when higher-fidelity reading is required. 
+
+Thus, the model predicts structured evidence requirements, while a fixed rule maps those re-quirements to an interpretable access configuration. Section 5.5 compares this adaptive allocation with fixed L OOKUP , C OMPOSE , and R EPLAY configu-rations. 
+
+3.2.2 LOOKUP : Local Evidence 
+
+For queries supported by localized evidence, LOOKUP retrieves candidate memories using se-mantic similarity to the original query. The candi-dates are reranked against the query and reduced to a bounded set of compact memory cards. LOOKUP provides the lightweight access path when answer-bearing evidence can be localized and represented adequately by compact memory. 
+
+3.2.3 COMPOSE : Distributed Evidence 
+
+For queries whose evidence may be distributed across memories or sessions, C OMPOSE broadens candidate discovery before selection. It forms a multi-view candidate union: 
+
+Cq = C(q) ∪ [
+
+r∈Rq
+
+C(r), (2) where C(x) is the candidate set for retrieval view 
+
+x, Rq is the rewrite set for query q, and Cq is their deduplicated union. Operation-aware routing de-termines the relevant candidate scope, while the rewrites provide complementary retrieval views. The resulting candidates are reduced to a fixed compact evidence budget: 
+
+Eq = Top K (Rerank( q, C q)) , (3) where Rerank( q, C q) orders candidates against q,
+
+Top K retains the best K cards, and Eq is the re-sulting compact evidence set. Broader discovery therefore changes which memories compete for se-lection without increasing the number of compact cards presented to the answer model. Section 5.3 evaluates this effect while holding the reranker and final evidence budget fixed. 
+
+3.2.4 REPLAY : Fidelity-Sensitive Evidence 
+
+Some queries require information that compact memory can locate but cannot preserve faithfully. Typical examples include previously generated code, detailed plans, or structured assistant outputs whose answer-critical content is not fully retained in a short memory card. For these queries, R EPLAY retrieves and reranks compact memories to identify relevant source con-versations. The selected cards serve both as com-pact evidence and as provenance anchors for source recovery. Reading fidelity is controlled at the query level. When the planner predicts a fidelity-sensitive de-mand ( fq = 1 ), R EPLAY follows the provenance of the selected memories to recover source-level con-versational content; otherwise, the answer model reads only the compact evidence. Section 5.4 com-pares this query-gated policy with fixed compact reading and fixed source recovery. 
+
+4 Experimental Setup 
+
+4.1 Datasets 
+
+We evaluate J UST MEM primarily on two long-term conversational memory benchmarks. LoCoMo (Maharana et al., 2024) evaluates memory over long multi-session conversations, including factual recall, temporal reasoning, and cross-session in-formation integration. We use the 1,540 questions from Categories 1–4; Category 5 is excluded be-cause it does not provide the gold-answer annota-tions required by our answer-accuracy evaluation. LongMemEval-S (Wu et al., 2025) covers com-plementary memory capabilities, including knowl-edge updates, multi-session reasoning, temporal reasoning, user preferences, and recall of prior user and assistant content. We use all 500 questions from LongMemEval-S. To further evaluate cross-benchmark transfer, we use the 401-question cognitive split of LoCoMo-Plus (Li et al., 2026). 
+
+4.2 Evaluation Protocol 
+
+We report LLM-judge accuracy as the primary met-ric and Recall@10 for retrieval quality, defined as the fraction of gold evidence recovered within the Top-10 selected evidence. Paired comparisons use wrong-to-right and right-to-wrong flips with the exact McNemar test (McNemar, 1947). For all methods, we repeat answering and judg-ing five times while keeping constructed memories and retrieved evidence fixed. Table 1 reports mean accuracy ± sample standard deviation across these runs. We measure efficiency by generative-model to-ken usage. Construction counts input and output tokens used by the memory-construction model for a complete conversation history, while Infer counts query planning and answer generation per ques-tion; embedding, reranking, and offline evaluation are excluded. Reading-fidelity experiments addi-tionally report answer-stage tokens to capture the context introduced by source recovery. 
+
+4.3 Implementation and Comparison Settings 
+
+JUST MEM uses GPT-4.1-mini (OpenAI et al., 2025) for memory extraction, query planning, and answer generation. Memory cards are indexed us-ing 1,536-dimensional text-embedding-3-small em-beddings (OpenAI, 2024), and retrieved candidates are reranked with Qwen3-Rerank (Zhang et al., 2025). Unless otherwise specified, all retrieval-based methods use K = 10 as the final evidence budget. For J UST MEM , this corresponds to ten compact memory cards. The budget remains fixed when discovery is broadened; additional answer-stage context is introduced only through source recovery. We compare against two reference settings and four representative long-term memory systems. FullText provides the complete conversation his-tory to the answer model, while Naive RAG re-trieves conversation content using embedding sim-ilarity. A-Mem (Xu et al., 2026) organizes mem-ories as dynamically linked notes, MemoryOS (Kang et al., 2025) uses hierarchical memory tiers, SimpleMem (Liu et al., 2026) constructs compact semantic memories, and LightMem (Zhang et al., 2026) combines lightweight memory construction with retrieval and reranking. Together, these base-lines cover full-context access, standard retrieval augmentation, and recent structured or compressed memory architectures. For LoCoMo and LongMemEval-S, all meth-ods are evaluated under the same model configura-tion. GPT-4.1-mini is used consistently for genera-tive memory construction, answer generation, and LLM-based evaluation across all methods, while text-embedding-3-small is used for embedding-based retrieval. All methods use the same dataset-specific evaluation prompts. This matched setting reduces variation from memory-construction, an-swer, evaluation, and embedding models, allowing the comparison to focus on differences in memory representation and access strategy. For LoCoMo-Plus, all methods follow the origi-nal benchmark protocol (Li et al., 2026), with GPT-4.1-mini used for generative memory construction, answer generation, and evaluation to match our primary experiments. 
+
+5 Results 
+
+We evaluate J UST MEM end to end and test the three hypotheses underlying its design: atomic access granularity (H1), discovery breadth under a fixed Dataset Method Recall@10 (%) ↑ Acc. (%) ↑ Construction (K) ↓ Infer (K) ↓                                                                                    
+
+> LoCoMo FullText –57 .18 ±0.09 –16.74 Naive RAG 57.91 63 .82 ±0.10 –0.63 A-Mem 79.74 67 .91 ±0.27 1188.64 21.87 MemoryOS 41.85 65 .12 ±0.26 382.76 5.11 SimpleMem 75.83 76 .55 ±0.24 96.17 5.42 LightMem 81.92 79 .08 ±0.26 108.21 4.06
+> JustMem 88.05 79 .61 ±0.12 53.38 1.33
+> LongMemEval-S FullText –77 .16 ±0.09 –111.84 Naive RAG 80.74 67 .88 ±0.11 –12.08 A-Mem 92.47 71 .68 ±0.30 1321.42 15.63 MemoryOS 81.12 67 .56 ±0.36 674.35 9.07 SimpleMem 94.83 74 .92 ±0.39 159.72 9.28 LightMem 89.91 76 .44 ±0.17 152.08 3.84
+> JustMem 96.00 83 .40 ±0.24 53.33 1.70
+
+Table 1: Matched-configuration comparison on LoCoMo and LongMemEval-S. Accuracy is reported as mean 
+
+± sample standard deviation over five answering-and-evaluation runs, with constructed memories and retrieved evidence held fixed. Recall@10 measures retrieval recall over the Top-10 selected evidence. Construction and Infer denote generative-model token usage for memory construction and online query processing, respectively, reported in thousands. Recall@10 is not applicable to FullText because it does not perform Top-10 retrieval. FullText and Naive RAG are reference systems and are excluded from best-value highlighting. 
+
+compact evidence budget (H2), and query-gated reading fidelity (H3). We then examine adaptive access allocation and cross-benchmark transfer to LoCoMo-Plus. 
+
+5.1 Overall Performance 
+
+Table 1 compares J UST MEM with existing memory systems under the matched configuration described in Section 4. J UST MEM achieves the highest mean accuracy and Recall@10 on both LoCoMo and LongMemEval-S, with small variation across re-peated answering-and-evaluation runs. These gains are achieved with the smallest generative budgets among the compared memory systems. Relative to LightMem, the strongest compet-ing memory system by mean accuracy (paired 
+
+p = 0.532 on LoCoMo), J UST MEM reduces memory-construction and query-time token usage by 50.7% and 67.2% on LoCoMo, and by 64.9% and 55.7% on LongMemEval-S, respectively. The results therefore show that stronger memory perfor-mance does not require larger generative budgets for either memory construction or query-time infer-ence. 
+
+5.2 H1: Atomic Granularity Enables Global Access 
+
+We test whether atomic memories are most effec-tive when they can compete directly across the full memory store. Table 2 compares three access strategies constructed from the same 3,804 atomic cards. Session pack Top-1 concatenates all cards from each session into a single retrieval unit and provides the highest-ranked session to the answer model. Session-first atom Top-10 first ranks ses-sions and selects the highest-ranked atomic candi-date from each session, enforcing cross-session di-versity. Global atom Top-10 directly ranks atomic candidates across sessions, allowing multiple com-plementary cards from the same session to survive selection. Global atomic access improves accuracy by 10.72 points over Session pack Top-1 ( p = 2 .65 ×
+
+10 −22 ). Under the more closely matched Session-first atom Top-10 comparison, global atomic ac-cess improves accuracy by 5.52 points, with 134 wrong-to-right versus 49 right-to-wrong flips ( p =2.54 ×10 −10 ), while using only 1.1% more answer-stage tokens. Because both conditions expose ap-proximately the same amount of atomic evidence to the answer model, this comparison isolates the benefit of global atomic competition: relevant ev-idence can be selected across session boundaries while multiple complementary memories from the same useful session can be retained. 
+
+5.3 H2: Query-Guided Breadth Improves Distributed-Evidence Access 
+
+We isolate discovery breadth while holding the atomic memory store, structured query plan, reranker, answer model, and final Top-10 evi-dence budget fixed. As shown in Table 3, local Access unit Accuracy Tok./q Session pack Top-1 69.09 772.08 Session-first atom Top-10 74.29 819.25 Global atom Top-10 79.81 828.28 
+
+Table 2: Retrieval-granularity ablation on LoCoMo. Variants use the same atomic memories but organize and select them differently for retrieval. Tok./q reports answer-stage token usage.            
+
+> Dataset Query group Local Discovery Guided Expansion LoCoMo Overall 75.91 77.86
+> Aggregation 68.93 77.97
+> LongMemEval-S Overall 71.20 76.60
+> Aggregation 65.96 78.72
+
+Table 3: Accuracy (%) under controlled discovery breadth. Local Discovery uses the original query, while Guided Expansion incorporates additional planner-generated retrieval views. Both settings use the same reranker and final Top-10 evidence budget. Query groups are derived from the operation predicted dur-ing access planning. 
+
+discovery retrieves candidates from the original query, whereas guided expansion additionally in-corporates candidates retrieved from up to two planner-generated rewrites. Both candidate pools are reranked against the original question before the answer model reads exactly ten compact cards. Guided expansion improves overall accuracy from 75.91% to 77.86% on LoCoMo ( p = 0 .032 )and from 71.20% to 76.60% on LongMemEval-S ( p = 3 .55 × 10 −4). On LongMemEval-S, Re-call@10 also increases from 91.80% to 96.60%. Because the reranker and final reading budget are unchanged, these results isolate the benefit of allow-ing evidence from additional query-guided retrieval views to compete for the same compact context. The gain is particularly pronounced for aggregation-oriented queries, which improve from 68.93% to 77.97% on LoCoMo and from 65.96% to 78.72% on LongMemEval-S. This pattern supports broader discovery when answering requires collect-ing evidence distributed across multiple memories. 
+
+5.4 H3: Reading Fidelity Should Be Query-Gated 
+
+We test whether reading fidelity should be fixed across queries or allocated according to query de-mand. Table 4 compares three policies: Compact Reading uses only compact memories, Fixed Top-1 Recovery restores the highest-ranked provenance-            
+
+> Question Group Reading policy Overall Asst. Tok./q Compact Reading 74.40 32.14 910 Fixed Top-1 Recovery 80.60 92.86 3967 Adaptive R EPLAY 83.40 94.64 1155
+
+Table 4: Reading-fidelity ablation on LongMemEval-S. Compact Reading uses only the selected com-pact memories; Fixed Top-1 Recovery restores the highest-ranked provenance-linked source session for every query; and Adaptive R EPLAY activates source recovery only when required by the query. Overall and Asst. report accuracy (%) on all 500 questions and the 56 assistant-output questions, respectively; Tok./q re-ports answer-stage token usage. 
+
+linked source session for every query, and Adap-tive R EPLAY activates source recovery only for fidelity-sensitive queries. Source recovery substantially improves fidelity-sensitive recall. Compared with compact reading, fixed recovery raises overall accuracy from 74.40% to 80.60% ( p = 9 .26 × 10 −6) and assistant-output accuracy from 32.14% to 92.86%, but increases answer-stage context from 910 to 3967 tokens per question. Adaptive R EPLAY retains this fidelity benefit while restricting source recovery to queries that require it, reaching 83.40% overall accuracy at 1155 tokens per question and significantly outper-forming fixed recovery ( p = 0 .00258 ). On the assistant-output subset, fixed and adap-tive recovery achieve similar accuracy (92.86% vs. 94.64%, p = 1 .0). Thus, the overall advantage of adaptive recovery comes primarily from avoid-ing unnecessary source exposure on other queries, rather than from improving source-based answer-ing itself. Appendix B further shows that once the answer-bearing source is correctly localized, all such cases are answered correctly, identifying source localization as the remaining bottleneck. 
+
+5.5 Controlled Access Allocation 
+
+We next test whether discovery breadth and read-ing fidelity should be allocated by query demand or imposed globally. Table 5 compares five access policies: Fixed L OOKUP , Fixed C OMPOSE , and 
+
+Fixed R EPLAY force every query to use the corre-sponding access configuration while preserving the remaining planner outputs; Adaptive Access uses the query-conditioned routing in Eq. 1; and the 
+
+Taxonomy Oracle replaces this routing decision with the benchmark-provided question category. Access configuration Recall@10 Acc. Infer (K) Fixed L OOKUP 91.80 71.20 1.47 Fixed C OMPOSE 96.60 76.60 1.69 Fixed R EPLAY 87.40 63.40 5.06 Adaptive access 96.00 83.40 1.70 Taxonomy oracle † 96.20 84.20 1.70   
+
+> Table 5: Controlled access allocation on all 500 LongMemEval-S questions. Fixed configurations over-ride access while preserving other planner outputs. †The taxonomy oracle uses benchmark-provided question cat-egories, which are privileged at inference time.
+
+No fixed configuration performs well across all queries. Fixed L OOKUP provides the least ex-pensive access but reaches only 71.20% accuracy, while fixed C OMPOSE improves evidence cover-age to 96.60% Recall@10 and accuracy to 76.60%. Applying R EPLAY indiscriminately is substantially less effective: it reduces Recall@10 to 87.40%, raises inference cost to 5.06K tokens per ques-tion, and reaches only 63.40% accuracy. In con-trast, adaptive access reaches 83.40% accuracy with 96.00% Recall@10 at 1.70K inference tokens. The taxonomy oracle reaches 84.20% accuracy at the same inference budget, only 0.8 points above adaptive access. Because it uses privileged bench-mark metadata unavailable at inference time, it serves only as an oracle reference. Together with H2 and H3, these results support matching discov-ery breadth and reading fidelity to query-specific evidence demands rather than imposing a single global access policy. 
+
+5.6 Cross-Benchmark Transfer to LoCoMo-Plus 
+
+We finally evaluate cross-benchmark transfer on the 401-question cognitive split of LoCoMo-Plus, which tests whether memory systems can retain and apply implicit conversational constraints un-der cue–trigger semantic disconnect. Table 6 re-ports accuracy on both benchmarks together with the absolute performance drop from LoCoMo to LoCoMo-Plus. JUST MEM achieves 62.59% accuracy on LoCoMo-Plus, compared with 31.67% for the strongest baseline, MemOS. It also exhibits the smallest cross-benchmark gap at 17.02 points, com-pared with 33.45–49.71 points for the competing methods. These results indicate that J UST MEM 
+
+retains substantially more of its performance when moving from conventional long-term memory ques-tions to the cognitive-memory setting.                      
+
+> Method LoCoMo ↑
+> LoCoMo-Plus ↑Gap ↓
+> FullText 57.18 21.70 35.48 Naive RAG 63.82 15.71 48.11 A-Mem 67.91 18.20 49.71 MemOS 65.12 31.67 33.45
+> JustMem 79.61 62.59 17.02
+> Table 6: Accuracy (%) on LoCoMo and the 401-question cognitive split of LoCoMo-Plus. Gap denotes the absolute accuracy drop from LoCoMo to LoCoMo-Plus (lower is better).
+
+This transfer behavior is consistent with the de-sign of J UST MEM . LoCoMo-Plus weakens the direct semantic correspondence between a current query and the earlier conversational cue that should influence the response, making evidence localiza-tion more difficult for fixed similarity-driven ac-cess. In J UST MEM , atomic memories provide fine-grained, globally accessible retrieval units, while query-adaptive access can broaden candidate dis-covery beyond the original query when relevant evidence is difficult to localize. Provenance-linked source recovery further preserves access to the un-derlying conversation when compact memories are insufficient. The smaller transfer gap therefore suggests that separating evidence discovery from reading fidelity may provide a more robust access strategy when query–memory correspondence be-comes indirect. 
+
+6 Conclusion 
+
+We formulated long-term conversational memory as adaptive evidence allocation along two dimen-sions: discovery breadth and reading fidelity. We instantiated this formulation in J UST MEM , which combines recoverable atomic memories with query-conditioned reading to search broadly when evi-dence is distributed and recover source-level detail when compact memory is insufficient. Across long-term memory benchmarks, J UST MEM achieves strong performance with substantially smaller gen-erative budgets, while controlled experiments vali-date the distinct roles of retrieval granularity, dis-covery breadth, and selective source recovery. The broader lesson is simple: discover as broadly as the evidence requires, and read only at the fidelity the question demands. Limitations 
+
+Our evaluation focuses on established long-term conversational memory benchmarks, and broader evaluation across tasks and settings would further assess the generality of JUSTMEM. The current implementation adopts a specific memory and re-trieval configuration, while alternative configura-tions may offer different effectiveness–efficiency trade-offs. Finally, our efficiency analysis primarily focuses on generative-model token usage and does not capture all system-level computational costs. 
+
+Ethical Considerations 
+
+Long-term conversational memory introduces pri-vacy, retention, and access-control risks, particu-larly because J UST MEM retains provenance links that can recover source conversational content. De-ployed systems should minimize stored informa-tion, obtain appropriate user consent, support in-spection and deletion, and protect both memory cards and their source content. Because stored memories may also be incorrect or outdated, se-lective retrieval and source recovery do not elim-inate extraction errors, retrieval bias, or sensitive-information leakage. 
+
+Acknowledgement 
+
+This work was supported by the National Science Fund for Excellent Young Scholars (Overseas) un-der grant No. KZ37117501, National Natural Sci-ence Foundation of China ( No. 62306024), Na-tional Cyber Security-National Science and Tech-nology Major Project (No. 2025ZD1503602), New Generation Artificial Intelligence-National Science and Technology Major Project (No. 2026ZD0128000, No. 2026ZD0128003), the Fun-damental Research Funds for the Central Universi-ties, and Beijing Advanced Innovation Center for Future Blockchain and Privacy Computing. 
+
+References 
+
+Pratyay Banerjee, Masud Moshtaghi, Shivashankar Sub-ramanian, Amita Misra, and Ankit Chadha. 2026. Apex-mem: Agentic semi-structured memory with temporal reasoning for long-term conversational ai. In Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 16470–16489. Shuqi Cao, Jingyi He, and Fei Tan. 2026. Higmem: A hierarchical and llm-guided memory system for long-term conversational agents. In Findings of the As-sociation for Computational Linguistics: ACL 2026 ,pages 33853–33862. Jiazheng Kang, Mingming Ji, Zhe Zhao, and Ting Bai. 2025. Memory os of ai agent. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , pages 25972–25981. Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal, Hein-rich Küttler, Mike Lewis, Wen-tau Yih, Tim Rock-täschel, et al. 2020. Retrieval-augmented generation for knowledge-intensive nlp tasks. Advances in neu-ral information processing systems , 33:9459–9474. Yifei Li, Weidong Guo, Lingling Zhang, Rongman Xu, Muye Huang, Hui Liu, Lijiao Xu, Yu Xu, and Jun Liu. 2026. Locomo-plus: Beyond-factual cognitive memory evaluation framework for llm agents. In 
+
+Proceedings of the 64th Annual Meeting of the As-sociation for Computational Linguistics (Volume 1: Long Papers) , pages 25085–25100. Jiaqi Liu, Yaofeng Su, Peng Xia, Siwei Han, Zeyu Zheng, Cihang Xie, Mingyu Ding, and Huaxiu Yao. 2026. Simplemem: Efficient lifelong memory for llm agents. arXiv preprint arXiv:2601.02553 .Nelson F Liu, Kevin Lin, John Hewitt, Ashwin Paran-jape, Michele Bevilacqua, Fabio Petroni, and Percy Liang. 2024. Lost in the middle: How language mod-els use long contexts. Transactions of the association for computational linguistics , 12:157–173. Adyasha Maharana, Dong-Ho Lee, Sergey Tulyakov, Mohit Bansal, Francesco Barbieri, and Yuwei Fang. 2024. Evaluating very long-term conversational memory of llm agents. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 13851– 13870. Quinn McNemar. 1947. Note on the sampling error of the difference between correlated proportions or percentages. Psychometrika , 12(2):153–157. OpenAI. 2024. New embedding models and api up-dates. OpenAI, Ananya Kumar, Jiahui Yu, John Hallman, et al. 2025. Introducing gpt-4.1 in the api. Charles Packer, Sarah Wooders, Kevin Lin, Vivian Fang, Shishir G Patil, Ion Stoica, and Joseph E Gonzalez. 2023. Memgpt: Towards llms as operating systems. 
+
+arXiv preprint arXiv:2310.08560 .Joon Sung Park, Joseph O’Brien, Carrie Jun Cai, Mered-ith Ringel Morris, Percy Liang, and Michael S Bern-stein. 2023. Generative agents: Interactive simulacra of human behavior. In Proceedings of the 36th an-nual acm symposium on user interface software and technology , pages 1–22. Zhen Tan, Jun Yan, I-Hung Hsu, Rujun Han, Zifeng Wang, Long Le, Yiwen Song, Yanfei Chen, Hamid Palangi, George Lee, et al. 2025. In prospect and retrospect: Reflective memory management for long-term personalized dialogue agents. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) ,pages 8416–8439. Hung Pham Van, Nguyen Manh Hieu, Khang Pham Tran Tuan, Nam Le Hai, Linh Ngo Van, Nguyen Thi Ngoc Diep, and Trung Le. 2026. Memo-rai: Memory organization and retrieval via adaptive graph intelligence for llm conversational agents. In 
+
+Findings of the Association for Computational Lin-guistics: ACL 2026 , pages 28235–28253. Di Wu, Hongwei Wang, Wenhao Yu, Yuwei Zhang, Kai-Wei Chang, and Dong Yu. 2025. Longmemeval: Benchmarking chat assistants on long-term interac-tive memory. In International Conference on Learn-ing Representations , volume 2025, pages 86809– 86836. Wujiang Xu, Zujie Liang, Kai Mei, Hang Gao, Juntao Tan, and Yongfeng Zhang. 2026. A-mem: Agentic memory for llm agents. Advances in Neural Informa-tion Processing Systems , 38:17577–17604. Jiaquan Zhang, Chaoning Zhang, Shuxu Chen, Zhen-zhen Huang, Pengcheng Zheng, Zhicheng Wang, Ping Guo, Fan Mo, Sung-Ho Bae, Jie Zou, et al. 2026. Lightweight llm agent memory with small language models. In Proceedings of the 64th Annual Meet-ing of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 12914–12929. Yanzhao Zhang, Mingxin Li, Dingkun Long, Xin Zhang, Huan Lin, Baosong Yang, Pengjun Xie, An Yang, Dayiheng Liu, Junyang Lin, et al. 2025. Qwen3 embedding: Advancing text embedding and rerank-ing through foundation models. arXiv preprint arXiv:2506.05176 .Wanjun Zhong, Lianghong Guo, Qiqi Gao, He Ye, and Yanlin Wang. 2024. Memorybank: Enhancing large language models with long-term memory. In Pro-ceedings of the AAAI conference on artificial intelli-gence , volume 38, pages 19724–19731. 
+
+A Implementation Details 
+
+This section provides additional implementation details for the main components of J UST MEM . We present condensed versions of the core prompting instructions; formatting requirements, structured-output constraints, and implementation-level vali-dation instructions are omitted for clarity. 
+
+A.1 Prompted Components Memory extraction. Memory is constructed in-dependently for each conversation session. Gen-erative memory construction uses only user-side content, while assistant-generated content remains accessible from the original conversation through source recovery when needed. For LoCoMo, which represents conversations between two participants rather than in user–assistant format, both partici-pants are mapped to the user side before memory extraction, allowing the same extraction pipeline to be applied across benchmarks. The extractor converts the resulting conversational content into compact, subject-explicit memories that remain in-terpretable outside their original context. Its core instruction is summarized as follows: 
+
+> Extract durable, answer-bearing information from the supplied conversation session as atomic mem-ories. Each memory should describe one inde-pendently retrievable fact, event, preference, state, measurement, relation, list, or interaction, with an explicit subject. Preserve exact entities, dates, values, durations, and relations when they are essential to the mean-ing. Resolve local references from the surround-ing conversation, but do not infer unsupported in-formation or use outside knowledge. Distinguish completed events from plans, ongoing states, and stable facts. When important interaction content cannot be represented compactly, retain a concise memory that can be linked back to the original conversation. Return structured JSON only.
+
+The extractor receives the session identifier, ses-sion timestamp, and conversational messages. Each extracted memory contains five fields: subject ,
+
+fact , event_date , status , and kind .A representative output is: 
+
+{"<session_id>": { "memories": [{ "subject": "User", "fact": "prefers small, quiet hotels", "event_date": "unknown", "status": "stable", "kind": "preference" }] }}
+
+Provenance is retained separately from the com-pact memory content. A card can therefore serve directly as retrieval evidence while retaining a link to its originating conversation when higher-fidelity evidence is required. 
+
+Query planning. The planner analyzes the ev-idence requirements of a query before retrieval. Rather than generating an answer, it identifies the entities, temporal constraints, operation, and ac-cess requirements needed to retrieve the relevant evidence. Its core instruction is summarized as follows:   
+
+> Analyze the question in terms of the evidence required to answer it. Identify the target enti-ties, temporal constraints, and operation to be performed over memory evidence. Determine whether the required evidence is ex-pected to span multiple memories or sessions, and separately whether the query requires source-level content that compact memory may not preserve. For queries requiring broader discovery, generate short retrieval rewrites that preserve the entities and constraints of the original question without predicting the answer. Return a structured re-trieval plan rather than answering the question.
+
+The planner receives the current question to-gether with its query timestamp. Its structured output specifies retrieval routes, operation, answer mode, target entities, temporal scope, multi-session demand, source-recovery demand, and optional re-trieval rewrites. The access configuration is deterministically de-rived from these structured requirements. Queries supported by local compact evidence use L OOKUP ;queries requiring distributed or compositional evi-dence use C OMPOSE ; and queries requiring fidelity-sensitive source content use R EPLAY . At most two answer-free retrieval rewrites are retained. 
+
+Evidence-constrained answering. The answer model receives the query, query time, planner-derived operation, and evidence produced by the selected access configuration. For R EPLAY , the ev-idence additionally contains recovered provenance-linked source content. The core answering instruc-tion is summarized as follows: 
+
+> Answer the question using the supplied long-term memory evidence. Inspect all relevant evidence before answering and combine multiple memories when required by the requested operation. Preserve entity identity, temporal relations, and exact values when relevant. For aggregation and comparison, operate only over distinct evidence matching the requested entities and constraints. For latest or updated information, resolve con-flicting evidence using temporal order. Do not in-troduce information unsupported by the supplied evidence. Return a concise structured answer.
+
+Operation-specific instructions further guide temporal normalization, deduplication, aggrega-tion, comparison, and evidence integration accord-ing to the planner output. 
+
+A.2 Retrieval and Source Recovery 
+
+Memory cards are represented using 1,536-dimensional text-embedding-3-small embeddings and reranked with Qwen3-Rerank. Retrieval com-bines semantic similarity with lightweight lexical, temporal, and card-aware signals. For C OMPOSE , multiple query views contribute candidates before deduplication and reranking. The resulting candidate pool is reranked against the original question and reduced to the same compact evidence budget used throughout the main exper-iments. Discovery can therefore expand without increasing the final number of compact cards pre-sented to the answer model. For fidelity-sensitive queries, R EPLAY uses re-trieved compact cards to locate provenance-linked source conversations. The localized source content is appended to the compact evidence for higher-fidelity reading. Source recovery is query-gated: recoverable provenance alone does not trigger con-text expansion. 
+
+A.3 Memory Statistics 
+
+Table 7 summarizes the atomic-memory represen-tations used in the primary experiments. Despite the length of the underlying conversation histories, individual cards remain compact, averaging fewer than 20 tokens on both benchmarks.             
+
+> Dataset Sess. Cards Cards/Sess. Tok./Card LoCoMo 272 3,804 13.99 18.01 LongMemEval-S 23,867 197,605 8.28 18.99
+
+Table 7: Statistics of the atomic-memory representations used in the primary experiments. 
+
+B Replay Analysis 
+
+We further analyze REPLAY on the 56 LongMemEval-S assistant-output questions. These questions provide a concentrated diagnostic for reading fidelity because their answer-critical content is often difficult to preserve in compact memory. We decompose REPLAY into two stages: localizing the answer-bearing source and answering from the recovered content.          
+
+> Condition Acc. Src. hit Acc. |hit Compact cards 32.14 ––Query-gated R EPLAY 94.64 94.64 100.00
+
+Table 8: Source-localization and reading analysis on the 56 LongMemEval-S assistant-output questions. Values are percentages. 
+
+Compact cards alone answer 18 of the 56 assistant-output questions correctly. Query-gated REPLAY raises accuracy to 94.64%, an absolute improvement of 62.50 points. More importantly, R EPLAY successfully local-izes the answer-bearing source for 53 of the 56 questions. All 53 questions are answered correctly once the relevant source is recovered, yielding 100% accuracy conditioned on source localization. The three remaining errors correspond to failures to localize the correct source. This decomposition indicates that, for fidelity-sensitive assistant-output recall, the remaining bot-tleneck lies in source localization rather than in reading the recovered content. Further improve-ments should therefore focus on identifying the correct provenance-linked source rather than in-creasing source-context length.
