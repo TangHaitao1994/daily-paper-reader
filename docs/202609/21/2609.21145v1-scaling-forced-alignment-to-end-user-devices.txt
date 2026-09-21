@@ -1,0 +1,220 @@
+Title: Scaling Forced Alignment to End-User Devices
+
+URL Source: https://arxiv.org/pdf/2609.21145v1
+
+Published Time: Mon, 21 Sep 2026 00:19:14 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+## SCALING FORCED ALIGNMENT TO END-USER DEVICES 
+
+## Lawry Sorenson Michael Crandall Eric K Ringger Stephen D Richardson 
+
+## Brigham Young University Computer Science Department Provo, UT, United States 
+
+ABSTRACT 
+
+The Viterbi algorithm has been previously used to perform forced alignment of audio to text to mine training data from online resources. However, many existing implementations have quadratic time and space complexity, scaling poorly to long input sequences. We propose two optimizations to ad-dress this issue. First, we apply the Hirschberg algorithm to perform the alignment in place using linear memory. Second, we model the alignment between speech and text as a con-strained random walk, allowing us to prune the search space with arbitrary confidence while accounting for transcription errors. The Hirschberg optimization reduces memory usage from 140 GB to 5 MB for three-hour inputs while producing identical alignments in one-third the time of torchaudio when both run on a CPU. We achieve an additional 2x speedup with pruning on inputs longer than 20 minutes while preserving alignment accuracy in more than 98% of tested cases. 
+
+Index Terms — speech recognition, forced alignment, Hirschberg–Viterbi algorithm 
+
+1. INTRODUCTION 
+
+Despite recent advances, model performance for low-resource languages remains underdeveloped. Their advancements notwithstanding, Large Language Models (LLMs) still suffer from this issue, especially for languages with poor tokenizer support. This issue limits access to information and cross-lingual communication for minority-language communities. This problem is particularly prevalent in speech process-ing, as there is little speech data available in many languages. A common method to address data scarcity has used forced alignment (FA) on public data sources, such as New Testa-ment readings or parliamentary recordings. However, recent FA implementations have O(n2) time and memory complex-ity, which limits their application to large inputs. Our work focuses on improving the scalability of FA so that it can run on long input sequences with hardware available to most end users. We make our implementation available as an open-source Python package. 1
+
+> 1https://github.com/byu-matrix-lab/ hirschberg-viterbi
+
+2. RELATED WORK 
+
+Early work to align multilingual speech with text relied heav-ily on rule-based transfer between languages, frequently re-quiring pronunciation dictionaries of individual words. The CMU Wilderness dataset by Black [1] represented early ef-forts to scale speech technology to a wide variety of lan-guages. Their methodology generalized the approach of Pra-hallad et al. [2], which proposed FA with dynamic program-ming to match audio with phonetic transcriptions of text. Since then, Pratap et al. [3] trained speech recognition models for more than 1,000 languages. Their methodol-ogy used a shared romanization to map each script into the Latin alphabet. They trained a large, multilingual Automatic Speech Recognition (ASR) model (Massively Multilingual Speech, or MMS) on the romanized scripts, which they used to bootstrap rough alignments in new languages. However, both approaches rely on multilingual transliter-ation tools, which Black [1] argues degrade alignment per-formance for low-resource languages, as pronunciation tends to be language-dependent. K¨ urzinger et al [4] introduced ctc-segmentation (ctc-seg), proposing FA with models trained with Connectionist Temporal Classification (CTC) loss with-out pronunciation dictionaries or transliteration. [5] However, the FA implementation in ctc-seg often scaled poorly when applied to especially long input sequences, as considering every possible alignment requires O(n2) time and memory. K¨ urzinger et al. [4] proposed limiting align-ments to a window around the diagonal to drop the complexity to O(nw ), where w is the window size. The Kaldi speech recognition toolkit [6] with beam-search pruning has also been adapted to FA, [7] but existing work has not explored what the pruning parameters should be, and newer alignment implementations fall back to the O(n2) approach. [3, 8] The O(n2) algorithm has significant memory require-ments, and aligning an hour-long audio segment with its transcription can easily exceed 16 GB of RAM. Pratap et al. [3] managed to work around the issue of running the algorithm on a GPU with insufficient memory by pushing backtracking data out to the CPU RAM. The FA implementa-tion for MMS has been included in torchaudio [9], and some independent work has already been done to reduce its mem-arXiv:2609.21145v1 [cs.CL] 17 Sep 2026 ory requirements. We note ctc-forced-aligner, which uses 2 bits to store backtracking data instead of a full byte and boasts a 5x memory reduction from torchaudio. [10] One approach that has been taken to address memory us-age in the similar problem of aligning two strings to find their longest common subsequence is Hirschberg’s algorithm. [11] Hirschberg’s algorithm uses a divide-and-conquer approach to align two strings effectively in-place. This approach has not been applied to FA, but we demonstrate that the same principles work here as well. 
+
+3. DATASETS 
+
+Our main development dataset was composed of General Conference interpretation data from The Church of Jesus Christ of Latter-day Saints, which we refer to as CJCLDS-GC. This dataset consists of live interpretation of discourses assisted by pretranslations into 73 languages supported by MMS, most of which have 100+ hours of audio. The average duration of each discourse audio is 11.7 minutes.We describe the dataset more in Appendix C. Although all the data is available for browsing online, 2
+
+this dataset is not currently released for easy research use. For reproducibility, we also evaluate our forced-alignment op-timizations on two other corpora. The first is the Buckeye corpus, which consists of 40 hour-long interviews in English that have been segmented into 255 10-minute audio files and labeled at a phone level. [12] The second is EuroSpeech, which consists of sentence-aligned transcription-audio pairs from parliamentary recordings of 22 European countries. [13] EuroSpeech has recordings from more than 20k parliament sessions, with an average duration of 2.6 hours each. 
+
+4. METHODOLOGY 
+
+We developed two optimizations for the Viterbi algorithm us-ing the CJCLDS-GC dataset before evaluating them both on the Buckeye and EuroSpeech datasets. 
+
+4.1. Hirschberg–Viterbi Algorithm 
+
+First, we implemented Hirschberg’s algorithm for FA to sup-port O(n2) runtime with O(n) memory. This algorithm ap-plies the principles of divide-and-conquer and meet-in-the-middle and only requires that the alignment can be computed forward and backward through the data. The algorithm works from both sides to compute the optimal alignment at the mid-point in the audio before recursing. Scores are tracked in-place to limit memory usage. We end recursion once the sub-problems become sufficiently small to fit within 1 KB, which we found limits overhead from excessive recursion. 
+
+> 2https://churchofjesuschrist.org/study/ general-conference Audio Position Text Position
+> Audio Position Interpretation Alignments vs Proposed Prior
+
+Fig. 1 . Logarithmic heatmaps showing a random sample of alignments from the CJCLDS-GC dataset (left), and the align-ment prior that we use to predict FA pruning bounds (right). This prior is created from the assumption that phoneme dura-tions are randomly distributed and stationary. 
+
+4.2. Search Space Pruning 
+
+In the second optimization, we limit the search space to a win-dow around the diagonal, and we propose a theoretical basis for its size. While K¨ urzinger et al. [4] already proposed us-ing a fixed-width window during FA to reduce the space and runtime complexity from O(n2) to O(n), we argue that the width of such a window should scale with the input size. We compute an upper bound for the desired window size by adding a prior indicating that alignments tend to be along the diagonal. To create this prior, we model the alignment as a random walk of phoneme durations bounded on both ends by the start and end of the sequence. To account for variations in speaking rate across speakers and audio segments, we scale the phoneme durations for each audio such that the expected length of the transcription matches the duration of the audio. From this prior, we form a normal approximation to the alignment position of a single character based on the central limit theorem, which we present as Equation 1and derive in Appendix A. Here μl and σl are the expected value and stan-dard deviation of the duration of the audio for the text to the left of the current character, while σr is the standard devia-tion of the text to the right. We illustrate this prior in Figure 1, a logarithmic heatmap showing the probability that each character occurs at each timestep under this model. For ref-erence, the same figure also shows a random selection of 50 text-audio alignments from the CJCLDS-GC dataset. We as-sume the variance of each character is within 3.7 times its mean, based on an analysis of the CJCLDS-GC dataset. 
+
+pc ∼ N (μl, (σ−2 
+
+> l
+
++ σ−2 
+
+> r
+
+)−1) (1) We treat identifying the window size as finding a confi-dence interval for the alignment of each character, yet this only represents the confidence of a single point being in the window and does not accurately represent the confidence that all points along the alignment are in the window. By the union bound, we apply a conservative correction by adjusting the confidence for each window size to 1 − δ/n , where δ is the target error rate and n is the transcription length. We set the minimum window size to 15 seconds, as the model breaks down at the edges of the audio. In our data exploration, we note that most of the devia-tions from the diagonal are due to inaccurate transcriptions or periods of silence. These outliers include sharing videos during a discourse, the interpreter finishing reading the pre-pared translation two minutes before the original speaker, and the speaker inviting others to speak with them. As such, we modify the pruning bounds to account for both by estimat-ing the accuracy of the transcription in terms of precision and recall. This is similar to the character error rate, but we treat insertions and deletions separately, as they affect the expected alignment position in opposite directions. Our pruning model can also fold silence into the recall parameter, as it is part of the audio that does not correspond to the text. Our system evaluates the worst-case alignment given lower bounds for the transcription precision and recall. That is, we compute the lower bound for a character’s expected position in time by assuming that all false insertions are be-fore the current character and all false deletions are after it, and we do the opposite to compute the upper bound. Using a lower bound for these parameters accounts for not knowing the transcription accuracy during inference. We look at the width of the predicted window to evalu-ate the time complexity. The variance of pc is proportional to n, and the standard deviation is proportional to √n. The adjusted confidence then scales based on the decay rate of the inverse complementary error function, erfc −1(1 /n ), which is sub-logarithmic. When precision and recall are similar, the adjustment can shift the position of a character within the au-dio by 2ϵ, where ϵ is the error rate. This effectively increases the search space by O(n2ϵ), giving a loose time complexity 
+
+O(n√n log n + n2ϵ) (2) 
+
+5. EVALUATION 5.1. Pruning Accuracy 
+
+While traditional evaluation for FA tends to look at the dis-tance between the predicted timestamps and the ground truth, our optimizations will ideally result in the same predicted alignment as the base Viterbi algorithm. We propose a stricter metric by measuring the percentage of input audio files for which the pruned alignment perfectly matches the unpruned alignment. To also allow for slight errors, we also report the percentage of files where pruning shifted the timestamps by less than 250 ms on average. We compare our pruning method with Kaldi and ctc-seg on the three datasets. For a fair comparison, we use the default settings for each method. The pruning in ctc-seg starts by limiting the alignment space to a window of 8000 timesteps centered on the diagonal and doubles this window size when-ever backtracking throws an index-out-of-bounds error. Kaldi uses beam-search, pruning beams at each timestep that have a log probability of 16 lower than the current best. We add an outer loop that doubles this bound whenever the Kaldi align-ment fails. The default parameters for our pruning are 97% transcription accuracy and 99% alignment confidence. We also explore the accuracy of pruning when each method is paired with pyannote Voice Activity Detection (VAD) [14] to remove silence in the audio before process-ing. When not removing the silence, we pass a hint of the estimated amount of silence into our pruning calculation. We add VAD to the runtime of each method that uses it. We limit each alignment to 80 GB of RAM and 3 days of processing time. Alignments that exceed those bounds are marked as failures. We only use the EuroSpeech and CJCLDS-GC test sets (10% of each dataset), but we use all 40 interviews in the Buckeye dataset. We use MMS to pro-duce the logits for FA and present our results in Table 1. Since VAD introduces the potential for cascaded errors, we also evaluate our pruning bounds using the human-labeled periods of silence in the Buckeye dataset. We found that once periods of silence are removed from the audio, our pruning bounds perfectly contained the dataset alignment while as-suming a perfect transcription at 99% pruning confidence. 3
+
+5.2. Complexity Analysis 
+
+Lastly, we evaluate the runtime and memory efficiency of our FA optimizations against other implementations that do not use pruning. We compare our code to the existing imple-mentations in torchaudio, NeMo, and ctc-forced-aligner when running on both a CPU and GPU. Our own implementation is a CPU-based PyTorch extension. We do not include Kaldi and CTC-Seg in this section because we compared against them in the last section, and their runtime and memory usage can vary widely for two inputs of the same length, while our pruning has consistent scaling for set pruning options. We evaluate each system on randomly generated inputs of various durations, where logits have 50 frames per second and the transcriptions have 12.7 characters per second—the average in the CJCLDS-GC dataset. We run each implemen-tation 10 times per input duration. We track memory using the max RSS for the running process. We average the perfor-mance across runs and plot them in Figure 2. 4 CPU com-putation was performed on a single core of an AMD EPYC 
+
+> 3We found 3 audio files with mislabeled periods of silence in the dataset, which we corrected for our tests. These periods occurred from time 522-528 near the end of file 2903b, from 78-104 in file s0503b, and from 206-222, 497-503, and 504-518 in file s4003b.
+> 4Tracking memory usage with RSS is imperfect as it does not account for swap memory. When memory usage was too small to detect a change in RSS, we estimate it using the allocations in the code.
+
+Buckeye CJCLDS-GC EuroSpeech Overall Method Exact < 250 ms Exact < 250 ms Exact < 250 ms Failure Time Max Time Max Mem. Unpruned HV 100% 100% 100% 100% 100% 100% 0% 59:36:39 2:50:44 22.4 MB Uncut HV + VAD Hint 100% †‡ 100% †‡ 98.2% †‡ 98.3% ‡ 100% †‡ 100% ‡ 0% 32:38:36 1:22:26 41.5 MB Kaldi 67.5% ‡ 75.0% ‡ 93.8% ‡ 99.5% ∗‡ 69.6% ‡ 94.2% ‡ 0.03% 287:58:12 >3 days 21.5 GB ctc-seg 0% 52.5% 0% 70.0% 0% 18.8% 6.0% 10:15:45 1:04:20 >80 GB VAD HV 0% 77.5% ‡ 1.97% †‡ 93.4% ‡ 0% 82.0% ‡ 0% 11:40:39 27:23 1.9 GB Kaldi 0% 70.0% 1.93% ‡ 94.6% ∗‡ 0% 82.6% ‡ 0.03% 254:46:38 >3 days 17.0 GB ctc-seg 0% 57.5% 0% 69.5% 0% 70.3% 5.0% 9:16:38 59:00 >80 GB 
+
+Table 1 . Pruning performance for different methods with their default parameters. We include metrics when VAD is used to cut periods of silence before processing. Runtime and memory usage is aggregated across all datasets. The longest input across the test sets is 16 hours. Systems marked with ∗, †, and ‡ significantly outperformed our system, Kaldi, and ctc-seg, respectively, with p-values under 0.05 .0 2000 4000 6000 8000 10000      
+
+> Input Duration (seconds)
+> 0100 200 300 400 500 600 700 800
+> Runtime (seconds) Runtime vs Input Length
+> 02000 4000 6000 8000 10000
+> Input Duration (seconds)
+> 100KB 1MB 10MB 100MB 1GB 10GB 100GB
+> Memory Usage Memory Usage vs Input Length
+> torchaudio ctc_forced_aligner nemo pruned_hirschberg_viterbi hirschberg_viterbi torchaudio (gpu) nemo (gpu)
+
+Fig. 2 . Runtime and memory usage of various implementations of the Viterbi algorithm. Note that torchaudio and NeMo have the same memory usage and overlap in the graph. The GPU used has only 80 GB of VRAM, so that line for NeMo ends early once it no longer has enough VRAM to run. 7763 (2.45 GHz), while GPU computation was done on an NVIDIA A100. 
+
+6. DISCUSSION 
+
+Though Kaldi slightly outperformed our pruning method at producing close approximations to the baseline in a few cases, even our unpruned alignment was dramatically faster than Kaldi and used less memory. Our code was slower than ctc-segmentation, but had far less memory usage and better prun-ing accuracy. We looked through the instances where Kaldi outper-formed our system and found that they generally occurred when the transcription was less than 97% accurate. In all the cases we looked at, this was due to the published text having additional content that was not in the audio. We expect that our pruning would handle these if the accuracy bound is ade-quately decreased to account for the mismatch. We argue that our pruning parameters are far more interpretable to end users than those of Kaldi or ctc-seg. To use our code, users need only give a lower bound for the transcription accuracy, but for ctc-seg they must give an upper bound of the window width in timesteps, or for Kaldi, an upper bound on the log probability deviation between the optimal and greedy decodings. Our implementation uses a contiguous copy of its in-put, which is what causes the large jump in memory usage when slicing the audio based on VAD. VAD also introduces cascaded errors (like other chunk-based alignment systems) [13], while ctc-seg uses a different recurrence than CTC loss, which is why those exact match rates are so low. Interestingly, we found that the Hirschberg optimization significantly reduced runtime despite requiring some recom-putation. We expect that the significant reduction in memory usage allowed most of the algorithm to run within the cache. In comparison to existing algorithms, the NeMo Forced Aligner is the only implementation we assessed that currently supports batch computation of alignments, and we suggest that it be used when aligning many short segments on a GPU. Torchaudio on a GPU remains the fastest unpruned imple-mentation when sufficient RAM is available. On a CPU, our implementation was the fastest and used the least memory for all inputs. Our Hirschberg–Viterbi implementation could align three hours of audio on one CPU core in 271.3 sec-onds with 5.2 MB of RAM, while torchaudio running on a GPU needed 220.4 seconds and 144 GB of RAM. When both implementations ran on a CPU, the Hirschberg–Viterbi im-plementation consistently ran in one-third of the time of tor-chaudio. Our pruned Hirschberg–Viterbi implementation can do the same three-hour alignment in 57.2 seconds on a CPU for high-accuracy transcriptions. 
+
+7. CONCLUSION 
+
+We propose a theoretical basis for computing window size, novelly led by interpretable transcription accuracy, which, combined with the existing Hirschberg algorithm, signifi-cantly improves the scalability of FA. We hope that this work contributes to research efforts for low-resource language communities, especially by allowing communities to process their own data without significant hardware requirements. 
+
+8. LIMITATIONS AND FUTURE WORK 
+
+We note that the pruning method we propose is blind to the data, while Kaldi’s pruning is entirely based on the data. We expect that the two could be combined where Kaldi’s method prunes based on the data that has already been processed, and ours prunes based on expectations for the data that has not been processed yet. Our model currently assumes that the speaking rate is con-sistent, which we find is not always the case. Modeling vari-able speaking rate would require wider pruning bounds and could likely be done by constraining the expected amount of variation in speaking rate. The bounds could then be created from the worst cases in which the speaking rate monotoni-cally increases or decreases during the entire audio file. Lastly, we note that current methods of FA identify a single alignment between audio and text. We note that the Hirschberg–Viterbi algorithm we use could be slightly mod-ified to efficiently calculate the location of key points in the text (such as sentence boundaries) while considering all pos-sible paths between them. We suspect this approach could improve alignment accuracy similar to beam search in decod-ing, but we also leave it to future work. 
+
+9. COMPLIANCE WITH ETHICAL STANDARDS 
+
+This study was performed retrospectively on publicly avail-able data. We received explicit permission to use the CJCLDS-GC for our own research, but we do not release the dataset publicly at this time due to concerns from the Church about interpreter privacy. Nevertheless, the data may be inspected online, as specified in footnote 2. 
+
+10. FUNDING ACKNOWLEDGMENTS 
+
+No funding was received for conducting this study. The au-thors have no relevant financial or nonfinancial interests to disclose. 
+
+11. REFERENCES 
+
+[1] Alan W Black, “Cmu wilderness multilingual speech dataset,” in ICASSP 2019-2019 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) . IEEE, 2019, pp. 5971–5975. [2] Kishore Prahallad, Arthur R Toth, and Alan W Black, “Automatic building of synthetic voices from large multi-paragraph speech databases.,” in INTERSPEECH ,2007, pp. 2901–2904. [3] Vineel Pratap, Andros Tjandra, Bowen Shi, Paden Tomasello, Arun Babu, Sayani Kundu, Ali Elkahky, Zhaoheng Ni, Apoorv Vyas, Maryam Fazel-Zarandi, et al., “Scaling speech technology to 1,000+ languages,” 
+
+Journal of Machine Learning Research , vol. 25, no. 97, pp. 1–52, 2024. [4] Ludwig K¨ urzinger, Dominik Winkelbauer, Lujun Li, Tobias Watzel, and Gerhard Rigoll, “Ctc-segmentation of large corpora for german end-to-end speech recogni-tion,” in International Conference on Speech and Com-puter . Springer, 2020, pp. 267–278. [5] Alex Graves, Santiago Fern´ andez, Faustino Gomez, and J¨ urgen Schmidhuber, “Connectionist temporal classi-fication: labelling unsegmented sequence data with re-current neural networks,” in Proceedings of the 23rd in-ternational conference on Machine learning , 2006, pp. 369–376. [6] Daniel Povey, Arnab Ghoshal, Gilles Boulianne, Lukas Burget, Ondrej Glembek, Nagendra Goel, Mirko Han-nemann, Petr Motlicek, Yanmin Qian, Petr Schwarz, et al., “The kaldi speech recognition toolkit,” in IEEE 2011 workshop on automatic speech recognition and understanding . IEEE Signal Processing Society, 2011. [7] Michael McAuliffe, Michaela Socolof, Sarah Mihuc, Michael Wagner, and Morgan Sonderegger, “Montreal forced aligner: Trainable text-speech alignment using kaldi,” in Proc. Interspeech 2017 , 2017, pp. 498–502. [8] Elena Rastorgueva, Vitaly Lavrukhin, and Boris Gins-burg, “Nemo forced aligner and its application to word alignment for subtitle generation,” in Proc. INTER-SPEECH , 2023. [9] Yao-Yuan Yang, Moto Hira, Zhaoheng Ni, Artyom Astafurov, Caroline Chen, Christian Puhrsch, David Pollack, Dmitriy Genzel, Donny Greenberg, Edward Z Yang, et al., “Torchaudio: Building blocks for audio and speech processing,” in ICASSP 2022-2022 IEEE International Conference on Acoustics, Speech and Sig-nal Processing (ICASSP) . IEEE, 2022, pp. 6982–6986. [10] Mahmoud Ashraf, “Forced alignment with hug-ging face ctc models,” https://github.com/ MahmoudAshraf97/ctc-forced-aligner ,2024, Version v0.2. [11] Daniel S. Hirschberg, “A linear space algorithm for computing maximal common subsequences,” Commu-nications of the ACM , vol. 18, no. 6, pp. 341–343, 1975. [12] Mark A Pitt, Laura Dilley, Keith Johnson, Scott Kies-ling, William Raymond, Elizabeth Hume, and Eric Fosler-Lussier, “Buckeye corpus of conversational speech (2nd release),” Columbus, OH: Department of Psychology, Ohio State University , pp. 265–270, 2007. [13] Samuel Pfisterer, Florian Gr¨ otschla, Luca A. Lanzend¨ orfer, Florian Yan, and Roger Wattenhofer, “Eurospeech: A multilingual speech corpus,” in 
+
+Advances in Neural Information Processing Systems (NeurIPS) , 2025. [14] Herv´ e Bredin, “pyannote.audio 2.1 speaker diarization pipeline: principle, benchmark, and recipe,” in Proc. INTERSPEECH 2023 , 2023. [15] Ruizhe Huang, Xiaohui Zhang, Zhaoheng Ni, Li Sun, Moto Hira, Jeff Hwang, Vimal Manohar, Vineel Pratap, Matthew Wiesner, Shinji Watanabe, et al., “Less peaky and more accurate ctc forced alignment by label priors,” in ICASSP 2024-2024 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) .IEEE, 2024, pp. 11831–11835. [16] Patrick Billingsley, Probability and Measure (3rd ed.) ,John Wiley & Sons, Chicago, 1995. 
+
+A. PRIOR DERIVATION 
+
+We start by analyzing the dataset to compute the mean and variance in grapheme durations per language. As CTC loss is peaky, we measure the distance between one peak and the next as the duration of the grapheme. [15] Although graphemes and phonemes frequently do not have a one-to-one matching, we assume that there is strong correlation between graphemes and audio duration. To account for changes in speaking speed, we scale all audio times such that the means are 1 so that we can com-pute the relative standard deviation in grapheme duration. We do this as we expect the standard deviation to be linearly af-fected by changes in speaking rate. We found that in many languages with phonemic scripts, the average standard devi-ation was 1.6 times the mean duration, while in languages with logographic characters (Chinese, Japanese Kanji) the av-erage standard deviation was 0.95 times the mean. We expect specific graphemes to have much smaller standard deviations than this, but we computed these statistics for all characters together to avoid statistical overfitting. We use a standard de-viation ratio of 1.9 in our experiments as the upper bound across the languages in our development set. By the linearity of expectations, the expected duration of a sequence of graphemes will be the sum of the individual means. If we assume that individual graphemes are indepen-dently distributed, then the distribution of the duration of such a sequence will approach a normal distribution whose vari-ance is the sum of individual variances by the Central Limit Theorem (CLT). Importantly, this assumption is not neces-sarily true, as changes in speaking rate will affect adjacent graphemes. However, CLT can also hold when the sequence is strongly mixing, i.e. adjacent events are dependent, but the dependence between distant events decays to zero. [16] We expect speech to be strongly mixing, and we also assume that speaking rates remain relatively constant, primarily to main-tain that the distributions are stationary. We do find outliers with variable speaking rates, but our model holds for most of the evaluated datasets. We continue with the assumption that the distribution of the duration of a spoken sequence of graphemes approaches the normal distribution. For any character in the sequence, we can now model its position in the audio by merging the distributions of the durations on both sides. Given a point in the grapheme sequence, its expected location in the audio is along the diagonal. The probability of a deviation from said diagonal is the joint probability that the durations of the se-quences on both sides of that point deviate the same amount from their means. Here we again assume that the distribu-tions of the two sides are independent, which we note has the same issues stated above. We start with the distributions of the durations of the left and right sequences: 
+
+dl ∼ N (μl, σ 2 
+
+> l
+
+), d r ∼ N (μr , σ 2 
+
+> r
+
+) (3) Note that we scaled the prior such that μl + μr is the du-ration of the audio sequence. The mean location for the char-acter position c is then at time μl. From there, the distribution then depends on the probability that two normal distributions have the same deviation. We solve for the resulting distri-bution by temporarily shifting the mean to 0 and taking the product of two normal distributions. For simplicity, we ex-press the normalization constants as βl and βr .
+
+P(x) = βl exp( − x2
+
+2σ2
+
+> l
+
+)βr exp( − x2
+
+2σ2
+
+> r
+
+) (4) Note that we can add exponents and factor out the − x2
+
+> 2
+
+terms. 
+
+P(x) = βlβr exp( − x2
+
+2 ( 1
+
+σ2
+
+> l
+
++ 1
+
+σ2
+
+> r
+
+)) (5) Note that this is conveniently similar to the normal distri-bution. Renormalizing this distribution results in the follow-0 100 200 300 400 500 600 700 
+
+> Audio Position (second)
+> 02000 4000 6000 8000 10000
+> Text Position (character) Hirschberg Optimization Visualization
+
+Fig. 3 . Visualization of the Hirschberg algorithm applied to forced alignment. The algorithm works from both sides to compute an optimal pivot point in the middle, then recurses to the lower left and upper right areas in the figure. ing distribution for the position of character c, represented as 
+
+pc.
+
+pc ∼ N (μl, (σ−2 
+
+> l
+
++ σ−2 
+
+> r
+
+)−1) (6) This distribution represents the probability that the align-ment passes through a specific time at character c. Critically, this model breaks down towards the edges of the transcription and audio as there are not enough characters on both sides for the central limit theorem to apply. We partially address this issue by setting the window size to the maximum of the pre-dicted size or 15 seconds. We have not researched other sizes for the edge windows. 
+
+B. OTHER VISUALIZATIONS 
+
+Figure 3 shows the recursive nature of the Hirschberg algo-rithm that allows it to prune half of the search space at each level of recursion Figure 4 depicts one of the corrections for transcription in-accuracy in predicted pruning bounds. The alignment source for this figure is available here. The alignments in the Buckeye dataset are visualized in Figure 6, where we depict the change in alignment after re-moving periods of labeled silence. We also visualize the sentence-level alignments in the full EuroSpeech dataset given the timestamps in the metadata for each setence. We use this data to reconstruct the alignment of the full audio, again capping periods of silence between sentences at 250 ms. We note that the metadata does not label silence or pauses within a sentence, causing them to remain 0 200 400 600 800 
+
+> Audio Position (seconds)
+> 02000 4000 6000 8000 10000
+> Text Position (characters) Pruning Correction for Transcription Error
+> Original Bounds Corrected Bounds
+
+Fig. 4 . In this specific alignment, which is for the Bulgar-ian interpretation of Russell Nelson’s discourse ”Think Ce-lestial!” from 2023, the interpreter did not read a list of cities at the end of the discourse, instead using the original English audio. The city names are in the transcription, but there is no Bulgarian audio corresponding to them. The list of city names occupies 3.7% of the transcription, and adjusting the pruning bound for 96.3% transcription precision produces the outer pruning bounds, which fully contain the alignment. 0.0 0.2 0.4 0.6 0.8 1.0 
+
+> Audio Position
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Text Position EuroSpeech Alignments by CER
+> 0.0 2.5 5.0 7.5 10.0 12.5 15.0 17.5 20.0
+> Character Error Rate (CER)
+
+Fig. 5 . The alignments in the EuroSpeech dataset after remov-ing audio between labeled sentences. We color the heatmap using the CER of the transcription. Hue depicts CER, while color intensity indicates logarithmic frequency in the dataset. We note that alignments further from their expected position tend to have higher CER. 0.0 0.2 0.4 0.6 0.8 1.0      
+
+> Audio Position
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Text Position Buckeye Dataset Alignments
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Audio Position
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Text Position Buckeye Dataset Alignments w/o Silence
+
+Fig. 6 . After removing labeled periods of silence from the Buckeye dataset, all transcription alignments were contained within their predicted pruning space. The lines on the right depict the pruning space for s2002a, one of the shorter recordings with a wider relative pruning space. Note that these depict the segmented interview labels available with dataset, not our reconstruction of the 40 interviews. Dataset Languages Files Total Duration (h) Minimum Length Maximum Length Buckeye 1 40 38 39:25 1:17:54 CGCLDS-GC 85 63961 12509 00:04 41:28 — Our Test Split 73 5766 1128 01:03 32:16 EuroSpeech 22 27683 77031 00:10 17:42:45 — Test Split 21 140 794 00:22 16:20:36 
+
+Table 2 . The size of each of the datasets used in our study. Note that this details our reconstructions of the unsegmented audio files for each dataset. We use the full Buckeye dataset in our tests, both only evaluate our pruning on the test sets for CGCLDS-GC and EuroSpeech. The CGCLDS-GC dataset contains the data through 2023, when we took a snapshot of the data at the time. There is one fewer language in the EuroSpeech test set, becuase EuroSpeech on HuggingFace is missing a test set for Italian. There are 12 fewer languages in our test set from the CGCLDS-GC dataset, because we limit our experiments to languages supported by MMS. in our reconstruction. We graph these aligments against the CER for each transcript in Figure 5. 
+
+C. DATASET STATISTICS 
+
+Here we present Table 2, which details the number of lan-guages and characteristics of the duration of audios for each of the datasets that we used in our experiments.

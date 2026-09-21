@@ -48,17 +48,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-20</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-21</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 8 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 15 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>1</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>7</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>6</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>9</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-20 21:54:44 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-21 22:30:21 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -69,9 +69,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共生成 8 篇推荐（精读 1 篇，速读 7 篇）</p>
-<p>精读：《Neyshekar: An Open Persian Read-Speech Corpus for Automatic Speech Recognition》（8.0/10）</p>
-<p>速读：《Pull: Lazy Materialization of Working Memory for Stateful LLM Conversations》（7.0/10）, 《A Framework for Generating Valid Context-Specific Benchmarks through Expert Guidance》（7.0/10）, 《Uncertainty-Aware Continual Learning for Open-World Intent Discovery Under an evolving Label Space》（7.0/10）</p>
+<p>今日共生成 15 篇推荐（精读 6 篇，速读 9 篇）</p>
+<p>精读：《NemotronLabs VoiceChat: An Open Full-duplex Speech-to-Speech Model with Tool Calling Capabilities》（10.0/10）, 《Voice-Light: A Full-Duplex Cascaded Voice Agent with Causal Turn-Taking and Speculative Generation》（9.0/10）</p>
+<p>速读：《Efficient Reasoning Distillation: Small Video-Language Models via Synthetic CoT and Difficulty-Aware Fine-Tuning》（7.0/10）, 《Scaling Forced Alignment to End-User Devices》（7.0/10）, 《Taming Long-form Text-to-Speech》（6.0/10）</p>
 <p>这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。</p>
   </div>
 </section>
@@ -81,12 +81,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">1 篇</strong>
+    <strong class="dpr-home-dashboard-count">6 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Neyshekar: An Open Persian Read-Speech Corpus for Automatic Speech Recognition">Neyshekar: An Open Persian Read-Speech Corpus for Automatic Speech Recognition</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="NemotronLabs VoiceChat: An Open Full-duplex Speech-to-Speech Model with Tool Calling Capabilities">NemotronLabs VoiceChat: An Open Full-duplex Speech-to-Speech Model with Tool Calling Capabilities</span></li><li><span class="dpr-home-dashboard-paper-title" title="Voice-Light: A Full-Duplex Cascaded Voice Agent with Causal Turn-Taking and Speculative Generation">Voice-Light: A Full-Duplex Cascaded Voice Agent with Causal Turn-Taking and Speculative Generation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Omni Demand Understanding: A Benchmark for Contextual User-Intent Inference in Multimodal Interaction">Omni Demand Understanding: A Benchmark for Contextual User-Intent Inference in Multimodal Interaction</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">data-agent <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">duplex-agent <strong>5</strong></span><span class="dpr-home-dashboard-tag">data-agent <strong>1</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -94,12 +94,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">7 篇</strong>
+    <strong class="dpr-home-dashboard-count">9 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Pull: Lazy Materialization of Working Memory for Stateful LLM Conversations">Pull: Lazy Materialization of Working Memory for Stateful LLM Conversations</span></li><li><span class="dpr-home-dashboard-paper-title" title="A Framework for Generating Valid Context-Specific Benchmarks through Expert Guidance">A Framework for Generating Valid Context-Specific Benchmarks through Expert Guidance</span></li><li><span class="dpr-home-dashboard-paper-title" title="Uncertainty-Aware Continual Learning for Open-World Intent Discovery Under an evolving Label Space">Uncertainty-Aware Continual Learning for Open-World Intent Discovery Under an evolving Label Space</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Efficient Reasoning Distillation: Small Video-Language Models via Synthetic CoT and Difficulty-Aware Fine-Tuning">Efficient Reasoning Distillation: Small Video-Language Models via Synthetic CoT and Difficulty-Aware Fine-Tuning</span></li><li><span class="dpr-home-dashboard-paper-title" title="Scaling Forced Alignment to End-User Devices">Scaling Forced Alignment to End-User Devices</span></li><li><span class="dpr-home-dashboard-paper-title" title="Taming Long-form Text-to-Speech">Taming Long-form Text-to-Speech</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">duplex-agent <strong>4</strong></span><span class="dpr-home-dashboard-tag">data-agent <strong>3</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">duplex-agent <strong>5</strong></span><span class="dpr-home-dashboard-tag">data-agent <strong>4</strong></span></div>
 </section>
 </div>
 

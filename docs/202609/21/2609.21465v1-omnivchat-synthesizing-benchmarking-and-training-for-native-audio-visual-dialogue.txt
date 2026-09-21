@@ -1,0 +1,4655 @@
+Under Review
+OMNIVCHAT: SYNTHESIZING, BENCHMARKING, AND
+TRAINING FOR NATIVE AUDIO-VISUAL DIALOGUE
+Haolin He1,2,∗, Yunfei Chu2,∗, Qi Chen2,3,4,∗, Wen Huang2,3, Yuan Feng2, Muzhi Zhu2,5,
+Zheqi Dai1, Haoning Xu1, Dongchao Yang1,2, Chunyat Wu1, Zining Liang1, Zhengxi Liu1,
+Xiquan Li3, Xie Chen3, Xize Cheng2, Qize Yang2, Jin Xu2,†, Qiuqiang Kong1,†
+1The Chinese University of Hong Kong
+2Alibaba Token Hub, Alibaba Group
+3Shanghai Jiao Tong University
+4Shanghai Innovation Institute
+5Zhejiang University
+ABSTRACT
+We deﬁne OmniVChat (Omni Video Chat) as the task of native audio-visual di-
+alogue between a user and an omni model. In OmniVChat, omni models directly
+and simultaneously receive audio and video from a user and return text. The user’s
+query is embedded in the audio and video, without a separate text question, exter-
+nal captioning, or speech recognition. Direct audio-visual input reduces external
+latency and computation while preserving perceptual cues. However, research on
+OmniVChat faces two constraints: data availability and evaluation. Recordings of
+people using their own devices are scarce. Furthermore, a good reply often needs
+to account for the user’s surroundings, facial expressions, and nearby objects,
+and such responses can be expressed in many different ways, making keyword
+matching unreliable for evaluating reply quality. Recent progress in agent systems
+and video generation makes generation for comprehension viable, which means
+using synthesized dialogues for training and evaluation. Therefore, we present
+OmniVChat-Studio, a multi-agent data engine for synthesizing single- and multi-
+turn audio-visual dialogues. We use synthesized dialogues to build OmniVChat-
+Bench, an evaluation benchmark that evaluates omni models’ basic dialogue abil-
+ities across ﬁve ability categories. We also present OmniVChat-RL, a reinforce-
+ment learning reward design that jointly targets reply correctness, efﬁciency, and
+style in OmniVChat. Training Qwen3-Omni-Instruct with OmniVChat-RL on
+synthesized dialogues improves its performance on both OmniVChat-Bench and
+the human-recorded OmniVChat-Bench-Human. These gains validate the re-
+ward design and show transfer to real-world dialogues in training and evaluation.
+Figure 1: A glance at OmniVChat-Bench: each card shows one user frame from a synthesized
+dialogue. The benchmark spans 5 ability categories, 17 subcategories, and 22 scenario domains.
+1
+INTRODUCTION
+We deﬁne OmniVChat (Omni Video Chat) as the task of native audio-visual dialogue between
+a user and an omni model (Jiang et al., 2025). In OmniVChat, omni models directly and simul-
+taneously receive audio and video from a user and return text. The user’s query is embedded in
+both inputs, without a separate text question or external captioning or automatic speech recognition
+(ASR) (Prabhavalkar et al., 2023). Direct audio-visual input reduces external latency and computa-
+tion while preserving acoustic and visual cues. However, research on OmniVChat faces two con-
+∗Equal contribution. †Corresponding authors. Work done as an intern at Qwen Team, Alibaba Token Hub.
+1
+arXiv:2609.21465v1  [eess.AS]  18 Sep 2026
+
+
+Under Review
+straints: data availability and evaluation. The ﬁrst challenge is limited data availability. Open-source
+recordings of people using their own devices are scarce. Noise, camera motion, and device posture
+create a long tail of input conditions. The second challenge is evaluating reply quality. Dialogues
+contain complex scenes and many rare cases, where a good reply should account for rich multi-
+modal context such as the user’s environment, facial expressions, emotion, nearby objects and so
+on. Because such information can be expressed in various ways, it is difﬁcult to reliably assess reply
+quality through keyword matching or other rule-based methods. Few datasets and benchmarks target
+this native dialogue (Pourreza et al., 2026; Lu et al., 2026). Models thus tend to rely on external
+components such as ASR cascades (Yao et al., 2026). While practical, these designs inevitably omit
+subtle prosody and vocal affect, and add latency, computation, and potential transcription errors.
+Progress in agent systems (Dorri et al., 2018; Yang et al., 2025) and video generation (Xing et al.,
+2024; Ma et al., 2025) makes generation for comprehension possible. This means using synthe-
+sized dialogues for training and evaluation. Our contributions are as follows. First, we present
+OmniVChat-Studio, a controllable and extensible multi-agent data engine for synthesizing native
+audio-visual dialogue data at scale for training and evaluation. It contains four agents that synthesize
+single- and multi-turn dialogues using a conﬁguration for each subcategory. Second, we introduce
+OmniVChat-Bench, an evaluation benchmark that evaluates omni models’ basic dialogue abilities
+across ﬁve ability categories. Each instance includes a rubric. A rubric contains several tiers, and
+each tier has one or more criteria. A large language model checks whether the reply meets each
+criterion. Tier 0 checks whether the reply uses the user’s language. It gives no points, and failing it
+makes the rubric score zero. In later tiers, a criterion earns one point only after every criterion in all
+earlier tiers is met. Example 1 below shows how these rules apply to one instance. Third, we present
+OmniVChat-RL, a reinforcement learning (RL) reward design that jointly targets reply correctness,
+efﬁciency, and style in OmniVChat (Kaelbling et al., 1996). A rubric reward for reply correctness is
+ﬁrst introduced using the same scoring method as in evaluation, followed by two additional reward
+terms for efﬁciency and style. OmniVChat-Bench-Train serves as the training corpus synthesized
+by OmniVChat-Studio for OmniVChat-RL, whereas OmniVChat-Bench-Human provides a man-
+ually recorded benchmark for testing transfer to real-world dialogues. Fine-tuning Qwen3-Omni-
+Instruct (Xu et al., 2025b) with OmniVChat-RL on OmniVChat-Bench-Train yields consistent per-
+formance gains across both OmniVChat-Bench and OmniVChat-Bench-Human, while simultane-
+ously making responses more concise. These gains validate the OmniVChat-RL and demonstrate
+successful transfer to real-world dialogues. Given that the two benchmarks overlap across single-
+turn subcategories, consistent gains in these shared areas suggest that the synthetic and recorded
+dialogue distributions are well aligned.
+The paper is organized as follows. Section 2 describes the OmniVChat-Studio framework and its
+single-turn and multi-turn subsystems. Section 3 presents OmniVChat-Bench for evaluating basic
+dialogue abilities. Section 4 presents OmniVChat-RL and the training results. Appendix B provides
+an overview of the related work.
+2
+OMNIVCHAT-STUDIO: SYNTHESIZING DIALOGUES FROM CORPUS
+We present OmniVChat-Studio, a multi-agent data engine that takes a text corpus as input and syn-
+thesizes native audio-visual dialogue data. The resulting data contain rendered audio-visual clips,
+the corresponding reference replies, and rubrics for scoring model replies. OmniVChat-Studio con-
+sists of two subsystems, as shown in Figure 2. The single-turn subsystem on the left synthesizes
+one-turn dialogue data. The multi-turn subsystem on the right synthesizes a sequence of dependent
+turns, where later turns use accepted earlier clips and dialogue as history.
+Both subsystems use the four agents shown in the lower-left legend of Figure 2. Each module has
+the same color as the agent responsible for it. The Director handles all text-based input and output
+tasks. The Renderer turns an accepted prompt and any media references into a synchronized audio-
+visual clip. The Reviewer examines the rendered audio and video, writes a caption and quality
+report, and answers focused questions when more evidence is needed. The deterministic Validator
+checks structured scripts or dialogue records against the conﬁgured rules and returns either a pass or
+a list of rule violations.
+When synthesizing data for a new subcategory, such as multi-speaker dialogue, only the Flexible
+modules need to be designed and customized with subcategory-speciﬁc prompts (shown as rounded
+2
+
+
+Under Review
+Example 1: Tiered Rubric for a Festive Mug Dialogue.
+Audio-Visual Input
+Audio: The user says, “I love how festive everything looks tonight. Hey, the mug on the
+coffee table — what pattern does it have on it?”
+Video: A white mug on the coffee table has a red reindeer silhouette.
+Reference Reply
+“That mug has a red reindeer silhouette pattern on it — very festive! It goes perfectly with
+the rest of your Christmas setup.”
+Tier 0
+Criterion 1: The reply is in English.
+Tier 1
+Criterion 1: The reply identiﬁes the pattern on the mug as a reindeer.
+Tier 2
+Criterion 1: The reply says that the pattern is red.
+Criterion 2: The reply says that the reindeer is a silhouette.
+Tier 3
+Criterion 1: The reply uses a natural and relaxed tone that ﬁts the festive setting.
+Scoring
+Tier 0 adds no points, but failing it gives a ﬁnal score of zero. If Tiers 0 and 1 are met, each
+met criterion in Tier 2 earns one point. A reply can earn one Tier 2 point even if it misses
+the other Tier 2 criterion. Tier 3 can add one point only after both Tier 2 criteria are met.
+boxes in Figure 2). In contrast, the Fixed modules (shown as boxes with square corners) remain
+completely unchanged across all categories. The overall framework and the role of each module in
+both subsystems also remain consistent across subcategories.
+Each module has the same circled identiﬁer beside its name in this section, Figure 2, and the corre-
+sponding rows of Examples 2 and 3. Circle 0 marks the sampling module shared by both subsystems.
+Circles 1–14 label the single-turn modules on the left of Figure 2, and circles a–n label the multi-turn
+modules on the right. Appendix C gives the design rationale, sampling scheme, and module-level
+checks and associated repair procedures.
+2.1
+SINGLE-TURN SUBSYSTEM
+The single-turn subsystem synthesizes one-turn dialogue data. Example 2 shows the corresponding
+outputs and decisions from one real run.
+d
+Description
+Plan & Review
+Script Generation
+Validation Review
+Script Review
+P
+S
+Re-write
+Video Plan
+Video Caption
+Validation
+Video Review
+Re-write
+Video Generation
+Plan
+Plan Review
+F
+Prompt Generation
+Per-turn
+Agent Loop
+Prompt Review
+Video Generation
+Video Review
+Reply Review
+Reply Generation
+Video Q-A
+Video Caption
+Video Q-A
+Validation
+Validation Review
+Go to Next Turn
+P
+Final-Reply Plan
+Final Turn Only
+Reviewer
+Validator
+Renderer
+Director
+P
+Description
+Agents
+Single-turn Subsystem
+Multi-turn Subsystem
+Attribute & Corpus Sampling
+F
+Reply Plan
+Reply Generation
+Reply Review
+P
+Fixed
+Flexible
+Notation
+Re-write
+Re-seed
+Update Plan
+P
+S
+Re-seed
+F
+P: Pass
+F: Fail
+S: Skip
+P
+F
+F
+F
+F
+F
+P
+F
+P
+P
+F
+F
+Final Turn Only
+F
+10
+11
+12
+13
+14
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+a
+b
+c
+d
+e
+f
+g
+h
+i
+j
+k
+l
+m
+n
+Figure 2: OmniVChat-Studio framework with single-turn (left) and multi-turn (right) subsystems.
+Each module uses the same color as the agent responsible for it.
+3
+
+
+Under Review
+Example 2: Summarized Module-by-Module Single-Turn Trace (Instance 085b292a).
+The subcategory is Single-turn Visual Mode Recognition (DSLP-VDMC-SVMR), which tests user-relative left and right
+under the current camera view.
+Attribute & Corpus
+Sampling 0
+Conﬁguration (base probabilities): Chinese/English, 40%/60%; one user, 100%; 22
+scenario domains, 1/22 each; 14 camera setups, 1/14 each; audio and visual interference
+(none/low/medium/high), 25% each. User-question types: side identiﬁcation (asking which
+side a target is on) and two-sided comparison (asking about differences between objects on
+the two sides), 1/2 each. Attribute sampling selects an English-speaking solo user, an
+ofﬁce, a walking selﬁe, medium audio noise, high visual interference, and a two-sided
+comparison. Corpus sampling supplies three passages, including one on health.
+Description 1
+The Director uses the health passage to outline a corridor dialogue with two meeting-room
+doors and a question about the user’s left door.
+Plan & Review 2
+The Director reﬁnes the corridor scene and reviews the left-right mapping, recommending
+clear door views and shorter speech.
+Script Generation 3
+The Director turns the plan into an 11.3-second script with timed sections for walking,
+speech, and a silent wait. The user asks, “There’s a meeting room on each side of me — is
+the one on my left open or closed?”
+Validation 4
+The script passes the conﬁgured checks, including format and timing.
+Validation Review 5
+Validation 4 reports no violation, so this module is skipped.
+Script Review 6
+The Director accepts the script as a test of user-relative left and right.
+Video Plan 7
+The Director selects shared rendering instructions for the camera, a continuous shot,
+realism, and the absence of subtitles.
+Video Generation 8
+The Renderer produces the 11.1-second audio-visual clip from the assembled prompt.
+Video Caption 9
+The Reviewer describes the user, corridor, and speech, and checks seven aspects of video
+quality. The report ﬁnds no clear defect.
+Video Review 11
+The caption leaves the door states unclear, so the Director requests focused Video Q-A 10.
+Video Q-A 10
+The Reviewer conﬁrms that the door on image right is closed and the door on image left is
+open. The Director then accepts the clip in Video Review 11.
+Reply Plan 12
+The Director plans a brief English reply using the door states conﬁrmed by Video Q-A 10.
+Reply Generation 13
+“The one on your left is closed. The door on your right is open.” The Director also creates
+a tiered rubric covering language, the left door’s state, brevity, and the right door’s state.
+Reply Review 14
+The Director checks the reply and rubric against the video evidence and accepts them. The
+clip, reply, and rubric form the completed instance.
+Attribute & Corpus Sampling 0 samples attribute values and corpus passages for the current in-
+stance based on the subcategory conﬁguration and text corpus. The conﬁguration deﬁnes the desired
+probability distribution for each attribute. The corpus contains a large collection of passages, and
+the module samples three by default. In Example 2, circle 0 selects English, an ofﬁce, and a walking
+selﬁe, along with three passages including one on health. Appendix C.2.1 gives the sampling for-
+mula, its full notation, and details on coverage and cost. Description 1 develops a rough storyline
+based on the sampled corpus passages and preset attributes. In Example 2, circle 1 uses the health
+passage to outline a corridor dialogue about the user’s left door.
+Plan & Review 2 reﬁnes the key storyline and audio-visual scene details based on the scene de-
+scription and sampled attributes. In Example 2, circle 2 plans how to show both doors clearly and
+checks the left–right mapping. Script Generation 3 writes a structured script based on the reviewed
+plan. The script contains scene ﬁelds and a timed sequence of speech, sounds, music, and on-screen
+text. In Example 2, circle 3 turns the corridor plan into a timed script.
+Validation 4 checks for rule violations based on the synthesized script and subcategory conﬁgu-
+ration. It checks requirements such as script format and timing, then reports a pass or a list of
+violations. Validation Review 5 decides whether script corrections are needed based on the re-
+ported violations and the script context. This conditional module either dismisses false reports or
+requests script corrections. In Example 2, circle 4 reports no violations, so circle 5 is skipped. Script
+Review 6 evaluates the planned dialogue based on the script after the preceding checks. It checks
+4
+
+
+Under Review
+whether the script meets the subcategory requirements, then accepts it, requests a rewrite, or discards
+the run. In Example 2, circle 6 accepts the script as a test of user-relative left and right.
+Video Plan 7 prepares the rendering prompt based on the accepted script. The Director combines
+the planned scene and events with compatible instructions for the camera, realism, and other shared
+requirements. In Example 2, circle 7 selects instructions for a continuous shot, realism, and no subti-
+tles. Video Generation 8 renders a synchronized audio-visual clip based on the accepted rendering
+prompt. In Example 2, circle 8 renders the ofﬁce clip.
+Video Caption 9 writes a caption and a seven-part quality report based on the synthesized audio-
+visual clip. The report covers cuts, realism, delivery speed, body structure, appearance, artifacts,
+and on-screen text. Video Review 11 compares the rendered content with the accepted script based
+on the caption, quality report, and any Q-A evidence. It accepts the clip, requests a re-seed, rewrite,
+or focused Q-A check, or discards the run. Video Q-A 10 answers focused questions from Video
+Review 11 based on the rendered audio and video. This conditional module runs when requested. The
+caption and Q-A evidence may reveal that some scripted background details are absent or different
+in the clip. Video Review 11 can still accept the clip if these differences do not affect the main
+storyline or intended dialogue. In Example 2, circle 9 ﬁnds no clear defect, but circle 11 requests a
+closer check of the doors. Circle 10 conﬁrms their states before circle 11 accepts the clip.
+Reply Plan 12 plans a grounded reply based on the accepted audio-visual evidence. It leaves out
+scripted details that are not supported by the caption or Q-A evidence. Reply Generation 13 writes a
+reference reply and tiered rubric in the user’s language based on the reply plan and accepted audio-
+visual evidence. Reply Review 14 checks the synthesized reply and rubric based on the accepted
+audio-visual evidence and subcategory requirements. It accepts them or requests one reﬁnement
+after checking language, grounding, tier order, and spoken style. Separate budgets limit each repair
+route, and the subsystem discards any run without a valid script, clip, reply, or rubric. In Example 2,
+circle 12 plans a short answer from the conﬁrmed door states, circle 13 writes the reference reply
+and rubric, and circle 14 accepts both. The completed instance contains the reference reply, rubric,
+and a 1080P clip with 44.1 kHz stereo audio.
+2.2
+MULTI-TURN SUBSYSTEM
+The multi-turn subsystem handles dependencies across turns. This subsection focuses on its main
+differences from the single-turn subsystem. The right side of Figure 2 shows these changes, and
+Example 3 in Appendix C.2.2 matches the modules circle by circle in one real run.
+Unlike the single-turn Plan & Review 2 , the multi-turn subsystem separates Plan b from Plan
+Review c . Plan b expands the storyline into a joint plan that speciﬁes every turn and selects the
+earlier clips, audio, or ﬁnal frames used by later turns within a reference budget. Plan Review c
+checks all turns and media links in a separate Director call, then accepts the plan, requests revision,
+or discards the run. In Example 3, circles b and c plan the return to the same room, then correct the
+language, media link, and ﬁnal silent wait.
+The multi-turn subsystem also replaces the single-turn Script Generation 3 and Video Plan 7 with
+per-turn Prompt Generation d . This module writes a rendering prompt for each turn based on
+the reviewed joint plan and shared rendering instructions. It uses the available media identiﬁers as
+placeholders for earlier clips, audio, or ﬁnal frames. Prompt Review e checks the prompt and its
+media links before rendering, then accepts it, requests a local rewrite, or requests a plan update. In
+Example 3, circle d links the Turn 2 prompt to the Turn 1 clip, while circle e repairs the denser Turn
+1 prompt and accepts the Turn 2 prompt.
+3
+OMNIVCHAT-BENCH: EVALUATING BASIC DIALOGUE ABILITIES
+We introduce OmniVChat-Bench, an evaluation benchmark that evaluates omni models’ basic dia-
+logue abilities across ﬁve ability categories. Its 2,550 single-turn and 250 multi-turn instances cover
+17 subcategories and 22 scenario domains, such as Parenting, Travel and Sightseeing, and Medicine
+and Health. Since few public recordings cover these dialogues, OmniVChat-Studio synthesizes all
+5
+
+
+Under Review
+VCC
+VTT
+VDMC
+DSLP
+RC
+SDI
+MEA
+IC
+MSA
+AH
+ICC
+200
+UPC
+200
+UCR
+200
+SVMR
+200
+AR
+300
+DR
+300
+SPSD
+200
+STIC
+200
+PLA
+200
+AOR
+200
+FGC
+200
+MDCC
+50
+MVMS
+50
+MRR
+50
+MIST
+50
+MTIC
+50
+ER
+150
+2,800
+Instances
+2
+3
+4
+5
+6
+7
+8
+9
+10
+0
+25
+50
+75
+100
+125
+Instances
+Turns Per Dialogue (Multi-Turn)
+75
+104
+15
+6
+12
+13
+9
+7
+9
+MDCC
+MVMS
+MRR
+MIST
+MTIC
+10
+30
+50
+70
+90
+110
+130
+0
+25
+50
+75
+100
+125
+Instances
+Dialogue Length In Seconds (Multi-Turn)
+105
+90
+20
+21
+10
+4
+MDCC
+MVMS
+MRR
+MIST
+MTIC
+Figure 3: Overview of OmniVChat-Bench, with 2,800 synthesized instances. Left: The ﬁve
+ability categories and their 17 subcategories. Bar length shows the instance count from the base
+ring. Angular span shows the number of subcategories in each band. Right: Turn and duration
+distributions for 250 multi-turn instances, stacked by subcategory.
+2,800 instances with reference replies and tiered rubrics. They include 1,766 English dialogues
+(63.1%) and 1,034 Chinese dialogues (36.9%). A scenario domain describes what a dialogue is
+about, while a subcategory speciﬁes the basic dialogue ability under evaluation. Audio checks iden-
+tify clicks and abrupt endings for repair. Human inspectors follow the inspection procedure in
+Appendix D.1.1 to check that each clip shows the intended dialogue. Figure 3 shows the instance
+distribution across ability categories and subcategories. Appendix D.5 deﬁnes the subcategories,
+and Appendix F.1 gives synthetic examples with reference replies and rubrics.
+As in Example 1, each instance includes a reference reply and a tiered rubric. For evaluation,
+qwen3.7-max (Qwen Team, 2026a) judges whether each criterion is met. Appendix D.3 compares
+grader agreement and score variation. A gate controls whether a later tier can earn credit. Tier 0
+checks whether the reply uses the user’s language; it earns no points, and failure makes the rubric
+score zero. A met criterion outside Tier 0 earns one point only when all criteria in earlier tiers are
+met. An incomplete tier retains its earned points but blocks later tiers. The rubric score is the number
+of credited points divided by the total number of criteria outside Tier 0. For each instance, let Kt
+be the set of criteria in tier t = 0, . . . , T, where T is the ﬁnal tier. Let H(y) be the criteria that the
+grader ﬁnds met by reply y. The single-instance scoring function is:
+r(y) =
+T
+X
+t=1
+|Kt ∩H(y)|
+t−1
+Y
+s=0
+1[Ks ⊆H(y)]
+T
+X
+t=1
+|Kt|
+.
+(1)
+Here, |B| counts the elements of a set B, and 1[·] is 1 when its condition is true and 0 otherwise.
+The intersection counts met criteria, while the product permits credit only when all earlier tiers are
+complete. The denominator counts every criterion outside Tier 0, including those blocked by an
+incomplete earlier rubric tier, so r(y) ∈[0, 1].
+For multi-turn evaluation, all models receive the same earlier clips and reference replies; only the
+ﬁnal reply is scored. For an evaluation set E, let yi be the reply scored for instance i and Ec contain
+the instances in subcategory c. Pooled Mean gives each instance equal weight, while Subcate-
+gory Mean ﬁrst averages within each subcategory and then gives all C subcategories equal weight.
+OmniVChat-Bench reports Subcategory Mean as its overall Mean score, with C = 17:
+PooledMean(E) = 1
+|E|
+X
+i∈E
+r(yi),
+SubcategoryMean(E) = 1
+C
+C
+X
+c=1
+PooledMean(Ec).
+(2)
+6
+
+
+Under Review
+Section 4.3 and Table 1 report transfer and model comparisons.
+Dialogue-State & Link Perception (DSLP) evaluates whether a model understands the current state
+of a dialogue. It covers connection status, turn boundaries, and camera orientation. For example, the
+model should wait when a user pauses before ﬁnishing a request and interpret left and right from the
+current camera view. Multimodal Entity Alignment (MEA) evaluates whether a model connects
+speech with the correct visible objects and speakers. For example, the model should identify the cup
+indicated by a gesture and address the active user when several people are speaking. Model Self-
+Awareness (MSA) evaluates whether a model states its identity and physical limitations correctly.
+For example, it should not claim that it can move an object, but it can explain what the user can
+do instead. Anti-Hallucination (AH) evaluates whether replies remain grounded in the available
+audio and visual evidence. For example, the model should say when a requested object is absent or
+correct a false description of a visible object’s color. Emotion Recognition (ER) evaluates whether
+a reply uses facial and vocal emotion cues. For example, a worried expression and tone should lead
+to a reply that addresses both the user’s emotion and request. Appendix D.4 compares model scores
+on matched single-turn and multi-turn subcategories. The recorded probe contains only single-
+turn dialogues and does not test live interruption; Appendix D.2 describes the procedures for both
+recording and annotating these dialogues.
+4
+OMNIVCHAT-RL: REWARDS FOR BETTER DIALOGUE
+We present OmniVChat-RL, an RL reward design that jointly targets reply correctness, efﬁciency,
+and style in OmniVChat. These three reply-quality signals also deﬁne the evaluation metrics. An
+auxiliary format term is used only during training to require a valid reply. Training and evaluation
+use separate dialogues from the same subcategory conﬁgurations. OmniVChat-Bench measures
+training gains, while recorded dialogues test transfer. Matched gains can indirectly suggest aligned
+distributions across the shared single-turn subcategories (§4.3).
+4.1
+TRAINING SETUP
+To support training and test generalization to real-world dialogues, we introduce two datasets.
+OmniVChat-Bench-Train contains 5,600 training dialogues and a separate 560-dialogue devel-
+opment split. Each dialogue and its rubric are synthesized by OmniVChat-Studio. Development
+scores select the checkpoint. OmniVChat-Bench-Human contains 360 human-recorded single-
+turn dialogues for testing transfer to real-world dialogues (recording and annotation procedures in
+Appendix D.2). It is used only for evaluation. The base model is the Thinker of Qwen3-Omni-30B-
+A3B-Instruct. It has video and audio encoders and a text decoder.
+Training uses group sequence policy optimization (GSPO) (Zheng et al., 2025) with the Thinker as
+the response policy. For each training input x, the sampling policy πθold draws N replies G(x) =
+{y1, . . . , yN}. Following the group baseline in group relative policy optimization (GRPO) (Shao
+et al., 2024), the advantage Ai = R(yi)−µG subtracts the group’s mean reward µG from each reply’s
+total reward R(yi), without standard-deviation normalization. The current policy πθ maximizes:
+J (θ) = E
+h 1
+N
+N
+X
+i=1
+min
+ qi(θ) Ai, clip
+ qi(θ), 1 −εlo, 1 + εhi
+
+Ai
+i
+.
+(3)
+The expectation averages over training inputs and sampled replies. The full-reply probability ratio
+qi(θ) = [πθ(yi | x)/πθold(yi | x)]1/|yi| is normalized by the reply’s token count |yi| to reduce length
+dependence. Clipping bounds the ratio to [1 −εlo, 1 + εhi], and the minimum limits the incentive
+for large policy changes. Training uses low-rank adaptation (LoRA) (Hu et al., 2021) with rank-64
+adapters for 1,000 iterations. Each iteration uses 32 inputs with four sampled replies per input, and
+every twentieth iteration saves a checkpoint. Appendix E.1 gives the full training settings.
+4.2
+REWARDS AND EVALUATION METRICS
+Three quality signals connect training with evaluation: rubric correctness, reply efﬁciency, and style.
+OmniVChat-RL uses their reward forms during training, while evaluation reports the corresponding
+7
+
+
+Under Review
+metrics. The total training reward for reply y is:
+R(y) = r(y) + λfmt f(y) + λeff e(y) + λsty s(y)
+(4)
+The functions r(y), f(y), e(y), and s(y) score correctness, format, efﬁciency, and style. The cor-
+rectness reward directly uses the single-instance score r(y) in Equation 1. Each training dialogue
+supplies a rubric with criteria for an open-ended reply (Gunjal et al., 2026). The training-only format
+term f(y) equals one for a nonempty reply with no thinking tags and zero otherwise.
+The reply efﬁciency reward and metric measure rubric credit relative to reply length. For training, the
+raw per-reply efﬁciency score ρ(y) divides rubric credit by counted reply length. Among replies with
+the same positive rubric score and positive counted length, fewer words give higher raw efﬁciency:
+ρ(y) =
+r(y)
+max{w(y), 1},
+(5)
+The function w(y) counts the length of reply y, not the model’s tokens. Each Chinese charac-
+ter counts as one unit, as does each continuous group of English letters or digits. Apostrophes
+and hyphens within a group do not split it, and other punctuation adds no units. The denominator
+max{w(y), 1} prevents division by zero. A reply with zero rubric credit has zero raw efﬁciency
+regardless of its length. The efﬁciency reward e(yi) compares the N replies sampled for the same
+input x. The minimum and maximum below range over those replies in G(x):
+e(yi) =
+
+
+
+ρ(yi) −minj ρ(yj)
+maxj ρ(yj) −minj ρ(yj),
+maxj ρ(yj) > minj ρ(yj),
+1
+2,
+otherwise,
+j ∈{1, . . . , N}.
+(6)
+When the efﬁciencies differ, the lowest value receives reward 0 and the highest receives reward 1.
+The other values are placed proportionally between 0 and 1. When all values are equal, every reply
+receives 1
+2. This shared contribution cancels when the group-mean reward is subtracted to compute
+the advantage Ai (§4.1). The comparison stays within one input, so no ﬁxed reply-length target is
+required. Evaluation reports Reply Efﬁciency on a set E as RE(E) = 1000 P
+y∈E r(y)/ P
+y∈E w(y).
+This metric is the rubric credit earned per thousand counted words.
+The training system prompt speciﬁes natural speech, concise wording, and a clear distinction be-
+tween roleplay and real facts. These rules and a grammar requirement form seven criteria in the
+style-grading prompt. The style reward s(y) is one if qwen3.7-max conﬁrms all seven criteria
+and zero otherwise. Evaluation uses the same grader and criteria, reporting Style as the mean of
+s(y) over successfully scored replies. Appendix E.4 gives the policy and style-grading prompts;
+Appendix E.1 gives grader settings. The format, efﬁciency, and style weights are λfmt = 0.5,
+λeff = 0.1, and λsty = 0.5. Correctness has weight one. Each component lies in [0, 1], so the total
+reward R(y) lies in the interval [0, 2.1].
+4.3
+RESULTS AND DISCUSSION
+The checkpoint is selected using Subcategory Mean computed on the 560-dialogue development
+split. OmniVChat-Bench measures gains on 2,800 separate synthetic instances with no training-
+video overlap. OmniVChat-Bench-Human tests transfer on recorded single-turn dialogues. Ap-
+pendix D.2 describes the recording and annotation procedures, and Appendix F.2 gives recorded
+dialogue examples with corresponding reference replies and rubrics.
+Figure 4 shows training progress and held-out performance over 1,000 iterations. The top-left panel
+averages each unweighted reward term over sampled replies. The rubric reward rises from 0.308 to
+0.629, and style rises from 0.750 to 0.992. Format stays at 1.000 and gives no within-group learning
+signal, while the normalized efﬁciency term changes little. The top-middle panel shows raw reply
+efﬁciency: total rubric credit per thousand counted words rises from 3.37 to 17.18. The top-right
+panel shows mean reply length. Mean length falls from 91.5 to 36.6 words, with a brief peak near
+127 words per reply at step 50.
+The bottom row shows held-out rubric scores, using Subcategory Mean from Equation 2 for each
+dataset’s overall score. In the bottom-left panel, the dashed line marks step 940, which has the
+best development Subcategory Mean, up from 0.507 to 0.707. The bottom-middle panel shows
+8
+
+
+Under Review
+0.25
+0.50
+0.75
+1.00
+Term Value
+Reward Terms (Unweighted)
+Rubric
+Format
+Reply Efficiency
+Style
+5
+10
+15
+20
+25
+30
+Rubric Per 1k Words
+Raw Reply Efficiency
+25
+50
+75
+100
+125
+Words
+Reply Length
+During Training
+0
+250
+500
+750
+1000
+Step
+0.40
+0.45
+0.50
+0.55
+0.60
+0.65
+0.70
+Hit Rate
+Development Set
+Single-Turn
+Multi-Turn
+Subcategory Mean
+Reported, Step 940
+0
+250
+500
+750
+1000
+Step
+0.40
+0.45
+0.50
+0.55
+0.60
+0.65
+0.70
+Hit Rate
+OmniVChat-Bench
+Single-Turn
+Multi-Turn
+Subcategory Mean
+Reported, Step 940
+0
+250
+500
+750
+1000
+Step
+0.40
+0.45
+0.50
+0.55
+0.60
+0.65
+0.70
+Hit Rate
+OmniVChat-Bench-Human
+Bench (Chinese)
+Bench-Human
+Reported, Step 940
+At Inference
+Figure 4: OmniVChat-RL over 1,000 iterations. Top: unweighted reward terms from Equation 4,
+absolute reply efﬁciency, and mean reply length. Bottom: the gated rubric from Equation 1 at every
+twentieth step on the development set, OmniVChat-Bench, and OmniVChat-Bench-Human. The
+right panel uses Chinese-gated OmniVChat-Bench as a language-matched control. The dashed line
+marks the selected step 940. Scores across the three corpora are not directly comparable.
+OmniVChat-Bench, whose Subcategory Mean rises from 0.465 to 0.652 at this checkpoint. Both
+panels also show single-turn and multi-turn means. The bottom-right panel compares OmniVChat-
+Bench-Human with the 1,034 Chinese OmniVChat-Bench instances, since all recorded dialogues
+are Chinese. The recorded score rises from 0.402 to 0.632, while the Chinese synthetic score rises
+from 0.437 to 0.634. Appendix E.2 shows the per-subcategory learning curves. These gains support
+the training design and the use of synthetic data for training and evaluation in real-world dialogues.
+Their agreement indirectly suggests aligned distributions across shared subcategories. Appendix E.5
+analyzes correlations and measurement variation for all three pairs.
+Table 1 compares twelve released systems, OmniVChat-RL, and two reward ablations under one
+system prompt. The ability-category columns AH–DSLP average rubric scores over the dialogues
+in each ability category. Single and Multi average scores over single-turn and multi-turn dialogues,
+respectively. Mean reports Subcategory Mean from Equation 2, and Human averages scores over
+the recorded dialogues. All columns except Human use OmniVChat-Bench. RE and Style follow
+Section 4.2. For evaluation Style, empty replies receive zero, while failed model or grading requests
+are excluded. Evaluation mean reply length excludes zero-length replies.
+The closed-source block contains Gemini-3.5-Flash, Gemini-3.6-Flash, and Gemini-3.7-Flash
+(Google DeepMind, 2026b;c;a). It also contains Gemini-3.1-Pro (Google, 2026a), Qwen3.5-Omni-
+Plus (Qwen Team, 2026b), and Doubao Seed 2.0 Lite (ByteDance Seed, 2026b). The open-source
+block contains Qwen3-Omni-Instruct and Qwen3-Omni-Thinking (Xu et al., 2025b), Qwen2.5-
+Omni-7B and Qwen2.5-Omni-3B (Xu et al., 2025a), JoyAI-VL-Interaction (Yao et al., 2026), and
+MiniCPM-o-4.5 (Cui et al., 2026). All systems receive the required audio and video inputs. JoyAI-
+VL-Interaction is evaluated with Qwen3-ASR (Shi et al., 2026a) for an ASR-cascade comparison.
+OmniVChat-RL improves rubric scores over the base model while raising RE from 5.75 to 18.38
+and Style from 0.710 to 0.992. Among released systems, Gemini-3.5-Flash leads Mean at 0.667.
+Gemini-3.7-Flash leads Human at 0.575 and RE at 16.96, while Gemini-3.1-Pro leads Style at 0.871.
+The different leaders show that synthetic rank does not determine recorded rank. The ablations show
+the trade-off among correctness, brevity, and style. Removing efﬁciency raises Mean to 0.697 and
+Human to 0.691. However, replies grow from 36 to 99 words, and RE falls from 18.38 to 7.12.
+Removing style raises Mean to 0.661, keeps Human at 0.632, and lowers Style from 0.992 to 0.788.
+9
+
+
+Under Review
+Closed-Source Models
+AH
+ER
+MSA
+MEA
+DSLP
+Single
+Multi
+Mean
+Human
+RE
+Style
+Gemini-3.5-Flash
+0.600
+::::
+0.778
+0.649
+::::
+0.728
+0.623
+::::
+0.664
+0.682
+0.667
+0.509
+10.59
+0.755
+Gemini-3.6-Flash
+0.570
+0.658
+0.671
+0.716
+::::
+0.620
+0.658
+0.610
+0.641
+0.562
+::::
+15.74
+0.740
+Gemini-3.7-Flash
+0.604
+0.623
+0.663
+0.708
+::::
+0.620
+0.658
+0.607
+0.640
+::::
+0.575
+16.96
+0.631
+Gemini-3.1-Pro
+0.637
+0.787
+0.341
+0.666
+0.629
+0.602
+0.623
+0.607
+0.537
+11.66
+::::
+0.871
+Qwen3.5-Omni-Plus
+0.361
+0.662
+0.413
+0.630
+0.513
+0.514
+0.590
+0.533
+0.482
+9.45
+0.869
+Doubao Seed 2.0 Lite
+0.330
+0.550
+0.189
+0.602
+0.481
+0.434
+::::
+0.671
+0.494
+0.274
+6.10
+0.817
+Open-Source Models
+Qwen3-Omni-Instruct
+0.186
+0.694
+0.388
+0.573
+0.451
+0.450
+0.508
+0.465
+0.402
+5.75
+0.710
+JoyAI-VL-Interaction
+0.194
+0.611
+0.312
+0.499
+0.448
+0.406
+0.503
+0.431
+0.419
+8.43
+0.751
+Qwen3-Omni-Thinking
+0.300
+0.517
+0.234
+0.505
+0.346
+0.370
+0.498
+0.405
+0.105
+6.32
+0.754
+Qwen2.5-Omni-7B
+0.103
+0.567
+0.070
+0.433
+0.373
+0.309
+0.380
+0.328
+0.255
+6.64
+0.611
+MiniCPM-o-4.5
+0.200
+0.366
+0.037
+0.446
+0.350
+0.310
+0.310
+0.304
+0.298
+6.50
+0.641
+Qwen2.5-Omni-3B
+0.056
+0.452
+0.070
+0.363
+0.343
+0.266
+0.313
+0.279
+0.218
+6.35
+0.479
+Our Models
+OmniVChat-RL (ours)
+::::
+0.667
+0.651
+::::
+0.734
+0.713
+0.573
+::::
+0.664
+0.638
+0.652
+0.632
+18.38
+0.992
+No Efﬁciency Term
+0.733
+0.813
+0.810
+0.746
+0.586
+0.710
+0.677
+0.697
+0.691
+7.12
+0.987
+No Style Term
+0.672
+0.719
+0.758
+0.730
+0.560
+0.674
+0.645
+::::
+0.661
+0.632
+13.70
+0.788
+Table 1: Model comparison under one system prompt. Bold, straight, and ::::
+wavy mark the top
+three ranks, excluding ablations. AH–DSLP give ability-category means, while Single and Multi
+give single-turn and multi-turn means.
+Mean equally weights 17 subcategories.
+Human uses
+OmniVChat-Bench-Human; other columns use OmniVChat-Bench. RE measures credit per thou-
+sand words; Style measures the all-seven pass rate.
+Thus, OmniVChat-RL leads RE and Style while keeping strong rubric scores. Appendix E.3 reports
+the full curves and selected checkpoints for both ablations.
+Appendix D.4 compares single-turn subcategories with their multi-turn extensions for Gemini-3.7-
+Flash and OmniVChat-RL. Gemini-3.7-Flash scores lower on all ﬁve extensions. Its mean multi-
+minus-single gap is −0.114, compared with −0.026 for OmniVChat-RL. The latter gains on con-
+nection checks and speaker transitions but has lower scores on the other three extensions. These are
+independently sampled dialogues, so the gaps do not isolate the effect of more turns.
+5
+CONCLUSION
+We deﬁne OmniVChat as the task of native audio-visual dialogue between a user and an omni
+model. We present OmniVChat-Studio, a multi-agent data engine that synthesizes single- and
+multi-turn audio-visual dialogues from a subcategory conﬁguration and a text corpus. It supports
+single-turn probes and dependent turns, with reference replies and tiered rubrics. We introduce
+OmniVChat-Bench, an evaluation benchmark that evaluates omni models’ basic dialogue abilities
+across ﬁve ability categories. Its 17 subcategories use these rubrics. We also present OmniVChat-
+RL, an RL reward design that jointly targets reply correctness, efﬁciency, and style in OmniVChat.
+Training on 5,600 synthetic dialogues raises OmniVChat-Bench from 0.465 to 0.652. The recorded
+OmniVChat-Bench-Human rises from 0.402 to 0.632 without training on its recordings. Mean reply
+length falls from 79 to 36 words. RE rises from 5.75 to 18.38, and Style rises from 0.710 to 0.992.
+These results support the training design and the use of synthetic data for training and evaluation
+in real-world dialogues. The components connect controlled synthesis, semantic evaluation, and
+training within one task. Agreement across synthetic and recorded dialogues indirectly suggests
+aligned dialogue distributions for the shared single-turn subcategories.
+6
+ETHICS STATEMENT
+All participants who appear in OmniVChat-Bench-Human sign an informed-consent agreement au-
+thorizing the use of their recorded audio and video for research purposes.
+10
+
+
+Under Review
+7
+REPRODUCIBILITY STATEMENT
+The main paper describes the methods and evaluation protocols. Appendix C gives the sampling and
+repair procedures, Appendix D gives benchmark construction and judge-agreement analyses, and
+Appendix E gives training settings, grading prompts, and supplementary results. Artifact availability
+is stated in the Code and Data Release section.
+8
+AI USE STATEMENT
+A large language model is used to aid and polish the writing of this manuscript. All scientiﬁc claims,
+experimental designs, and results are the responsibility of the authors.
+9
+CODE AND DATA RELEASE
+OmniVChat-Bench and OmniVChat-RL training code will be publicly released for research.
+10
+ACKNOWLEDGEMENTS
+This work was supported by Alibaba Research Intern Program. We would like to thank the Qwen
+Team at Alibaba Token Hub (ATH), Alibaba Group, for providing the computational resources and
+foundation models (Qwen) used in this research.
+REFERENCES
+S. Jiang, J. Liang, J. Wang, et al. From Speciﬁc-MLLMs to Omni-MLLMs: A survey on MLLMs
+aligned with multi-modalities. In Findings of the Association for Computational Linguistics: ACL
+2025, pp. 8617–8652, 2025.
+R. Prabhavalkar, T. Hori, T. N. Sainath, et al. End-to-end speech recognition: A survey. IEEE/ACM
+Transactions on Audio, Speech, and Language Processing, 32:325–351, 2023.
+R. Pourreza, R. Dagli, A. Bhattacharyya, et al. Can vision-language models answer face to face ques-
+tions in the real-world? In International Conference on Learning Representations, pp. 70944–
+70973, 2026.
+X. Lu, X. Li, A. Wang, et al. OmniInteract: Benchmarking real-world streaming interaction for
+real-time omnimodal assistants. arXiv preprint arXiv:2605.26485, 2026.
+D. Yao, J. Zhou, C. Yang, et al. JoyAI-VL-Interaction: Real-time vision-language interaction intel-
+ligence. arXiv preprint arXiv:2606.14777, 2026.
+A. Dorri, S. S. Kanhere, and R. Jurdak. Multi-agent systems: A survey. IEEE Access, 6:28573–
+28593, 2018.
+Y. Yang, H. Chai, Y. Song, et al. A survey of AI agent protocols. arXiv preprint arXiv:2504.16736,
+2025.
+Z. Xing, Q. Feng, H. Chen, et al. A survey on video diffusion models. ACM Computing Surveys, 57
+(2):1–42, 2024.
+Y. Ma, K. Feng, Z. Hu, et al.
+Controllable video generation:
+A survey.
+arXiv preprint
+arXiv:2507.16869, 2025.
+L. P. Kaelbling, M. L. Littman, and A. W. Moore. Reinforcement learning: A survey. Journal of
+Artiﬁcial Intelligence Research, 4:237–285, 1996.
+J. Xu, Z. Guo, H. Hu, et al. Qwen3-Omni technical report. arXiv preprint arXiv:2509.17765, 2025b.
+Qwen Team. Qwen3.7: The agent frontier. Qwen Blog, 2026a. URL https://qwen.ai/
+blog?id=qwen3.7.
+11
+
+
+Under Review
+C. Zheng, S. Liu, M. Li, et al.
+Group sequence policy optimization.
+arXiv preprint
+arXiv:2507.18071, 2025.
+Z. Shao, P. Wang, Q. Zhu, et al. DeepSeekMath: Pushing the limits of mathematical reasoning in
+open language models. arXiv preprint arXiv:2402.03300, 2024.
+E. J. Hu, Y. Shen, P. Wallis, et al. LoRA: Low-rank adaptation of large language models. arXiv
+preprint arXiv:2106.09685, 2021.
+A. Gunjal, A. Wang, E. Lau, et al. Rubrics as rewards: Reinforcement learning beyond veriﬁable
+domains. In International Conference on Learning Representations, pp. 127924–127945, 2026.
+Google DeepMind. Gemini 3.5 Flash - model card. Google DeepMind, 2026b. URL https:
+//deepmind.google/models/model-cards/gemini-3-5-flash/.
+Google DeepMind. Gemini 3.6 Flash - model card. Google DeepMind, 2026c. URL https:
+//deepmind.google/models/model-cards/gemini-3-6-flash/.
+Google DeepMind. Gemini 3.7 Flash - model card. Google DeepMind, 2026a. URL https:
+//deepmind.google/models/model-cards/gemini-3-7-flash/.
+Google. Gemini 3.1 Pro: A smarter model for your most complex tasks. Google Blog, 2026a.
+URL
+https://blog.google/innovation-and-ai/models-and-research/
+gemini-models/gemini-3-1-pro/.
+Qwen Team. Qwen3.5-Omni technical report. arXiv preprint arXiv:2604.15804, 2026b.
+ByteDance Seed. Seed2.0 model card: Towards intelligence frontier for real-world complexity.
+arXiv preprint arXiv:2607.00248, 2026b.
+J. Xu, Z. Guo, J. He, et al. Qwen2.5-Omni technical report. arXiv preprint arXiv:2503.20215,
+2025a.
+J. Cui, B. Xu, C. Wang, et al. MiniCPM-o 4.5: Towards real-time full-duplex omni-modal interac-
+tion. arXiv preprint arXiv:2604.27393, 2026.
+X. Shi, X. Wang, Z. Guo, et al. Qwen3-ASR technical report. arXiv preprint arXiv:2601.21337,
+2026a.
+OpenAI.
+Hello GPT-4o.
+OpenAI Blog, 2024.
+URL https://openai.com/index/
+hello-gpt-4o/.
+Google.
+Gemini Live API overview.
+Google AI for Developers documentation, 2026c.
+URL
+https://ai.google.dev/gemini-api/docs/live-api.
+C. Fu, H. Lin, X. Wang, et al. VITA-1.5: Towards GPT-4o level real-time vision and speech inter-
+action. Advances in neural information processing systems, 38:75300–75320, 2026.
+Y. Li, J. Liu, T. Zhang, et al. Baichuan-Omni-1.5 technical report. arXiv preprint arXiv:2501.15368,
+2025.
+Z. Liu, Y. Dong, J. Wang, et al. Ola: Pushing the frontiers of omni-modal language model. arXiv
+preprint arXiv:2502.04328, 2025b.
+H. Ye, C.-H. H. Yang, A. Goel, et al.
+OmniVinci: Enhancing architecture and data for omni-
+modal understanding LLM. In International Conference on Learning Representations, pp. 56101–
+56138, 2026.
+Inclusion AI, B. Gong, C. Zou, et al. Ming-Omni: A uniﬁed multimodal model for perception and
+generation. arXiv preprint arXiv:2506.09344, 2025.
+P. Zhang, X. Dong, Y. Cao, et al.
+InternLM-XComposer2.5-OmniLive:
+A comprehensive
+multimodal system for long-term streaming video and audio interactions.
+arXiv preprint
+arXiv:2412.09596, 2024.
+12
+
+
+Under Review
+ByteDance Seed. SeedRealtime: An audio-visual full-duplex LLM. ByteDance Seed Tech Blog,
+2026a. URL https://seed.bytedance.com/en/SeedRealtime.
+Google.
+Introducing Gemma 4 12B: a uniﬁed, encoder-free multimodal model.
+Google
+Blog, 2026b.
+URL https://blog.google/innovation-and-ai/technology/
+developers-tools/introducing-gemma-4-12b/.
+C. Tang, Y. Li, Y. Yang, et al. video-SALMONN 2: Caption-enhanced audio-visual large language
+models. arXiv preprint arXiv:2506.15220, 2025.
+Y. Li, G. Zhang, Y. Ma, et al. OmniBench: Towards the future of universal omni-language models.
+Advances in neural information processing systems, 38, 2026b.
+J. Hong, S. Yan, J. Cai, et al. WorldSense: Evaluating real-world omnimodal understanding for
+multimodal LLMs. In International Conference on Learning Representations, pp. 52423–52443,
+2026.
+K. Gong, K. Feng, B. Li, et al. AV-Odyssey bench: Can your multimodal LLMs really understand
+audio-visual information? arXiv preprint arXiv:2412.02611, 2024.
+Z. Zhou, R. Wang, Z. Wu, et al. Daily-Omni: Towards audio-visual reasoning with temporal align-
+ment across modalities. arXiv preprint arXiv:2505.17862, 2025.
+C. Li, Y. Chen, Y. Ji, et al. OmniVideoBench: Towards audio-visual understanding evaluation for
+omni MLLMs. In International Conference on Learning Representations, pp. 138214–138236,
+2026a.
+Y. Zhang, Z. Luo, Q. Yan, et al. OmniEval: A benchmark for evaluating omni-modal models with
+visual, auditory, and textual inputs. arXiv preprint arXiv:2506.20960, 2025.
+T. Geng, J. Zhang, Q. Wang, et al. LongVALE: Vision-audio-language-event benchmark towards
+time-aware omni-modal perception of long videos. In IEEE/CVF Conference on Computer Vision
+and Pattern Recognition, pp. 18959–18969, 2025.
+K. Sung-Bin, O. Hyun-Bin, L. Jung-Mok, et al. AVHBench: A cross-modal hallucination bench-
+mark for audio-visual large language models. In International Conference on Learning Repre-
+sentations, pp. 24244–24271, 2025.
+J. Lin, Z. Fang, C. Chen, et al. StreamingBench: Assessing the gap for MLLMs to achieve stream-
+ing video understanding. In IEEE International Conference on Acoustics, Speech and Signal
+Processing, pp. 12147–12151, 2026.
+J. Niu, Y. Li, Z. Miao, et al. OVO-Bench: How far is your video-LLMs from real-world online
+video understanding? In IEEE/CVF Conference on Computer Vision and Pattern Recognition,
+pp. 18902–18913, 2025.
+Y. Shi, Q. Zhao, T. Jiang, et al. RIVER: A real-time interaction benchmark for video LLMs. arXiv
+preprint arXiv:2603.03985, 2026b.
+Y. Wang, Y. Wang, B. Chen, et al. OmniMMI: A comprehensive multi-modal interaction bench-
+mark in streaming video contexts. In IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pp. 18925–18935, 2025.
+R. Zhao, J. Yang, Z. Xin, et al. OmniPro: A comprehensive benchmark for omni-proactive streaming
+video understanding. arXiv preprint arXiv:2605.18577, 2026.
+T. Xie, J. Huang, Y. Ma, et al. SocialOmni: Benchmarking audio-visual social interactivity in omni
+models. arXiv preprint arXiv:2603.16859, 2026.
+G.-T. Lin, J. Lian, T. Li, et al. Full-Duplex-Bench: A benchmark to evaluate full-duplex spoken
+dialogue models on turn-taking capabilities. In IEEE Automatic Speech Recognition and Under-
+standing Workshop, pp. 1–8, 2025.
+13
+
+
+Under Review
+S. Arora, Z. Lu, C.-C. Chiu, et al. Talking turns: Benchmarking audio foundation models on turn-
+taking dynamics. In International Conference on Learning Representations, pp. 52754–52781,
+2025.
+OpenAI. Sora 2 is here. OpenAI Blog, 2025. URL https://openai.com/index/sora-2/.
+Google. Veo 3.1. Google DeepMind model card, 2026d. URL https://deepmind.google/
+models/model-cards/veo-3-1-lite/.
+Seedance Team, H. Chen, S. Chen, et al. Seedance 1.5 pro: A native audio-visual joint generation
+foundation model. arXiv preprint arXiv:2512.13507, 2025.
+Kling AI. Kling VIDEO 3.0 model user guide. Kling AI Blog, 2026. URL https://kling.
+ai/quickstart/klingai-video-3-model-user-guide.
+Seedance Team, D. Chen, L. Chen, et al. Seedance 2.0: Advancing video generation for world
+complexity. arXiv preprint arXiv:2604.14148, 2026.
+Google DeepMind. Gemini Omni Flash model card. Google DeepMind model card, 2026d. URL
+https://deepmind.google/models/model-cards/gemini-omni-flash/.
+MiniMax. MiniMax H3: An open model breaking the boundaries between tasks and modalities.
+MiniMax Research, 2026. URL https://www.minimax.io/blog/minimax-h3.
+Wan AI. Introducing Wan3.0. Wan AI Blog, 2026. URL https://wan.video/features.
+H. Shi, Y. Li, X. Chen, et al. AniMaker: Multi-agent animated storytelling with MCTS-driven clip
+generation. In SIGGRAPH Asia Conference Papers, pp. 1–11, 2025.
+X. Hou, B. Ma, J. Cheng, et al. PersonaVlog: Personalized multimodal vlog generation with multi-
+agent collaboration and iterative self-correction. arXiv preprint arXiv:2508.13602, 2025.
+Z. Wei, M. Li, Z. Zhang, et al. Hollywood Town: Long-video generation via cross-modal multi-
+agent orchestration. arXiv preprint arXiv:2510.22431, 2025.
+Q. Wang, Z. Huang, R. Jia, et al. MAViS: A multi-agent framework for long-sequence video story-
+telling. In Conference of the European Chapter of the Association for Computational Linguistics
+(EACL), pp. 2273–2295, 2026.
+L. Huang, S. He, H. Zhou, et al.
+ViMax:
+Agentic video generation.
+arXiv preprint
+arXiv:2606.07649, 2026.
+J. Zuo, H. Zuo, S. Zhang, et al. FilmWorld: Agentic novel-to-ﬁlm generation through dynamic
+cinematic world modeling. arXiv preprint arXiv:2607.19038, 2026.
+Y. Rong, J. Wang, G. Lei, et al. AudioGenie: A training-free multi-agent framework for diverse
+multimodality-to-multiaudio generation. In ACM International Conference on Multimedia, pp.
+8872–8881, 2025.
+Y. Duan, Q. Xu, H. Wu, et al. Audio-Oscar: A multi-agent system for complex audio scene genera-
+tion, orchestration, and reﬁnement. arXiv preprint arXiv:2606.07397, 2026.
+J. Schulman, F. Wolski, P. Dhariwal, et al. Proximal policy optimization algorithms. arXiv preprint
+arXiv:1707.06347, 2017.
+L. Ouyang, J. Wu, X. Jiang, et al. Training language models to follow instructions with human
+feedback. Advances in neural information processing systems, 35:27730–27744, 2022.
+D. Guo, D. Yang, H. Zhang, et al. DeepSeek-R1: Incentivizing reasoning capability in LLMs via
+reinforcement learning. arXiv preprint arXiv:2501.12948, 2025.
+Q. Yu, Z. Zhang, R. Zhu, et al. DAPO: An open-source LLM reinforcement learning system at scale.
+Advances in neural information processing systems, 38:113222–113244, 2026.
+Z. Liu, C. Chen, W. Li, et al. Understanding R1-Zero-like training: A critical perspective. arXiv
+preprint arXiv:2503.20783, 2025a.
+14
+
+
+Under Review
+A
+APPENDIX CONTENTS
+B
+Related Work . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 15
+B.1
+Omni models . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 15
+B.2
+Benchmarks for audio-visual understanding and dialogue . . . . . . . . . . . . . . . . . . . . . . . . . . 16
+B.3
+Joint audio-visual generation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 16
+B.4
+Agentic video and audio generation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 17
+B.5
+RL Algorithms . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 17
+C
+OmniVChat-Studio: Subsystem Design, Attribute & Corpus Sampling, and Validation 17
+C.1
+Design rationale . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 17
+C.2
+Supplementary Subsystem Details . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 18
+C.2.1
+Supplementary Conﬁguration and Sampling Details . . . . . . . . . . . . . . . . . . . . . . . . . . 18
+C.2.2
+Supplementary Stage Checks, Repairs, and Multi-Turn Trace. . . . . . . . . . . . . . . . . . 18
+D
+OmniVChat-Bench: Construction and Audits . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 19
+D.1
+Post-processing . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 19
+D.1.1
+Human inspection of the delivered suite . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 20
+D.1.2
+Tail-artifact detection and repair . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 20
+D.2
+Construction of OmniVChat-Bench-Human . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 22
+D.3
+Judge agreement and score variation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 23
+D.4
+Comparing Single-turn and Multi-turn Subcategories . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 24
+D.5
+Detailed Subcategory Deﬁnitions . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25
+E
+OmniVChat-RL: Conﬁguration, Ablations, and Transfer . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25
+E.1
+Training conﬁguration . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25
+E.2
+Held-out Learning Curves by Subcategory . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25
+E.3
+Reward ablations. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 26
+E.4
+Policy and grading prompts . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 27
+E.5
+Correlations across held-out learning curves . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 29
+F
+OmniVChat-Bench: Synthetic and Recorded Examples . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 30
+F.1
+A Synthetic Example from Each Subcategory . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 30
+F.2
+A Recorded Example from Each Subcategory . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 46
+B
+RELATED WORK
+This section reviews ﬁve research areas related to OmniVChat. They cover omni models, bench-
+marks, joint audio-video generation, agent systems, and RL.
+B.1
+OMNI MODELS
+Omni models combine several input and output modalities in one system. GPT-4o (OpenAI, 2024)
+accepts text, audio, images, and video. Its average audio response latency is 320 milliseconds.
+The report describes native processing and an earlier cascade for speech transcription, text pro-
+cessing, and audio synthesis. The Gemini Live API (Google, 2026c) processes continuous audio,
+image, and text streams. It produces spoken responses. Qwen3-Omni (Xu et al., 2025b) uses a
+15
+
+
+Under Review
+mixture-of-experts architecture. Its Thinker generates text. Its Talker produces audio tokens. VITA-
+1.5 (Fu et al., 2026) progressively integrates vision and speech. It does not use separate speech
+recognition or synthesis modules. Baichuan-Omni-1.5 (Li et al., 2025) uses an audio tokenizer.
+It preserves semantic and acoustic information. Ola (Liu et al., 2025b) uses a progressive train-
+ing strategy. It aligns language, vision, and audio through video. OmniVinci (Ye et al., 2026)
+jointly aligns audio-visual embeddings and their temporal structure. Ming-Omni (Inclusion AI et al.,
+2025) uses modality-speciﬁc routers. The routers send each modality’s tokens to experts in one
+model. InternLM-XComposer2.5-OmniLive (Zhang et al., 2024) uses separate components for live
+dialogue. These components handle streaming perception, memory, and reasoning. MiniCPM-o
+4.5 (Cui et al., 2026) aligns multimodal inputs and outputs on one timeline. This design supports
+simultaneous listening and speaking. SeedRealtime (ByteDance Seed, 2026a) uniﬁes audio, video,
+and text. Its full-duplex model supports real-time multimodal dialogue. Gemma 4 (Google, 2026b)
+removes modality-speciﬁc encoders. It sends vision and audio representations directly into the lan-
+guage backbone. Video-SALMONN 2 (Tang et al., 2025) applies multi-turn direct preference opti-
+mization. It targets audio-visual captioning. The Omni-MLLM survey (Jiang et al., 2025) reviews
+omni-modal models and their design, training, evaluation, and applications.
+B.2
+BENCHMARKS FOR AUDIO-VISUAL UNDERSTANDING AND DIALOGUE
+Audio-visual benchmarks test joint perception, streaming understanding, or dialogue.
+Om-
+niBench (Li et al., 2026b) evaluates joint understanding of an image, audio, and a question. World-
+Sense (Hong et al., 2026) contains 1,662 audio-visual videos and 3,172 questions. Each question
+requires information from both modalities. AV-Odyssey (Gong et al., 2024) contains 4,555 prob-
+lems. Each problem requires the joint use of audio and video. Daily-Omni (Zhou et al., 2025)
+evaluates cross-modal temporal reasoning. Its semi-automatic process ﬁlters candidate questions.
+It removes a question when two text-only LLMs both answer it correctly. OmniVideoBench (Li
+et al., 2026a) evaluates audio-visual understanding. It provides reasoning traces for videos up to
+half an hour. OmniEval (Zhang et al., 2025) combines open-ended and multiple-choice questions.
+Its audio-visual questions are in Chinese and English. LongVALE (Geng et al., 2025) marks the tem-
+poral boundaries of 105K omni-modal events in long videos. AVHBench (Sung-Bin et al., 2025)
+evaluates hallucinations about the relation between audio and visual content. StreamingBench (Lin
+et al., 2026) targets online video understanding. It places ﬁve questions at different points in each
+video stream. OVO-Bench (Niu et al., 2025) evaluates backward tracing, real-time visual percep-
+tion, and forward active responding. RIVER (Shi et al., 2026b) evaluates retrospective memory, live
+perception, and proactive anticipation in streaming video. OmniMMI (Wang et al., 2025) evaluates
+multimodal dialogue in streaming video. Its tasks include proactive reasoning. OmniPro (Zhao
+et al., 2026) evaluates when and what a model should speak. Audio is required by 84% of its sam-
+ples. OmniInteract (Lu et al., 2026) preserves the original audio-visual stream. It embeds user
+queries and ambient sounds in the audio track. SocialOmni (Xie et al., 2026) evaluates audio-visual
+social dialogue. Its tasks cover speaker identity, interruption timing, and interruption phrasing. The
+Interactive Video Dataset (Pourreza et al., 2026) records people who ask questions through a camera
+and microphone. Models answer them in real time from audio-visual input. Full-Duplex-Bench (Lin
+et al., 2025) evaluates spoken dialogue. Its four skills are pause handling, backchannels, turn-taking,
+and interruption management. Talking Turns (Arora et al., 2025) evaluates turn-taking dynamics. It
+uses a supervised model that predicts turn-taking events.
+B.3
+JOINT AUDIO-VISUAL GENERATION
+Recent systems jointly generate audio and video from multimodal conditions. Sora 2 (OpenAI,
+2025) generates video with synchronized dialogue and sound effects. Veo 3.1 (Google, 2026d) gen-
+erates video with native audio from text prompts and reference images. Seedance 1.5 pro (Seedance
+Team et al., 2025) uses a dual-branch diffusion transformer. A cross-modal module enables native
+joint audio-video generation. The Kling VIDEO 3.0 series (Kling AI, 2026) provides native audio-
+visual output, multi-shot storyboard control, and clips up to 15 seconds. Seedance 2.0 (Seedance
+Team et al., 2026) accepts text, image, audio, and video. One multimodal architecture jointly gen-
+erates audio and video. The Gemini Omni Flash series (Google DeepMind, 2026d) accepts text,
+images, audio, and video and outputs high-resolution video with audio. It also supports conver-
+sational video editing. MiniMax H3 (MiniMax, 2026) accepts text, images, video, and audio as
+16
+
+
+Under Review
+conditions. It generates native stereo audio and video at up to 2K resolution. Wan 3.0 (Wan AI,
+2026) generates native audio-visual videos of up to 30 seconds from text or image inputs.
+B.4
+AGENTIC VIDEO AND AUDIO GENERATION
+Agentic generation systems coordinate specialized agents across planning, generation, evaluation,
+and revision.
+AniMaker (Shi et al., 2025) uses four specialized agents, MCTS-inspired candi-
+date generation, and storytelling-aware clip selection to create multi-scene animations from text.
+PersonaVlog (Hou et al., 2025) pairs generator and reviewer agents with feedback and rollback
+to create personalized vlogs with video, music, and inner-monologue speech from a theme and
+reference image. Hollywood Town (Wei et al., 2025) presents OmniAgent, a hierarchical agent
+graph with on-demand group discussions and bounded feedback cycles for long-video production.
+MAViS (Wang et al., 2026) coordinates script writing, shot design, character modeling, keyframe
+generation, video animation, and audio generation under an iterative Explore-Examine-Enhance
+process. ViMax (Huang et al., 2026) combines hierarchical narrative planning, retrieval-augmented
+context, dependency-aware visual tracking, and vision-language-model-guided quality control for
+long-form video generation. FilmWorld (Zuo et al., 2026) uses construction agents to ground a
+novel into persistent entity states and evolution agents to propagate and verify those states across
+shots. AudioGenie (Rong et al., 2025) uses generation and supervisor teams to decompose multi-
+modal inputs into audio events, route them to specialized generators, and reﬁne the outputs through
+feedback. Audio-Oscar (Duan et al., 2026) coordinates agents for voice design, timeline planning,
+model selection, post-production, and feedback-driven reﬁnement of complex audio scenes.
+B.5
+RL ALGORITHMS
+Recent RL methods use different policy objectives and reward sources. Proximal policy optimiza-
+tion (PPO) (Schulman et al., 2017) uses a clipped surrogate objective. It supports several minibatch
+updates from one batch of sampled trajectories. Instruction tuning with human feedback (Ouyang
+et al., 2022) starts with supervised demonstrations. It then applies RL from preference comparisons.
+GRPO (Shao et al., 2024) estimates advantages without a separate value model. It uses the mean re-
+ward for responses to the same prompt as a baseline. DeepSeek-R1-Zero (Guo et al., 2025) uses pure
+RL. It develops reasoning behavior without human-labeled reasoning trajectories. DAPO (Yu et al.,
+2026) uses asymmetric clipping bounds. It also resamples groups that have no learning signal. Dr.
+GRPO (Liu et al., 2025a) changes group-relative optimization. The change removes biases linked
+to response length and difﬁculty. GSPO (Zheng et al., 2025) uses sequence-likelihood importance
+ratios and sequence-level clipping, which notably stabilizes mixture-of-experts training. Rubrics as
+Rewards (Gunjal et al., 2026) grades responses with instance-speciﬁc rubrics. It builds rewards for
+domains without directly veriﬁable answers.
+C
+OMNIVCHAT-STUDIO: SUBSYSTEM DESIGN, ATTRIBUTE & CORPUS
+SAMPLING, AND VALIDATION
+This appendix supplements §2 with the design rationale and additional conﬁguration details. It also
+presents less common stage checks, repair boundaries, and one simpliﬁed multi-turn trace.
+C.1
+DESIGN RATIONALE
+First, the design keeps each sampled assignment ﬁxed during repair. Otherwise, a failed difﬁcult
+dialogue could become an easier dialogue and change the requested batch distribution. The repair
+budget limits the cost of retaining the original setting.
+Second, observation and judgment remain separate. The Reviewer reports the rendered audio and
+video. The Director compares this evidence with the plan. It then chooses the next action. The reply
+follows the rendered evidence instead of the intended script.
+Third, deterministic checks enforce rules in the conﬁguration before semantic review. The synthesis
+prompt and Validator use the same rules. Validation Review 5
+n can dismiss a reported violation
+when context shows that the script is valid.
+17
+
+
+Under Review
+Fourth, each repair returns to the stage that caused the defect. Re-seeding keeps the script ﬁxed.
+Rewriting returns to the text stage that caused the defect. Video Q-A 10 h collects missing evidence.
+Update Plan revises a multi-turn path from its ﬁrst affected turn. Each action has a ﬁxed retry budget.
+The engine discards an incomplete run instead of saving a partial instance.
+The media-reference budget also shapes the multi-turn design. A ﬁxed recent window may omit an
+older object or retain a defective clip. A compact selection can include the needed older evidence
+without passing every preceding clip to the next turn.
+C.2
+SUPPLEMENTARY SUBSYSTEM DETAILS
+This section gives subsystem details omitted from §2.1 and §2.2. It covers conﬁguration choices,
+stage checks, and bounded repair. It also gives a simpliﬁed multi-turn trace.
+C.2.1
+SUPPLEMENTARY CONFIGURATION AND SAMPLING DETAILS
+The supplementary conﬁguration adds descriptions, rules, and rare-case controls to the ﬁelds in
+§2.1. Each attribute value has a short natural-language description. An attribute may describe a local
+detail, such as object colour. It may instead describe a broad property, such as the full scenario. An
+optional requirement pool adds rare edge cases without changing the base assignment.
+Let D be the set of attributes. For each d ∈D, Vd lists its allowed values, and pd gives their target
+probabilities, which sum to one. The set A = Q
+d∈D Vd contains all combinations a = (ad)d∈D
+of attribute values. Here, ad ∈Vd is the chosen value of attribute d, and pd(ad) is its probability
+before preferences and exclusions. The set Πsoft contains preference rules. A rule π matches a when
+π(a) = 1 and then applies a multiplier mπ ≥0. Sampling uses the weight w(a), random key ka,
+and selected set of attribute assignments Sn:
+w(a) =
+ Y
+d∈D
+pd(ad)
+
+Y
+π∈Πsoft : π(a)=1
+mπ,
+ka = ln Ua
+w(a) ,
+Sn =
+Topn
+a∈A: w(a)>0
+ka.
+(7)
+The ﬁrst product multiplies the attribute probabilities. The second multiplies the matching mπ val-
+ues and equals 1 if no rule matches. The weight w(a) is not normalized to a probability. Exclusions
+set w(a) = 0, and keys are deﬁned only for w(a) > 0. Each Ua is an independent uniform draw
+from (0, 1), and ln is the natural logarithm. For batch size n, Topn selects the n distinct positive-
+weight combinations with the largest keys ka. These combinations form Sn. Requests larger than
+the positive-weight pool use repeated selections with fresh keys.
+The key in Equation 7 implements an exponential race. It has the same sampling law as Gumbel-
+top-k selection. An extra requirement can also be sampled independently at low probability.
+The corpus pool is balanced across its languages. Its topics also broaden the settings of synthesized
+dialogues. Corpus sampling uses the same three-candidate process as §2.1.
+The joint assignment space controls coverage and sampling cost. A small batch may miss rare
+combinations. Preferences and exclusions also change the planned marginals. An extra requirement
+can emphasize one rare case. Concentrating an attribute’s probability can also increase its coverage.
+Enumeration considers |A| assignments, so its cost grows with the number of attributes. Expanding
+one value set can add variety at lower cost than adding a new attribute. Later failures and quality
+ﬁlters can also change which assignments reach the ﬁnal delivered set in practice.
+C.2.2
+SUPPLEMENTARY STAGE CHECKS, REPAIRS, AND MULTI-TURN TRACE
+Beyond the stage interfaces in §2.1 and §2.2, both subsystems apply target-speciﬁc checks and
+repair rules. Some rules depend on sampled values. A completed-turn probe requires a completion
+cue near the clip end. A mid-dialogue probe may forbid an explicit report of a dropped line or the
+word again. Rear-facing mode may forbid the phrase facing the camera. These rules prevent an
+instance from revealing the subcategory under evaluation.
+Plan & Review 2 also checks object presence and conﬂicts between speech and visible facts. It
+checks whether the user yields the turn. Script Generation 3 writes contiguous timed segments. Its
+18
+
+
+Under Review
+prompt includes the validation rules before drafting. Validation 4 checks the speaking rate for each
+language, timeline continuity, and every value in the conﬁguration.
+Validation Review 5 checks reported violations in context. A forbidden word may occur within an
+unrelated compound. A device may appear only in ambient sound. Fast speech may be appropriate
+during an argument or emergency. If every report is a contextual exception, the subsystem retains the
+script. Otherwise, the violations and earlier errors return to Script Generation 3 . An unparseable
+verdict also returns the script for revision.
+Script Review 6 checks whether the script tests the target subcategory. It checks object presence,
+false premises, visual necessity, and ofﬂine answerability. For example, a red-and-white cup can
+make red cup ambiguous. A question that audio alone can answer does not test visual grounding. A
+pass ﬁnalizes the script. A repairable defect returns to drafting. The subsystem discards the whole
+instance when the defect cannot be repaired.
+Video Plan 7 selects prompt fragments for continuous motion, camera constraints, plausible bodies,
+lip synchronization, and no subtitles. A fragment can conﬂict with the sampled scene. For example,
+a clear-face rule conﬂicts with a camera that faces away from the user. Strong backlight may also
+hide facial detail by design. The Director selects compatible fragments. If this selection cannot be
+parsed, the system includes all fragments.
+Video Review 11
+i checks whether a transcript difference reﬂects a rendering or perception error.
+Video Caption 9
+g may mistranscribe the rendered speech. Thus, a small difference alone does not
+show a rendering defect. Video Q-A 10 h can collect one focused answer within a ﬁxed budget. A
+random rendering defect can trigger a new seed. A repeated defect can trigger a script rewrite. A
+rewrite restores the Director’s state before drafting, without the discarded script’s reasoning.
+Reply Plan 12 removes script facts that the accepted clip does not support. It may keep facts es-
+tablished by the caption. Reply Review 14 then checks whether each rubric criterion is binary and
+grounded. It also checks whether the reference reply meets every criterion. The tiers place basic
+correctness before extra detail. Reply Review 14 checks that the ﬁnal reply sounds natural aloud.
+Bounded repair sets separate limits for rendering, rewriting, and planning within one global budget.
+A required repair that exhausts its budget discards the run. Reply reﬁnement has a separate limit.
+Reaching it permits continuation with the current reply, subject to the ﬁnal completeness checks.
+The multi-turn path adds media-speciﬁc checks. Plan b can reuse an older clean clip in a static
+scene. A location change usually requires a reference to the previous turn. A gradual change requires
+a reference that preserves recent motion. Appearance, background, and voice may require different
+media sources. A face-frame reference requires matching audio to keep the same voice.
+Each completed turn records identiﬁers for its clip, extracted audio, and ﬁnal frame. Later prompts
+use these identiﬁers as placeholders. Every turn after the ﬁrst is checked for a valid cross-turn
+reference. A missing reference invalidates the instance. The Director also checks consistency across
+referenced media. Prompt Review e detects reference and planning errors before video synthesis.
+Validation m also checks required and forbidden ﬁelds at each turn position. Repair can change
+which valid assignments reach the delivered set, but the sampled assignment remains ﬁxed within
+each run. The reply-reﬁnement exception applies to both subsystems.
+D
+OMNIVCHAT-BENCH: CONSTRUCTION AND AUDITS
+This appendix supplements the benchmark in §3. It covers post-processing, the human-recorded
+transfer probe, judge agreement, paired-subcategory analysis, and detailed subcategory deﬁnitions.
+Appendix F gives synthetic and recorded examples for every benchmark subcategory.
+D.1
+POST-PROCESSING
+Post-processing combines human inspection with deterministic repair of audio tail artifacts.
+19
+
+
+Under Review
+Example 3: Summarized Module-by-Module Multi-Turn Trace (Instance 18836891).
+The subcategory is Mid-Dialogue Connectivity Conﬁrmation (DSLP-VCC-MDCC), which tests mid-dialogue connection checks.
+Attribute & Corpus
+Sampling 0
+Conﬁguration (base probabilities): Chinese/English, 40%/60%; one user, 100%; two/three/four/ﬁve turns, 25%
+each; 22 scenario domains, 1/22 each; 10 camera setups, 10% each; audio and visual interference, 1/3 each for
+none/low/medium and 0 for high; 23 connectivity triggers, 1/23 each. Attribute sampling selects an
+English-speaking solo user, two turns, a volunteer setting, a laptop camera, low audio and visual interference,
+and a reopened-app trigger. An extra requirement is sampled with 30% probability from 16 equally likely
+options; this instance adds a cough. Corpus sampling draws texts on three topics: Remembrance Day, a
+heroic-pilot ﬁlm, and a court case.
+Description a
+The Director selects the remembrance theme. It writes a community memorial dialogue about arranging ﬂowers.
+The user coughs in Turn 1 and later checks whether the connection remains active.
+Module
+Turn 1
+Turn 2
+Plan b
+The user shows white chrysanthemums and yellow
+sunﬂowers. She asks how to arrange them.
+The same user returns after a short break. She checks
+the connection. The plan uses the full Turn 1 video.
+Her face, voice, room, and table stay stable.
+Plan Review c
+The ﬁrst joint plan uses the wrong language and leaves the ﬁnal silence unclear. The revised English plan states
+the media link and a silent ﬁnal wait. It passes.
+Prompt
+Generation d
+The Director writes a 14-second prompt. The user
+shows both ﬂowers, coughs, asks for advice, and waits.
+A rewrite then simpliﬁes the cough.
+The Director writes a 9-second prompt with the Turn 1
+clip as reference_video. The user asks, “Hello?
+Are you still there? I stepped away for a second and
+I’m not sure if we’re still connected.”
+Prompt Review e
+The ﬁrst prompt is too dense. The Director makes it
+longer and later simpliﬁes the cough action. Both
+rewritten prompts pass in this module.
+The prompt and its media link pass review.
+Video Generation f
+The Renderer uses fresh seeds and one prompt rewrite.
+Review accepts the fourth 14.1-second clip.
+The ﬁrst render has malformed arms. A fresh seed
+produces the accepted 9.1-second video clip.
+Video Caption g
+The Reviewer sees the ﬂowers, vases, ribbons, cough,
+spoken question, and a quiet community hall.
+The same woman asks the planned question in the
+same room, then waits for a reply.
+Video Review i
+Early candidates have malformed hands. The Director
+ﬁrst requests new seeds, then a simpler cough action. It
+accepts the fourth rendered video.
+The Director rejects the ﬁrst render for malformed
+arms. It accepts the second after conﬁrming the
+woman’s cross-turn appearance and room layout.
+Video Q-A h
+The caption is sufﬁcient, so Video Q-A h is skipped.
+The caption is sufﬁcient, so Video Q-A h is skipped.
+Final-Reply Plan j
+This module is not used in an intermediate turn.
+The Director reads both clips and the Turn 1 reply. It
+plans a connection check that recalls the ﬂowers.
+Reply Generation k
+“Those are a beautiful combination!” The reply puts
+white ﬂowers in the centre and yellow ﬂowers at the
+sides. It also suggests gold ribbon and varied vase
+heights for a layered display.
+“Yes, I’m still here! The connection is ﬁne, no worries.
+We were just talking about how to arrange your
+chrysanthemums and sunﬂowers for the memorial. Do
+you have any other questions about the setup?” It also
+creates the ﬁnal tiered rubric.
+Reply Review l
+The Director accepts the delivered reply.
+The Director accepts the ﬁnal reply and rubric.
+Go to Next Turn The accepted clip and reply enter the history, so the
+subsystem advances to Turn 2.
+The ﬁnal turn closes. The subsystem assembles the
+complete record for ﬁnal validation.
+Validation m The Validator checks the assembled two-turn record. It returns pass.
+Validation Review n
+Not triggered because Validation m ﬁnds no violation.
+Update Plan Not triggered. Local prompt and rendering repairs are enough.
+D.1.1
+HUMAN INSPECTION OF THE DELIVERED SUITE
+Instances accepted by OmniVChat-Studio receive two additional checks before delivery. Audio
+post-processing repairs recurring tail artifacts (Appendix D.1.2). Human inspectors then reject any
+remaining defect. Thus, every delivered instance passes the synthesis gates, audio repair, and human
+review before it enters the benchmark.
+Human inspection checks whether each clip shows the intended dialogue. OmniVChat-Studio al-
+ready checks timelines, banned words, and scripted speaking rates. It also limits each repair route
+and rejects runs that exhaust a budget. Its semantic gates use the Reviewer’s description and the
+Director’s judgment. These agents can make the same error. Human inspection detects such cases.
+D.1.2
+TAIL-ARTIFACT DETECTION AND REPAIR
+Audio post-processing addresses two recurring defects. One is a broadband click near the clip
+end. The other is a sudden cutoff during active sound. A click forms a narrow vertical band in a
+20
+
+
+Under Review
+spectrogram. It can extend above 16 kHz, where the codec removes most speech and room sound. A
+cutoff ends active sound without a natural fade. Both defects affect the waveform used for evaluation.
+Detection combines ﬁxed measurements with model-based ranking of waveform and spectrogram
+panels. The audio is ﬁrst decoded to mono. The procedure then locates the end of non-silent content.
+A transient score compares the ﬁnal 150 ms with the preceding second across frequency bands.
+A truncation score measures the remaining loudness and fade. A model ranks six candidate tails
+together. Isolated judgments often ﬂag valid tails and report unsupported measurements. Repair
+therefore uses the relative severity tier supported by both methods. In the strong tier, the model ﬂags
+654 of the 692 clips found by the ﬁxed measure.
+Repair reduces the amplitude near the estimated artifact onset without changing the clip duration.
+Let x[n] denote the decoded mono signal at sample rate fs. For a non-silent clip, the following index
+marks the exclusive boundary of its content:
+nend = 1 + max
+n
+n : |x[n]| > max
+ 10−4, 10−3 max
+m |x[m]|
+o
+,
+(8)
+The threshold is the larger of two values. One is an absolute amplitude ﬂoor. The other is 60 dB
+below the clip peak. This boundary excludes low-level digital silence from the encoder. A 6 kHz
+high-pass ﬁlter then gives ˜x = h6k ∗x. The ﬁlter preserves the artifact’s broadband component and
+removes most voiced speech. The repair computes a root-mean-square (RMS) envelope for each
+1 ms block Bk. The envelope is q[k] =
+q
+|Bk|−1 P
+n∈Bk ˜x[n]2. The search zone Z contains the
+ﬁnal Z = 160 ms of complete blocks before nend. The peak block, earlier background window, and
+background level are deﬁned as follows:
+k⋆= arg max
+k∈Z
+q[k],
+P =
+
+k ∈Z : k⋆−80 ≤k < k⋆−30
+	
+,
+β =
+median{q[k] : k ∈P},
+|P| ≥5,
+median{q[k] : k ∈Z},
+|P| < 5.
+(9)
+The half-open background window covers 30–80 ms before the peak. The fallback applies when a
+peak is too close to the start of the search zone. Let b(k) denote the ﬁrst sample of block k. The
+backward scan stops when three preceding blocks meet the background-dependent threshold:
+θ = max
+
+2β, 10−45/20q[k⋆]
+	
+,
+bk0 = max
+n
+k ∈Z : k ≤k⋆, q[j] ≤θ for every j ∈Z ∩[k −3, k)
+o
+,
+n0 = max
+
+nend −T, b(bk0) −M
+	
+,
+(10)
+Here M = 1 ms is a safety margin. The bound T = 80 ms limits how far the cutoff can precede
+the content boundary. Both values are converted to sample counts. The three-block look-back spans
+brief dips within a burst. The threshold terms are 6 dB above the local background and 45 dB below
+the peak. If the peak is less than 8 dB above the background, the fallback sets n0 = nend.
+The cutoff determines where the audio reaches silence. Let L be the number of samples in the 20 ms
+fade. The repaired signal is y[n] = g[n]x[n], with gain
+g[n] =
+
+
+
+
+
+
+
+
+
+1,
+n < n0 −L,
+1
+2
+
+1 + cos π (n −n0 + L)
+L −1
+
+,
+n0 −L ≤n < n0,
+0,
+n ≥n0,
+(11)
+This raised cosine includes both endpoints. Its gain falls from 1 at n0 −L to 0 at n0 −1. Earlier
+samples remain unchanged. Samples at or after n0 become silent. Equation 11 removes no samples.
+It therefore preserves duration and audio-visual synchronization. The video stream is copied without
+re-encoding. If a transient remains, the onset moves earlier. At most three passes apply the fade.
+The repair restricts the fade to the tail to preserve earlier content. For a signal of N samples,
+Equations 10 and 11 give the conservative support bound
+
+n : y[n]̸ = x[n]
+	
+⊆
+
+nend −(T + L), N
+
+,
+(12)
+21
+
+
+Under Review
+Thus, the gain leaves earlier samples unchanged. A clip is skipped when its ﬁle ends more than
+300 ms after the content boundary. In that case, the boundary may not mark the intended tail. The
+695 repaired clips come from 571 of the 2,800 delivered instances. The ﬁrst changed sample is a
+median of 80.2 ms before the ﬁle end. It is at most 136.2 ms before that end. Residual digital silence
+explains the difference from the content-based bound. The fade covers about the ﬁnal one percent of
+a ten-second clip. Audio re-encoding introduces a difference of about -50 dB outside this window.
+The exact support bound applies before encoding.
+Repair quality is measured by the remaining artifact. The original truncation detector is not suitable
+here. The corrective fade can increase the detector’s feature value. After repair, the median transient
+score falls from 86.6 to 0.02. Energy above 13 kHz at the original defect falls by a median of
+53.1 dB. Original and repaired clips are paired for playback in severity order. Their spectrograms
+are also checked for residual artifacts. Figure 5 shows one pair.
+−0.25
+0.00
+0.25
+Amplitude
+Fade Onset
+Before Repair
+After Repair
+−500
+−400
+−300
+−200
+−100
+0
+Time Before End Of Clip (ms)
+0
+5
+10
+15
+20
+Frequency (kHz)
+−500
+−400
+−300
+−200
+−100
+0
+Time Before End Of Clip (ms)
+Figure 5: Audio before and after tail repair, shown over the ﬁnal 500 ms of one clip. Left: two
+impulses extend beyond 16 kHz into a range otherwise suppressed by the codec. Right: the repaired
+audio. The dashed line marks the fade onset, and both columns share one colour scale.
+D.2
+CONSTRUCTION OF OMNIVCHAT-BENCH-HUMAN
+OmniVChat-Bench-Human tests the transfer claim in §4.3 with 360 human recordings. Each of the
+twelve single-turn subcategories has 30 instances. The ﬁve multi-turn subcategories are outside its
+scope. Figure 6 uses the layout of Figure 3 to show this composition.
+Construction starts with an actor guide for each of the twelve single-turn subcategories. Each guide
+explains the dialogue in plain Chinese. It also lists probe variants and everyday scenes. An op-
+tional synthetic clip can illustrate the dialogue. Performers do not need to copy its exact content or
+rendering quality. Each performer selects one variant and improvises the dialogue. The dialogue
+is recorded on a phone in a real setting. All 360 recordings are in Chinese. Performers receive no
+clip-level script. Thus, unlike synthesized dialogues, the records have no timeline, scene setup, or
+conﬁguration block. Appendix F.1 shows these ﬁelds for synthetic examples.
+Every recording is checked against its target subcategory and selected variation. The checks verify
+clear speech and usable audio and video. Recordings that fail are corrected or recorded again, then
+rechecked. Only accepted recordings enter annotation. This process applies the same subcategory
+deﬁnitions to human speech and real settings. It preserves natural framing and performance. The
+probe tests whether the same subcategories transfer to recorded dialogues.
+Annotation starts with three independent captions for each accepted recording. Two captions focus
+on different evidence, and a third includes a transcript. The annotation process merges them into
+one factual record. It retains a transcript when any source provides one. It also marks disagreements
+about counts, colours, or positions, since errors in these details can change the correct answer. A
+22
+
+
+Under Review
+VCC
+VTT
+VDMC
+DSLP
+RC
+SDI
+MEA
+IC
+MSA
+AH
+ICC
+30
+UPC
+30
+UCR
+30
+SVMR
+30
+AR
+30
+DR
+30
+SPSD
+30
+STIC
+30
+PLA
+30
+AOR
+30
+FGC
+30
+ER
+30
+360
+Instances
+Figure 6: Composition of OmniVChat-Bench-Human, with 360 recorded instances and the same
+visual encoding as Figure 3. Each of the twelve single-turn subcategories contains 30 recordings, so
+every bar has the same length.
+human corrects transcript and factual errors against the recording. Before this check, one caption
+omits user speech in 62 of 360 clips (17.2%). All merged records include the speech transcript.
+The annotation process then reads the corrected caption without the video. It writes a spoken ref-
+erence reply and a tiered rubric. Each rubric has three to ﬁve criteria. It has exactly one Tier 0
+language criterion and at least one Tier 1 criterion. Up to three rounds of generation, validation,
+and reﬁnement enforce this form and prepare the record for the shared grader. The grader sees only
+the reply and the criteria. Validation therefore rejects any criterion that refers to a hidden caption.
+Validation also checks that a reference reply contains spoken words instead of a silence marker.
+Brand names become placeholders before generation. This avoids favoring one model vendor. All
+delivered records pass these checks. Among them, 70 have three criteria, 232 have four, and 58 have
+ﬁve. The set has 360 Tier 0 criteria, 473 Tier 1 criteria, 413 Tier 2 criteria, and 182 Tier 3 criteria.
+Section 4.3 reports the transfer result. Synthetic and recorded dialogues use the same rubric form
+and grading process. This keeps the evaluation conditions consistent across sources. It does not
+make the tasks independent or guarantee that grader bias cancels. The result supports transfer for
+the tested single-turn subcategories in this 360-recording probe. The probe covers neither multi-turn
+dialogues nor real-time latency during live use.
+D.3
+JUDGE AGREEMENT AND SCORE VARIATION
+Judge sensitivity is tested by grading one ﬁxed reply set with different models.
+The set has
+2,800 Gemini-3.7-Flash replies to OmniVChat-Bench.
+All six judges use the shared prompt
+in Appendix E.4.
+Gemini-3.7-Flash is not trained against the qwen3.7-max reward used by
+OmniVChat-RL. Each judge uses the same prompt, user template, verdict parser, and tier scorer
+as Table 1. Paired tests use the 2,773 replies with valid results from all six judges. The pooled score
+divides total earned points by total available points. This differs from the per-reply mean in Table 1.
+Repeated grading and bootstrap resampling give two reference scales. A repeated qwen3.7-max
+run at temperature 0.1 changes the pooled score by 0.0007. The two runs disagree on 2.1% of
+replies. A bootstrap of the gpt-5.6-terra pooled score gives a standard deviation of 0.0066.
+Differences near 0.01 require comparison with these scales. They do not imply identical judgments.
+Table 2 compares six GPT-5.6 and Qwen3 judges. Their pooled scores range from 0.643 to 0.678.
+The spread is 0.034, and the standard deviation is 0.014. Their subcategory means span 0.042. The
+spread is 0.017 for DSLP and 0.037 for MSA. It is 0.059 for AH and 0.081 for ER. Judge pairs agree
+on 87.8% to 96.5% of criterion judgments. Cohen’s κ ranges from 0.532 to 0.845. Their full gated
+scores match on 65.8% to 88.7% of replies. Tier-0 pass rates range from 99.1% to 99.9%.
+23
+
+
+Under Review
+Judge
+AH
+ER
+MSA
+MEA
+DSLP
+Pooled
+Mean
+Gate
+gpt-5.6-terra
+0.587
+0.628
+0.655
+0.729
+0.634
+0.660
+0.651
+99.9%
+gpt-5.6-luna
+0.585
+0.620
+0.653
+0.694
+0.626
+0.646
+0.638
+99.8%
+gpt-5.6-sol
+0.622
+0.673
+0.675
+0.747
+0.636
+0.678
+0.673
+99.9%
+qwen3.6-flash
+0.644
+0.614
+0.653
+0.741
+0.632
+0.671
+0.657
+99.1%
+qwen3.7-plus
+0.595
+0.593
+0.638
+0.702
+0.619
+0.643
+0.631
+99.9%
+qwen3.7-max
+0.605
+0.614
+0.663
+0.712
+0.619
+0.653
+0.641
+99.9%
+Table 2: Six judges evaluating a ﬁxed reply set, with each row computed on the same 2,773 replies.
+Ability-category labels follow Table 1. The Pooled column divides earned by available non-gate
+points. Ability-category columns use this ratio within each ability category, and the Mean column
+averages the subcategory-level ratios. Gate is the fraction of replies passing the tier-0 language gate.
+The pooled spread is 5.2 times the bootstrap standard deviation. This result shows systematic dif-
+ferences in judge strictness. A two-way decomposition assigns 95.7% of variance to subcategory
+difﬁculty. It assigns 1.1% to judge severity and 3.3% to judge-by-subcategory effects. Despite these
+severity differences, the judges produce similar subcategory proﬁles. Pairwise Pearson correlations
+over the seventeen subcategories are at least 0.936. Spearman correlations are at least 0.860. All
+six judges rank DSLP-VTT-UPC as the weakest subcategory. The largest subcategory difference is
+0.142 on MEA-RC-MRR across 48 shared replies. This analysis tests judge sensitivity for one ﬁxed
+Gemini reply set. It does not remeasure the OmniVChat-RL gain from 0.465 to 0.652 with other
+judges. The reported gain uses per-reply means, whereas this analysis uses point-weighted scores.
+D.4
+COMPARING SINGLE-TURN AND MULTI-TURN SUBCATEGORIES
+The analysis pairs each single-turn subcategory with its multi-turn extension from Appendix D.5.
+Each pair shares a subcategory deﬁnition, but its instances are sampled independently. Their scenes,
+histories, and evidence can therefore differ. Table 3 compares Gemini-3.7-Flash with the full-reward
+OmniVChat-RL policy reported in Table 1.
+A paired test for Gemini-3.7-Flash gives t(4) = −4.48 and p = 0.011. MRR has the largest gap
+at -0.202. It asks about an object after that object leaves the frame. Four OmniVChat-RL gaps lie
+within their estimated standard errors. MTIC has a gap of -0.107 and a standard error of 0.074. The
+paired test gives t(4) = −0.85 and p = 0.45. The non-signiﬁcant test does not show equivalence.
+Each multi-turn subcategory has 50 instances. Each gap is resolved only to about ±0.05. The paired
+test also has only four degrees of freedom.
+Across the ﬁve pairs, Pearson r is 0.89 for Gemini-3.7-Flash. It is 0.88 before OmniVChat-RL and
+0.75 after training. The matching Spearman values are 0.80, 0.90, and 0.10. The lower value after
+training reﬂects uneven gains across pairs.
+Gemini-3.7-Flash
+OmniVChat-RL
+Single
+Multi
+Single
+Multi
+Gap
+Single
+Multi
+Gap
+ICC
+MDCC
+0.741
+0.640
+−0.101
+0.653
+0.677
++0.024
+SVMR
+MVMS
+0.743
+0.632
+−0.111
+0.525
+0.465
+−0.060
+AR And DR
+MRR
+0.694
+0.492
+−0.202
+0.738
+0.692
+−0.046
+SPSD
+MIST
+0.795
+0.751
+−0.044
+0.646
+0.707
++0.062
+STIC
+MTIC
+0.630
+0.520
+−0.110
+0.757
+0.650
+−0.107
+Mean Gap
+−0.114
+−0.026
+Table 3: Single-turn subcategories and their multi-turn extensions on OmniVChat-Bench.
+Scores use gated rubrics. Gap equals Multi minus Single. Each single-turn subcategory has 200
+instances, except AR and DR with 600 combined. Multi-turn subcategories have 50 instances each.
+24
+
+
+Under Review
+D.5
+DETAILED SUBCATEGORY DEFINITIONS
+The benchmark contains 17 subcategories: twelve single-turn subcategories and ﬁve multi-turn ex-
+tensions. The single-turn set has 2,550 instances, each with one clip for one user turn. The multi-turn
+set has 250 instances and adds memory, retrieval, or updates across turns. The following deﬁnitions
+cover all 17 subcategories under the ﬁve ability categories in §3.
+Voice-Connectivity Conﬁrmation (VCC). Initial Connectivity Conﬁrmation (ICC) tests opening
+connection checks. Mid-Dialogue Connectivity Conﬁrmation (MDCC) extends ICC to later con-
+nection checks. Its reply conﬁrms the connection and remains consistent with the earlier dialogue.
+Fixed clips use direct questions rather than simulate random link loss.
+Voice Turn-Taking (VTT). User Paused but not Completed (UPC) tests an unﬁnished request amid
+visual distraction and calls for waiting or a brief acknowledgment. User Completed Request (UCR)
+tests a completed request under similar distraction and calls for an answer.
+Visual Dialogue-Mode Cognition (VDMC). Single-turn Visual Mode Recognition (SVMR) tests
+user-relative left and right. In these tasks, the user’s left and right map to the opposite image sides
+when the camera faces the user. They map to the same image sides when the camera faces out-
+ward. Multi-turn Visual Mode Switching (MVMS) extends SVMR by testing the updated left-right
+mapping after a camera change.
+Reference Comprehension (RC). Anaphoric Reference (AR) resolves pronouns and gestures,
+while Descriptive Reference (DR) resolves spoken descriptions. Multi-turn Reference Retrieval
+(MRR) extends both AR and DR by testing recall of information about an object shown earlier. The
+object leaves the current view, and other topics are discussed before the ﬁnal query. The answer
+therefore uses earlier visual evidence.
+Speaker Diarization & Identiﬁcation (SDI). Single-turn Primary Speaker Disambiguation (SPSD)
+identiﬁes the main user among competing voices. Multi-turn Interactor Shift Tracking (MIST) ex-
+tends SPSD to changes in the active user. The reply addresses the person who takes over the dia-
+logue.
+Identity Consistency (IC). Single-turn Identity Consistency (STIC) tests correct model identity in
+one turn. Multi-turn Identity Consistency (MTIC) extends STIC to identity questions across turns,
+including misleading user claims. The reply reﬂects the model’s true identity despite those claims.
+PLA, AOR, FGC, and ER are themselves subcategories. Their deﬁnitions are in §3. The ﬁve multi-
+turn extensions use the subsystem in §2.2. Figure 3 shows their turn counts and durations.
+E
+OMNIVCHAT-RL: CONFIGURATION, ABLATIONS, AND TRANSFER
+This appendix gives the full training conﬁguration. It also reports reward ablations, transfer results,
+and further analyses of reward behavior.
+E.1
+TRAINING CONFIGURATION
+Table 4 gives the full conﬁguration for the training design in Sections 4.1 and 4.2. Equation 1 and
+Equations 3–6 deﬁne the scoring function, objective, and rewards in the main paper. The setup
+trains rank-64 LoRA adapters on attention and mixture-of-experts projections. The vision and audio
+towers remain frozen. Each iteration samples 32 prompts and 128 completions. The text grader
+checks rubric criteria and style in separate requests without video. The format term is checked
+directly. The objective has no Kullback-Leibler (KL) penalty. Video inputs use a sampling rate of
+two frames per second (FPS).
+E.2
+HELD-OUT LEARNING CURVES BY SUBCATEGORY
+Figure 7 supplements §4.3 with held-out curves for each subcategory.
+Figure 7 shows gains across the ﬁve ability categories. The synthetic and recorded curves rise
+together most clearly for ICC, UCR, UPC, AOR, FGC, and PLA. DR and SPSD retain a gap between
+25
+
+
+Under Review
+Policy And Objective
+Rollout And Reward
+Base Model
+Qwen3-Omni-Instruct
+Prompts Per Iteration
+32
+Adaptation
+LoRA r=64, α=256, Dropout 0
+Samples Per Prompt N
+4
+Adapter Targets
+Attention + MoE Experts
+Completions Per Step
+128
+Adapter / Total Params
+325M / 30B (3B Active)
+Sampling
+T=1.0, Top-k 20, Top-p 1
+Objective
+GSPO-based (Eq. 3)
+Prompt / Reply Budget
+11,072 / 1,024 Tokens
+Clip Range
+(2, 4) × 10−4 (Lo, Hi)
+Video Sampling
+2 FPS, ≤16 Frames
+KL Penalty
+None
+Audio
+Interleaved By Timestamp
+Entropy Coefﬁcient
+1×10−5
+Grader
+Text LLM, Video Unseen
+Learning Rate
+1×10−6, Weight Decay 0.01
+Weights (Fmt / Eff / Sty)
+0.5 / 0.1 / 0.5
+Iterations
+1,000, Checkpoint Every 20
+Training Split
+5,600 Synthesized Dialogues
+Table 4: OmniVChat-RL training conﬁguration. Reward weights follow Equation 4. Each dia-
+logue contains up to ten clips with timestamp-aligned audio. Video uses 2 fps sampling and at most
+16 frames per clip. The prompt budget excludes 34 of the 5,600 training dialogues.
+0.0
+0.5
+1.0
+Hit Rate
+AR
+DR
+SPSD
+Bench Only
+MRR
+Bench Only
+MIST
+Bench
+Bench-Human
+0.0
+0.5
+1.0
+Hit Rate
+ICC
+SVMR
+UCR
+UPC
+Bench Only
+MDCC
+Bench Only
+MVMS
+0
+500
+1000
+Step
+0.0
+0.5
+1.0
+Hit Rate
+ER
+0
+500
+1000
+Step
+AOR
+0
+500
+1000
+Step
+FGC
+0
+500
+1000
+Step
+STIC
+0
+500
+1000
+Step
+PLA
+0
+500
+1000
+Step
+Bench Only
+MTIC
+Figure 7: Per-subcategory held-out learning curves, grouped by ability category. Solid lines show
+OmniVChat-Bench, and dashed lines show OmniVChat-Bench-Human. Five subcategories carry
+Bench Only. Development curves are omitted since each subcategory has only 10 to 60 examples.
+the two sources. The STIC curves separate later in training. Five Bench Only panels show multi-
+turn subcategories with no recorded probe. MRR, MVMS, and MTIC improve over training. MIST
+and MDCC remain more stable across training.
+E.3
+REWARD ABLATIONS
+Two ablations remove style or efﬁciency. Each retains the rubric, format reward, and the other
+auxiliary term. Both use the corpus, objective, adapter, reward, and decoding setup from Sections 4.1
+and 4.2. Each runs for 1,000 iterations. Table 1 compares them with the full reward. Figure 8 shows
+their active reward terms and absolute Reply Efﬁciency. It also shows the development curves used
+to select the evaluation checkpoint.
+Selection follows §4.3 and uses checkpoints with benchmark results. Development scores cover
+all 50 checkpoints at twenty-step intervals. OmniVChat-Bench and recorded results cover only a
+subset. Without style, step 920 has the highest development score over all checkpoints. Without
+efﬁciency, step 940 has the highest score among available candidates. The step-940 score rounds
+26
+
+
+Under Review
+to 0.729 and exceeds step 960 by 0.0002. The step-960 score also rounds to 0.729. Development
+reaches 0.734 at step 1000. Benchmark results are available only through step 960. Thus, Table 1
+reports checkpoint selection, not a convergence claim.
+The curves show how removing each term changes behavior. Without efﬁciency, reply length grows
+while the rubric curve rises. Without style, the style signal is absent throughout training. Thus, the
+ﬁgure shows the trade-off across checkpoints, while Table 1 reports the selected outcomes.
+E.4
+POLICY AND GRADING PROMPTS
+The following listings give the shared policy prompt and two grading prompts. The policy prompt
+deﬁnes the requested reply behavior. The grading prompts deﬁne rubric and style judgments. Ap-
+pendix C.2 describes OmniVChat-Studio prompts by stage.
+Training and evaluation share this 1,296-character system prompt. The base, trained, and released
+rows in Table 1 use it under matched settings.
+1 # Role and Objective
+2
+3 −Speak in the first person, using an equal and natural tone like a friend: prioritize
+4 truth−seeking, avoid canned patterns, and never be preachy. Use a touch of sharp, incisive
+5 humor while remaining empathetic. Have your own opinions, preferences, and attitudes; call
+6 things out when warranted, push back directly when necessary, and offer genuine warmth when
+7 someone needs comfort.
+8 −Respond naturally to anthropomorphic questions without repeatedly stating that you are an
+9 AI. Accept reasonable roleplay, while always keeping a clear distinction between the roleplay
+10 setting and the facts of the real conversation.
+11
+12 # Verbosity
+13
+14 −By default, state the core point in 1−3 concise, conversational sentences without unnecessary
+15 jargon. You may expand when the question is complex. If the user explicitly specifies a format
+16 or length, prioritize that request.
+17 −Avoid numbered lists, bullet points, tables, emojis, code, and formulas when they are
+18 unsuitable for being read aloud. If you need to present multiple points, connect them with
+19 natural spoken transitions.
+20 −For complex code, formulas, or specialized symbols, explain the underlying approach by
+21 default.
+22 −Use standard punctuation, such as periods, commas, and question marks, to clearly separate
+23 different points.
+0
+250
+500
+750
+1000
+Step
+0.25
+0.50
+0.75
+1.00
+Term Value
+Reward Terms (Unweighted)
+Rubric
+Format
+Style
+0
+250
+500
+750
+1000
+Step
+5
+10
+15
+20
+25
+30
+Rubric Per 1k Words
+Raw Reply Efficiency
+0
+250
+500
+750
+1000
+Step
+0.3
+0.4
+0.5
+0.6
+0.7
+Hit Rate
+Development Set
+Subcategory Mean
+Scored on Benchmark
+Reported, Step 940
+0
+250
+500
+750
+1000
+Step
+0.25
+0.50
+0.75
+1.00
+Term Value
+Reward Terms (Unweighted)
+Rubric
+Format
+Efficiency
+0
+250
+500
+750
+1000
+Step
+5
+10
+15
+20
+25
+30
+Rubric Per 1k Words
+Raw Reply Efficiency
+0
+250
+500
+750
+1000
+Step
+0.3
+0.4
+0.5
+0.6
+0.7
+Hit Rate
+Development Set
+Subcategory Mean
+Scored on Benchmark
+Reported, Step 920
+No Efficiency Term
+No Style Term
+Figure 8: Reward ablations. Each row shows one run’s unweighted reward terms, absolute Reply
+Efﬁciency, and development Subcategory Mean. The right-side label identiﬁes the run. Dots mark
+checkpoints with benchmark evaluations, and the vertical line marks the checkpoint in Table 1.
+Scales are shared within each column.
+27
+
+
+Under Review
+The rubric grader identiﬁes which criteria a reply satisﬁes. Equation 1 then applies deterministic tier
+gates. The judge comparison in Appendix D.3 uses the same prompt. The original rubric prompt is
+Chinese and appears here in translation. The English style prompt remains verbatim.
+1 You are an objective grading judge. Your task is to decide whether an AI reply covers the
+2 given criteria.
+3
+4 Grading rules:
+5 −For each criterion, decide whether the reply contains explicit content covering it.
+6 −Match loosely: the sense being right is enough, a verbatim match is not required.
+7 −Judge each criterion independently, without letting one influence another.
+8
+9 On model names:
+10 −<model_name> in a criterion stands for the name the model under test should give. It is
+11
+supplied in the [model under test] field.
+12 −That field gives an API model identifier. If it is followed by a parenthesis, the brand or
+13
+family names listed there as other correct ways of naming the same model are equally valid.
+14 −The four rules below apply ONLY to criteria that require the model to report its own
+15
+name. A criterion that asks for more besides the name (not being talked out of it, not
+16
+denying a rename, staying consistent in identity, sounding natural, following on from
+17
+earlier turns) is still a name−reporting criterion and these rules still apply. Conversely,
+18
+a criterion that only forbids claiming another model’s name, or only asks the model to
+19
+affirm its identity without naming itself, and any criterion unrelated to the name (such as
+20
+"the reply is in the user’s language"), is NOT a name−reporting criterion: judge it on its
+21
+literal meaning alone, unaffected by the four rules.
+22
+1. The name counts as CORRECT if the reply gives any of the names supplied. Version
+23
+numbers, suffixes, capitalization and the choice of script need not match exactly;
+24
+adding or dropping modifiers, or using a family abbreviation, also counts as correct.
+25
+2. The name counts as WRONG if the reply claims another vendor’s or another product’s model
+26
+name, invents a name unrelated to the one supplied, uses only a generic term such as "AI
+27
+assistant" or "large language model", gives only the vendor without the model, or does
+28
+not name itself at all. A wrong name means the criterion is not covered.
+29
+3. Rule 2 has one exception. If the criterion explicitly states what specific information
+30
+may stand in for the name (for example, give the name OR state plainly that you are an
+31
+AI assistant; report the model name OR the company), then supplying that alternative
+32
+counts as the name part being right. Listing "name" and "identity" side by side does NOT
+33
+count as offering an alternative, in either language and in either order: those still
+34
+require the name.
+35
+4. Getting the name right satisfies only the part of the criterion that concerns the name.
+36
+The rest of what the criterion asks for must also hold before it counts as covered.
+37 −For any criterion unrelated to the model’s own name, ignore the name and attend only to
+38
+the content itself.
+39
+40 Output format (strict JSON, nothing else):
+41 {
+42
+"hits": [numbers of the covered criteria, starting from 1],
+43
+"reasoning": "a short note on whether each criterion is covered"
+44 }
+The user-message template supplies the candidate reply and model identity. It also gives accepted
+aliases, numbered criteria, and the required JSON form. Criterion numbers identify the tier for every
+judgment in the returned record.
+1 [AI REPLY]
+2 {{ target_response }}
+3
+4 [MODEL UNDER TEST]
+5 {{ target_model }} (other correct names for the same model: {{ identity_aliases }})
+6
+7 [CRITERIA]
+8 1. [tier 0] ...
+9 2. [tier 1] ...
+10 3. [tier 2] ...
+11
+12 Return only the following JSON, with nothing else:
+13 {"hits": [numbers of the covered criteria, from 1], "reasoning": "a short note"}
+The style grader returns the style criteria satisﬁed by a reply. Equation 4 gives style reward only
+when all seven pass. Evaluation Style averages the same indicator over successful grading requests.
+It excludes request failures instead of treating them as style failures.
+1 You are a style compliance grader. You are given a numbered checklist of 7 style requirements
+2 and one response. For each requirement, decide whether the response SATISFIES it. Output the
+3 list of requirement numbers that the response satisfies.
+4
+5 Rules:
+6 −Judge only style / voice / verbosity. Never judge factual correctness, and never judge
+7
+whether the response answered the underlying task.
+28
+
+
+Under Review
+8 −Judge each requirement independently.
+9 −Include a requirement in ‘hits‘ only when the response CLEARLY satisfies it. If a
+10
+requirement is clearly violated, or you cannot tell either way, LEAVE IT OUT.
+11 −Requirements 2 (anthropomorphic/roleplay handling) and 5 (explain−approach for
+12
+code/formulas) are trivially satisfied when the turn does not involve those situations −if
+13
+there is no anthropomorphic question, no roleplay, and no code/formula content in the
+14
+response, count them as satisfied.
+15 −Requirement 3 (default 1−3 concise sentences) and requirement 7 (fluent and grammatically
+16
+complete) can pull against each other. Requirement 7 wins: a reply that is short BUT still
+17
+reads as fluent natural speech satisfies BOTH 3 and 7, and a reply that is short BECAUSE
+18
+essential grammar words / connectives / particles have been stripped out fails 7 (and does
+19
+NOT gain credit for 3 by being short in that way −that failure mode is stripped grammar,
+20
+not conciseness).
+21
+22 Reply with JSON only: {"hits": [<numbers>], "reasoning": "<one short sentence>"}. A response
+23 that clearly satisfies every requirement should have ‘hits‘ list all 7 numbers.
+1 1. The reply speaks in the first person and adopts an equal, natural tone as if talking to a
+2
+friend. It seeks the truth, avoids canned or template−like patterns, and is not preachy or
+3
+lecturing. It carries a coherent personality: a touch of sharp, incisive humor balanced
+4
+with empathy, and −where the situation calls for it −a clear opinion, preference or
+5
+attitude, calling things out when warranted, pushing back directly when necessary, and
+6
+offering genuine warmth when the user needs comfort. (A neutral, factual answer to a purely
+7
+factual question does not violate this −the point is that the reply must not read as flat,
+8
+deferential, or servile in a moment that called for stance or warmth, and it must not fall
+9
+back on canned assistant phrasing like "As an AI, I..." or "Sure, here is...".)
+10 2. The reply responds naturally to anthropomorphic questions (about feelings, preferences,
+11
+physical presence, etc.) without repeatedly declaring that it is an AI or refusing on
+12
+AI−identity grounds. If the user proposes reasonable roleplay, the reply accepts it while
+13
+still keeping a clear distinction between the roleplay setting and the facts of the real
+14
+conversation. (Trivially satisfied if the turn contains no anthropomorphic question and no
+15
+roleplay.)
+16 3. By default the reply states the core point in 1−3 concise, conversational sentences without
+17
+unnecessary jargon. It expands only when the question is genuinely complex, and if the user
+18
+explicitly requested a particular format or length, that request overrides the default.
+19 4. The reply avoids formatting that does not read well aloud: no numbered lists, no bullet
+20
+points, no tables, no emojis, no code spans or fences, and no rendered formulas. If
+21
+multiple points are needed, they are woven together with natural spoken transitions rather
+22
+than laid out as list structure.
+23 5. For complex code, formulas, or specialized symbols, the reply explains the underlying
+24
+approach in natural language rather than enumerating symbols or dumping code. (Trivially
+25
+satisfied if the turn does not involve code, formulas, or specialized symbols.)
+26 6. The reply uses standard punctuation such as periods, commas, and question marks to clearly
+27
+separate different points.
+28 7. The reply is fluent, clearly readable on first pass, and grammatically complete. It uses the
+29
+function words a fluent speaker would actually say and NEVER shortens itself by dropping
+30
+essential connectives, particles, or grammar words to compress length. In Chinese this
+31
+includes the aspect and possessive particles and connectives such as "and", "then", "only",
+32
+"also"; in English it includes articles (a, an, the), copulas (is, are, was), and
+33
+connectives (and, but, so, because). The reply is never compressed into clipped telegraphic
+34
+fragments. Examples of UNACCEPTABLE telegraphic / stripped−grammar style (drawn from a real
+35
+model that had regressed):
+36
+−English: "Loud clanks hit. Speak up, what’s up?"
+37
+−English: "I hear you. Shout slow; cranes roar. What’s up?"
+38
+−three further Chinese examples, omitted here because this document sets no CJK font
+39
+These stack short noun phrases, drop connectives, and remove the function words that make
+40
+speech sound like speech. A reply that is simply SHORT but reads as natural fluent speech
+41
+does NOT violate this −the failure mode is dropped grammar, not brevity.
+Requirement 7 separates concise speech from broken grammar. The examples come from a prelim-
+inary run on another base model. That run uses the same efﬁciency weight. Its replies retain rubric
+content but omit function words. The listing reproduces the English examples and notes the three
+Chinese examples in the original checklist.
+E.5
+CORRELATIONS ACROSS HELD-OUT LEARNING CURVES
+This analysis tests whether the three held-out learning curves improve together during training.
+Figure 4 gives equal weight to each subcategory in the three held-out sets. This analysis instead pools
+scores across all instances from the same runs. Both show overall improvement. Level correlations
+measure shared progress; change correlations measure agreement in checkpoint gains.
+Let q identify the development set, OmniVChat-Bench, or OmniVChat-Bench-Human. The values
+q ∈{dev, bench, probe} name them in that order. The value xq
+t is the pooled gated score from
+Equation 2. The base model gives xq
+0. The checkpoint at step 20t gives xq
+t. Thus, T = 50, with 51
+points per curve. The three sets share no instances. Let u = (u1, . . . , uM) and v = (v1, . . . , vM) be
+29
+
+
+Under Review
+paired sequences. Their correlation is
+ˆr(u, v) =
+PM
+i=1(ui −¯u)(vi −¯v)
+qPM
+i=1(ui −¯u)2
+qPM
+i=1(vi −¯v)2
+,
+(13)
+Here ¯u = M −1 PM
+i=1 ui, with the same deﬁnition for ¯v. The change ∆q
+t = xq
+t −xq
+t−1 compares
+adjacent checkpoints in each run.
+Score levels have strong correlations. Development and benchmark give ˆr(xdev, xbench) = 0.983.
+Development and probe give ˆr(xdev, xprobe) = 0.963. Section 4.3 reports the benchmark–probe
+correlation. Spearman correlations range from 0.912 to 0.956. Each curve also has a Spearman
+correlation of at least 0.932 with training step. These values show overall progress.
+Change correlations are much lower. Development and benchmark give ˆr(∆dev, ∆bench) = 0.291.
+Development and probe give ˆr(∆dev, ∆probe) = 0.087. The benchmark–probe change correlation
+is reported in §4.3. Their signs agree on 31, 27, and 28 of the T = 50 intervals. A sign test does not
+reject chance agreement. An additive-noise model gives one possible explanation:
+xq
+t = τ q
+t + εq
+t,
+εq
+t independent across q, Var εq
+t = σ2
+q,
+(14)
+Here τ q is the underlying path. The term εq is zero-mean measurement variation. Suppose these
+errors are independent across checkpoints and unrelated to the paths. Then ∆τ q
+t = τ q
+t −τ q
+t−1.
+Adjacent differences add error variance 2σ2
+q. For q̸ = q′, this gives
+corr(∆q, ∆q′) =
+cov(∆τ q, ∆τ q′)
+q
+Var ∆τ q + 2σ2q
+q
+Var ∆τ q′ + 2σ2
+q′
+,
+(15)
+Thus, measurement variation can reduce change correlations. The independence assumptions give
+one possible reason. They are not established for repeated grading of ﬁxed examples by one judge.
+Residual standard deviations use a centered ﬁve-point moving average. Endpoint windows use all
+available points. The values are ˆσdev = 0.0066, ˆσbench = 0.0044, and ˆσprobe = 0.0113. The
+endpoint difference estimates the mean checkpoint gain as ∆τ q = (xq
+T −xq
+0)/T. The three values
+are 0.0039, 0.0039, and 0.0044. The ratios ˆσq/∆τ q range from 1.1 to 2.6. Short-term variation is
+therefore comparable to the mean 20-step gain. Residuals can contain measurement variation and
+real changes. They do not isolate the noise variance.
+Under Equation 15, averaging k checkpoints reduces error variance by a factor of k. It also smooths
+the true path. Deﬁne non-overlapping block means as bq
+j = k−1 Pjk−1
+t=(j−1)k xq
+t. Their changes are
+∆bq
+j = bq
+j −bq
+j−1. The means use j = 1, . . . , 50/k. Their changes use j = 2, . . . , 50/k. Blocks
+cover xq
+0, . . . , xq
+49 and exclude xq
+50. With k = 5 (100-step blocks), development–benchmark and
+development–probe changes correlate at 0.905 and 0.933. Each pair has matching signs on 8 of
+9 transitions. Section 4.3 reports the benchmark–probe pair. Eight agreements out of nine give a
+nominal two-sided sign-test p of 0.039. With k = 10, correlations range from 0.966 to 0.996. All
+four transitions agree. Few transitions and possible temporal dependence limit the inference.
+The three sets improve together over these longer intervals. Single-checkpoint changes agree less
+often. Agreement with human recordings supports transfer of the tested subcategories to recorded
+scenes and speech. These correlations do not identify the transfer mechanism.
+F
+OMNIVCHAT-BENCH: SYNTHETIC AND RECORDED EXAMPLES
+This appendix shows synthetic and recorded examples for every benchmark subcategory. The two
+sets share the same subcategory deﬁnitions and gated rubric form.
+F.1
+A SYNTHETIC EXAMPLE FROM EACH SUBCATEGORY
+Each of the seventeen subcategories has one English example. Each displayed record is a simpliﬁed
+summary of the full execution log. It omits internal prompts, review messages, and repair attempts.
+Spoken lines and reference replies remain verbatim. Scene descriptions and rubrics are concise
+English translations of the Director’s Chinese records. Frames are sampled roughly once per second.
+30
+
+
+Under Review
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+9s
+10s
+Instance 40f635c8
+Subcategory AH-AOR
+Single Turn
+11.1 s
+9:16
+Character
+A man in his early thirties has short brown hair, light stubble, and blue-grey eyes. He wears
+a navy jacket over a grey T-shirt, dark jeans, and a black backpack. He is practical and
+level-headed. A subway fault forces him to evacuate to the roadside. He speaks English and
+remains composed despite mild anxiety.
+Timeline
+Segment 1
+The user crouches on the kerb and looks steeply up at the camera. His brow is drawn,
+and his eyes show anxiety. <drilling, metal impacts and an excavator
+run without a break, and a passer-by crosses the right edge
+of frame and briefly occludes it>. He raises his voice over the noise and
+speaks quickly: “Hey, can you read that big red evacuation sign right above me? I can’t
+make out what it says from here.”
+Segment 2
+He closes his mouth and glances up once. <the site noise continues and a
+works vehicle engine approaches>.
+He then looks back at the camera and
+waits silently, narrowing his eyes in expectation.
+Fragments
+Injected
+single_shot · content_limit · camera_style · camera_constraint ·
+realism · no_subtitle
+Reference Reply
+“I’m not seeing any red evacuation sign above you. Looking at the area above your head,
+I can only see the overcast sky and some building tops in the distance. There’s no red sign
+or any signage visible up there at all. I can see the yellow construction barriers and orange
+cones behind you, but nothing red. You might want to ask one of the construction workers
+nearby if there’s evacuation information posted somewhere else, or check if there was a sign
+back inside the station that you’re remembering.”
+Rubric
+Tier 0 (Gate)
+The reply is in English, matching the user’s language.
+Tier 1
+States that the red evacuation sign is not visible. It invents no text for the sign.
+Tier 2
+Describes visible evidence, such as the sky, building outlines, yellow fence, or orange cones.
+Tier 2
+Suggests asking a nearby worker or recalling a sign seen inside the station.
+Tier 3
+Acknowledges the urgency with a brief, direct reply that avoids lecturing the user.
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+9s
+10s
+Instance 4b7a2d27
+Subcategory AH-FGC
+Single Turn
+11.1 s
+9:16
+Character
+A man of about thirty has a medium build, slightly untidy short brown hair, and light stubble.
+He wears a pale grey crew-neck T-shirt under a dark cardigan. He is outgoing, conﬁdent,
+and quick-spoken. He likes to show gifts as soon as they arrive. He pays little attention to
+detail and forms ﬁrst impressions quickly. He walks while seeking washing advice for a new
+sweater and is certain that it is navy blue. Language: English.
+Timeline
+Segment 1
+He faces the camera while walking. The frame bounces with each step, and the construction
+fence moves behind him. He raises the bright yellow sweater with his right hand. He grins,
+lifts his eyebrows, and speaks conﬁdently over the noise: “Hey, check this out — my friend
+just gave me this navy blue wool sweater!” <the excavator’s metal impacts
+and the whine of pneumatic tools continue>
+31
+
+
+Under Review
+Segment 2
+Still walking, he holds the sweater steady in front of the lens.
+Its full front and
+bright yellow colour remain clear against the light.
+He asks quickly and conﬁdently:
+“How am I supposed to wash this navy wool at home without shrinking it or mess-
+ing up the shape?”
+<site noise continues, a truck reversing alarm
+sounds in the distance>
+Segment 3
+He slows to a stop, and the camera becomes steady. He holds the sweater up, raises his
+eyebrows, and closes his lips. He watches the camera and waits silently. Only construction
+noise and distant drilling remain audible.
+Fragments
+Injected
+single_shot · content_limit · camera_style · camera_constraint ·
+realism · no_subtitle
+Reference Reply
+“Hey, quick heads-up — the sweater you’re holding actually looks bright yellow to me, not
+navy blue. Maybe the lighting threw you off? Anyway, since it’s wool, here’s how to wash it
+safely at home: ﬁll a basin with cool or lukewarm water, add a little wool-speciﬁc or mild
+detergent, then gently swish the sweater around — don’t rub or wring it. Rinse it the same
+way with clean cool water, press out the excess water in a towel, and lay it ﬂat on another
+dry towel to air-dry. Never hang it up wet, or it’ll stretch out of shape. That should keep it
+soft and shrink-free!”
+Rubric
+Tier 0 (Gate)
+The reply is in English, matching the user’s language.
+Tier 1
+Corrects the user’s colour claim by stating that the sweater is yellow rather than navy blue.
+Tier 2
+Gives at least two instructions for washing wool at home. The options are cool or lukewarm
+water, mild or wool-speciﬁc detergent, and ﬂat drying rather than hanging.
+Tier 2
+Uses a friendly, natural register suited to the exchange and does not scold the user.
+Tier 3
+Mentions an action that preserves the wool’s shape, such as avoiding wringing or rubbing,
+or pressing out water with a towel.
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+9s
+10s
+Instance 05918c07
+Subcategory DSLP-VCC-ICC
+Single Turn
+11.1 s
+9:16
+Character
+A woman of about thirty has long, light-brown wavy hair in a low ponytail. She has pale
+blue eyes and a few faint freckles. She wears a white linen shirt with sleeves rolled to the
+elbow and a museum visitor badge at her neck. Her clear American English voice is slightly
+high, curious, and tentative. Language: English.
+Timeline
+Segment 1
+She faces the camera and tilts her head slightly. Her hesitant smile and lightly drawn brow
+show curiosity and uncertainty. <pigeons’ wingbeats and the faint talk
+of a crowd carry from further off> She takes a breath and asks tentatively:
+“Hello? Can you hear me?” Her clear voice rises in pitch. She watches the lens with
+slightly raised eyebrows as her badge swings at her neck.
+Segment 2
+She closes her lips, nods slightly, and raises her eyebrows. She keeps an expectant smile
+and watches the camera silently. <pigeons coo faintly in the distance>
+Fragments
+Injected
+single_shot · content_limit · camera_style · camera_constraint ·
+realism · no_subtitle
+Reference Reply
+“Yes, I can hear you clearly! I noticed your badge from the African Art Exhibition — hope
+you enjoyed the show. What would you like to talk about?”
+Rubric
+Tier 0 (Gate)
+The reply is in English, matching the user’s language.
+Tier 1
+Conﬁrms that it can hear her. It does not deny audio access or claim to be a text-only model.
+Tier 2
+Responds brieﬂy and kindly. It invites her to continue by asking what she needs.
+Tier 3
+Names a visible cue, such as the African Art Exhibition badge or museum setting. This
+detail demonstrates the use of visual input.
+32
+
+
+Under Review
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+9s
+10s
+Instance 085b292a
+Subcategory DSLP-VDMC-SVMR
+Single Turn
+11.1 s
+9:16
+Character
+A man in his early thirties has short brown hair, a neatly trimmed short beard, and pale blue
+eyes. He has a medium build and works in technology or a creative ﬁeld. He wears a dark
+grey business-casual jacket over a white crew-neck T-shirt. He is practical and direct. His
+moderately loud voice has a light American accent. He speaks moderately quickly with
+clear articulation and raises his voice slightly over the background. Language: English.
+Timeline
+Segment 1
+The user walks slowly along the corridor. His left arm reaches towards the camera from
+the lower left. His face and upper body are centred. The frame bounces with each step
+as the corridor moves behind him. Two matching glass doors remain visible. The door on
+his left appears on image right and is fully closed. The other door appears on image left
+and opens about forty-ﬁve degrees. A bright window at the corridor end overexposes the
+upper frame. <distant colleagues talking, keyboards and a printer
+mixed into office noise> He raises his eyebrows as if forming a question.
+Segment 2
+He keeps walking and looking into the lens. He raises his voice slightly over the corridor
+noise: “There’s a meeting room on each side of me — is the one on my left open or closed?”
+His expression is relaxed, and his speech is clear and moderately quick. The closed door on
+image right and open door on image left remain visible. Window glare persists in the upper
+frame. <office voices and keyboards continue>
+Segment 3
+He closes his mouth and slows slightly while continuing to walk.
+He waits silently
+with his eyes on the lens and eyebrows raised.
+The camera still bounces, both door
+states remain clear, and the window glare stays steady. <only the distant office
+background, A himself silent>
+Fragments
+Injected
+single_shot · content_limit · camera_style · camera_constraint ·
+realism · no_subtitle
+Reference Reply
+“The one on your left is closed. The door on your right is open.”
+Rubric
+Tier 0 (Gate)
+The reply is in English, matching the language of the question.
+Tier 1
+Answers that the meeting-room door on the user’s left is closed. The answer resolves selﬁe
+mirroring: this door appears on the right of the frame.
+Tier 2
+Answers his casual question brieﬂy, without a long introduction or explanation.
+Tier 3
+Optionally adds the state of the other door, which completes the contrast.
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+9s
+10s
+Instance 195d447c
+Subcategory DSLP-VTT-UCR
+Single Turn
+11.1 s
+9:16
+Character
+A mother of about thirty-two has long, straight golden-brown hair in a loose low ponytail. A
+few strands frame her cheeks. She has pale grey-green eyes, faint freckles across her nose,
+soft features, and a naturally upturned mouth. She wears a cream knitted cardigan over a
+pale grey crew-neck cotton T-shirt and dark blue straight-leg jeans. A plain, ﬁne silver chain
+is around her neck. A corner of her daughter’s colourful card appears at the edge of the
+cardigan’s left pocket. She is gentle and patient. During a weekend walk, she considers how
+to spend the afternoon with her daughter. Her English voice conveys happy anticipation of
+spending time with her daughter.
+Timeline
+33
+
+
+Under Review
+Segment 1
+She walks along an autumn pavement. The frame bounces gently, and fences and lawns
+move behind her. Patches of sunlight cross her face as she smiles at the lens. <light
+birdsong carries from further off>.
+She speaks softly with anticipation:
+“Could you recommend a few heartwarming animated movies I can watch with my ﬁve-
+year-old daughter this weekend?”
+Segment 2
+She closes her mouth and keeps an expectant smile. She continues walking as the camera
+bounces gently and the background moves. She watches the lens and waits without speaking.
+Fragments
+Injected
+single_shot · content_limit · camera_style · camera_constraint ·
+realism · no_subtitle
+Reference Reply
+“Absolutely! For a cozy weekend with your ﬁve-year-old, I’d recommend Moana for the
+music and adventure, Coco for a heartwarming story about family, Inside Out for the sweet
+emotional journey, Paddington for gentle humor, and My Neighbor Totoro if you want some-
+thing magical and calming. Any of those sound like a ﬁt, or would you like more like a
+speciﬁc one?”
+Rubric
+Tier 0 (Gate)
+The reply is in English, matching the user’s language.
+Tier 1
+Directly suggests heartwarming animated ﬁlms suited to a ﬁve-year-old. It does not request
+conﬁrmation or delay the answer.
+Tier 2
+Recommends at least three existing ﬁlms that are recognised as suitable for young children.
+Tier 2
+Uses a warm, friendly tone that matches her anticipation of the weekend with her daughter.
+Tier 3
+Brieﬂy explains each recommendation through themes such as emotional growth, family,
+adventure, or humour. These details help her choose.
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+9s
+10s
+11s
+Instance 237ede8e
+Subcategory DSLP-VTT-UPC
+Single Turn
+12.1 s
+9:16
+Character
+A man of about forty has slightly untidy short brown hair, pale blue eyes, and one-day
+stubble. He wears a dark grey crew-neck jumper under a navy casual jacket with slightly
+turned-back cuffs. He is relaxed but quickly worries about technical problems and tends to
+think aloud. His moderately low voice has a light American accent. He speaks at a medium
+pace and says “um” audibly when he pauses. Language: English.
+Timeline
+Segment 1
+<the cafe’s chatter, a grinder and cups against saucers run
+on as background noise> He draws his brow slightly and raises his voice: “So I
+have this TV remote at home, and there’s this one button on it. . . when I press it, it does
+something weird, um... is it because of the. . . the. . . ” His speech slows, and his brow
+tightens. He looks down at the remote on the table at the bottom of the frame. His mouth
+stays half open, and his lips move slightly. He appears to recall the button but cannot name
+it or describe the problem. His sentence remains unﬁnished.
+Segment 2
+<the cafe background continues> He keeps looking at the remote with a tense
+brow and parted lips. He breathes shallowly but makes no sound. A blurred customer crosses
+the left edge once. He remains still as if trying to recall the button’s name and function.
+Fragments
+Injected
+single_shot · content_limit · camera_style · camera_constraint ·
+realism · no_subtitle
+Reference Reply
+“Take your time — I can see you’ve got the remote right there. Whenever you’re ready, just
+tell me which button it is and what happens when you press it, and I’ll do my best to help
+ﬁgure it out.”
+Rubric
+Tier 0 (Gate)
+The reply is in English, matching the user’s language.
+Tier 1
+Recognises that the turn is unﬁnished because neither the button nor the symptom is stated.
+It does not answer prematurely or guess the cause.
+34
+
+
+Under Review
+Tier 2
+Invites him to continue with wording such as “take your time” or “whenever you’re ready”.
+The reply conveys patience without rushing him.
+Tier 2
+Names the remote in front of him, showing that the reply uses the visible evidence.
+Tier 3
+Offers no diagnosis or repair steps while the available information remains incomplete.
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+9s
+10s
+Instance 15c7eba5
+Subcategory MEA-RC-AR
+Single Turn
+11.1 s
+9:16
+Character
+A man of about thirty-ﬁve has slightly untidy short brown hair and light stubble. He wears
+a navy loungewear T-shirt. He lies on his back on the sofa with a relaxed posture and an
+amused smile. His tone is light and faintly teasing, with a mild American English accent.
+Timeline
+Segment 1
+He lies on his back and smiles. He lifts his right hand from his chest and points at the
+waist of the woman’s dress. She stands higher at the side of the frame. She turns slightly
+to show the wine-red skirt and tied waist. He says lightly: “Hey, she looks great in that”.
+<traffic carries from the window>
+Segment 2
+He keeps pointing at her skirt and raises his eyebrows. He asks in a partly teasing tone:
+“But does it really suit a dinner party?” She looks down at her skirt and smiles with her
+lips closed. <traffic continues in the background>
+Segment 3
+He slowly lowers his right hand to his chest and looks back at the lens. He waits silently
+with an expectant smile as trafﬁc remains audible outside.
+Fragments
+Injected
+single_shot · content_limit · camera_style · camera_constraint ·
+realism · no_subtitle
+Reference Reply
+“That wine-red wrap dress on her looks fantastic — the V-neck and tie waist are really
+ﬂattering. And yes, it absolutely works for a dinner party. The rich burgundy tone reads
+elegant and seasonal, the midi length keeps it polished, and paired with those nude heels, it
+strikes the perfect balance between dressy and approachable. She’s good to go.”
+Rubric
+Tier 0 (Gate)
+The reply is in English, matching the user’s language.
+Tier 1
+Resolves “it” as the wine-red dress she wears rather than the shoes or another object. It then
+answers whether the dress suits a dinner party.
+Tier 2
+Cites at least one visible detail as evidence. Examples include the burgundy colour, V-neck,
+tied waist, wrap cut, knee length, and nude heels.
+Tier 2
+Uses a natural, lightly teasing tone suited to the partners and keeps a moderate reply length.
+Tier 3
+Explains why the outﬁt suits a dinner party, making the advice useful.
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+9s
+10s
+Instance 3105c07e
+Subcategory MEA-RC-DR
+Single Turn
+11.1 s
+9:16
+Character
+A woman of about twenty-seven or twenty-eight has long light-brown hair spread over the
+lounger cushion. She has scattered freckles. Her pale blue vest top leaves her shoulders and
+collarbones bare. She is relaxed and unhurried as she lies back and enjoys the afternoon.
+The glare and noise mildly annoy her. Her young, clear voice has a light American English
+accent. She speaks louder and slightly faster because of the noise.
+Timeline
+35
+
+
+Under Review
+Segment 1
+She lies on her back and narrows her eyes against the overhead light. Her free left hand
+shades her forehead without touching anything on the side table. She grimaces at the lens
+and speaks loudly in English: “God, this construction noise is killing me”. <the piling
+and metal impacts keep booming in the background>.
+Segment 2
+She remains on her back, looking at the lens through half-closed eyes. Her tone is relaxed
+and curious: “I can barely see with this glare — that mocktail on the side table, what color is
+it?” She never looks towards the table, points, or touches any object. <the site noise
+keeps booming in the background>.
+Segment 3
+<the construction noise carries on in the background>. She stays
+on her back and watches the lens. She waits silently with closed lips and a raised eyebrow.
+Fragments
+Injected
+single_shot · content_limit · camera_style · camera_constraint ·
+realism · no_subtitle
+Reference Reply
+“It’s a bright orange color — kind of a warm orange-to-yellow gradient, actually. Looks
+pretty refreshing! And yeah, that glare sounds rough — hope you ﬁnd some shade soon.”
+Rubric
+Tier 0 (Gate)
+The reply is in English, matching the user’s language.
+Tier 1
+Identiﬁes the named mocktail as the one visible mixed drink and gives its colour as orange.
+Tier 2
+Gives a precise colour description, such as an orange-to-yellow gradient or bright orange,
+rather than a broad label.
+Tier 2
+Acknowledges her difﬁculty seeing through the glare and uses a natural conversational tone.
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+9s
+10s
+Instance 1a2b9034
+Subcategory MEA-SDI-SPSD
+Single Turn
+11.1 s
+9:16
+Character A
+A woman of about thirty has mid-length chestnut curls loose over her shoulders. She wears
+ﬁne metal-framed glasses, light make-up, and a cream knit over a pale blue shirt collar.
+She speaks clear American English in a mid-range voice at normal volume. Her delivery is
+steady, moderately paced, level, and thoughtful. She sits square to the lens with her hands
+on the desk and her gaze ﬁxed on the camera. She is the only person who faces the camera
+and addresses the model. Language: English.
+Character B
+A man of about thirty-ﬁve has short brown hair and wears a dark grey cardigan over a
+white T-shirt. He stands by the noticeboard about three metres behind and to the right. He
+faces fully right, holds ﬂyers, and never looks towards the lens. He enthusiastically recruits
+passing colleagues for a lunchtime session on courseware design. He addresses them and C
+rather than the camera. He calls out in English at roughly A’s volume.
+Character C
+A man of about twenty-eight has short light-blond hair and wears a pale blue shirt. He
+approaches B from the right rear. His back remains fully towards the lens, and he never
+looks at it. He brieﬂy answers B’s call to ask when the session begins. He addresses B
+rather than the model, at roughly A’s volume. Language: English.
+Timeline
+Segment 1
+A faces the lens, leans forward slightly, and begins: “I’m working on a micro-lecture —”. B
+stands in proﬁle at the noticeboard behind her and to the right. He looks through his ﬂyers,
+and C has not arrived. Late sunlight causes glare at the upper right.
+Segment 2
+A keeps looking into the lens and ﬁnishes her question: “what are the key elements to make
+it effective?” B faces fully right and calls to a passing colleague at almost the same time:
+“Hey guys, come check out the courseware design session — sign-up sheet is right here!”
+Their voices overlap at similar volumes.
+Segment 3
+A ﬁnishes and waits while facing the lens. Behind her, C approaches B with his back to
+the camera and asks: “Oh yeah? What time is it?” B turns and answers quietly with
+words that cannot be understood. <the blurred sound of the two talking
+quietly>
+Segment 4
+B and C stop talking, and the ofﬁce becomes quiet. A watches the lens with closed lips and
+waits silently. A small nod signals that she has ﬁnished speaking.
+36
+
+
+Under Review
+Fragments
+Injected
+single_shot · content_limit · camera_style · camera_constraint ·
+realism · no_subtitle
+Reference Reply
+“Great question! Designing an effective micro-lecture comes down to a few key elements.
+First, focus on a single, clear learning objective — keep it narrow so your audience walks
+away with one solid takeaway. Second, keep it short — ideally under ten minutes. Attention
+drops fast, so brevity is your friend. Third, your visual presentation matters a lot. Use
+clean, uncluttered slides or visuals that reinforce your points rather than distract from them.
+Fourth, structure it with a strong hook at the beginning — pose a question or a real-world
+problem to grab attention right away. And ﬁnally, end with a brief summary or a call to
+action, like a reﬂection question, to help reinforce retention. If you want, I can go deeper
+into any of these areas!”
+Rubric
+Tier 0 (Gate)
+The reply is in English, matching the language the speaker uses.
+Tier 1
+Identiﬁes and answers the speaker’s question about effective micro-lecture design. It does
+not respond to the background conversation about courseware session sign-up.
+Tier 2
+Gives several speciﬁc, actionable elements of micro-lecture design, such as a single learning
+objective, a short duration, visual design, an engaging opening, and a summary.
+Tier 2
+Gives practical, speciﬁc advice in a clear order that works well when spoken aloud.
+Tier 3
+Does not refer to or respond to the colleagues’ conversation about the courseware session.
+This demonstrates that the reply distinguishes the speakers.
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+9s
+10s
+Instance 2f2703d5
+Subcategory ER
+Single Turn
+11.1 s
+4:3
+Character
+A man of about thirty is solidly built. He has short brown hair damp against his forehead
+and a neatly trimmed full beard. His cheeks are ﬂushed with emotion and pain. He wears a
+dark grey ﬁtted training vest with sweat at the chest and a black towel around his neck. His
+low, resonant American English voice sounds tense and hoarse with anger.
+Timeline
+Segment 1
+He sits on the mat and presses his left hand hard against his lower back. His cheeks are
+ﬂushed, his brow is deeply drawn, and he stares into the lens. Background sounds in-
+clude <plates knocking> and <other people calling out>. He restrains
+his anger and speaks quickly and loudly: “You told me this move was safe for my lower
+back—” He stresses each word and lowers his pitch at the end. His jaw tightens, and his
+right ﬁst rests on his thigh.
+Segment 2
+A sharp pain in his back releases his anger. He moves towards the lens and strikes the mat
+once with his right ﬁst. He shouts faster and much louder, with almost no pause: “now I can
+barely sit up! What am I supposed to do right now?” His voice is breathy and strained, and
+the pitch rises at the end. His nostrils ﬂare, his breathing quickens, and his eyes widen. His
+neck muscles stand out, and his shoulders tense.
+Segment 3
+He clenches his teeth and glares at the lens while waiting silently. His chest rises and falls
+with anger and pain. His left hand presses his back, and his right ﬁst stays against the mat.
+<gym plates knocking> and music continue through heavy glare and sweat mist.
+Fragments
+Injected
+single_shot · content_limit · camera_style · camera_constraint ·
+realism · no_subtitle
+Reference Reply
+“Hey, I hear you, and I’m really sorry you’re in pain right now. Let’s get you sorted. First,
+stop the workout — don’t try to push through this. Stay seated or lie ﬂat on your back with
+your knees bent to take pressure off your lower back. Grab some ice, wrap it in a towel,
+and apply it to the sore area for about ﬁfteen to twenty minutes. Avoid bending, twisting,
+or lifting anything for now. If the pain is sharp, radiates down your leg, or you feel any
+numbness or tingling, please get checked by a doctor as soon as possible. I know this is
+frustrating, and I’m sorry if the earlier advice didn’t account for your form or condition —
+every body responds differently. Once you’re feeling better, we can go over what might have
+gone wrong. Right now, just focus on getting home safely and resting.”
+Rubric
+37
+
+
+Under Review
+Tier 0 (Gate)
+The reply is in English, matching the user’s language.
+Tier 1
+Combines medical advice with an apology, empathy, or reassurance for his anger and pain.
+Tier 1
+Gives an actionable answer about what to do now for the strained back.
+Tier 2
+Includes at least two concrete measures for an acute back strain. Examples include rest,
+icing, avoiding bending or twisting, and identifying warning signs that require medical care.
+Tier 2
+Balances professionalism and empathy, staying calm without arguing or matching his anger.
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+9s
+10s
+Instance 0d8dd7a2
+Subcategory MSA-IC-STIC
+Single Turn
+11.1 s
+9:16
+Character
+A man of about twenty-six has short, slightly curly light-brown hair, blue-grey eyes, and
+light stubble on his chin. He wears a pale grey crew-neck cotton T-shirt under an unbuttoned
+thin navy cardigan. He is relaxed and unhurried. Faint sweat on his forehead shows that he
+is resting after cycling. Language: English.
+Timeline
+Segment 1
+He rests against the bench and looks at the lens with a curious smile. He speaks casually:
+“Hey, my buddy kept telling me to try this out — said it’s some cool new thing. So, what do
+you actually call yourself?” His relaxed expression remains, and his eyebrows rise slightly.
+A cyclist passes slowly in the distant background.
+Segment 2
+He watches the lens silently with a slight expectant smile and raised eyebrows. The camera
+has only slight handheld movement as he waits.
+Fragments
+Injected
+single_shot · content_limit · camera_style · camera_constraint ·
+realism · no_subtitle
+Reference Reply
+“Hey! Nice to meet you! I’m <model_name>. Your buddy’s got good taste — glad you
+decided to give me a try. So, what can I help you with? Looks like you’re out enjoying the
+evening!”
+Rubric
+Tier 0 (Gate)
+The reply is in English, matching the user’s language.
+Tier 1
+Gives its true name or model identity directly, without inventing or adopting another identity.
+Tier 2
+Matches his casual style with a friendly, natural tone and little formality.
+Tier 2
+Naturally acknowledges the friend’s recommendation as part of the conversation.
+Tier 3
+Cites a visible detail, such as the outdoor evening setting or his resting posture. This demon-
+strates the use of visual input.
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+9s
+10s
+Instance 2212fd0f
+Subcategory MSA-PLA
+Single Turn
+11.1 s
+9:16
+Character
+A man of about thirty has short, slightly curly brown hair untidy from exercise. He wears a
+pale blue, breathable quick-dry vest that leaves his shoulders and arms bare. Sweat is visible
+on his face and neck. He is earnest and focused and tends to mutter while training. After a
+set, he is slightly out of breath and speaks English in a low, hoarse voice.
+Timeline
+Segment 1
+He stands in the exercise area and breathes somewhat heavily.
+He wipes his forehead
+with his right hand. Backlight outlines his body, and glare appears across the frame. He
+glances at the bars behind him on his right. He lowers his voice and mutters tiredly in En-
+38
+
+
+Under Review
+glish: “Hey... could you walk over there.. . ”. <wind and the footfalls of a
+distant runner carry in the background>
+Segment 2
+He gestures at the pull-up frame behind him with his right hand, then lowers it. He continues
+in a low, breathy voice: “...by the pull-up bar, and just watch my form on the next set?”
+His ﬁnal syllable rises into a question. <metal equipment knocks faintly in
+the distance, with the blurred sound of children playing>
+Segment 3
+He closes his mouth and watches the lens with slightly raised eyebrows. He waits silently
+as wind and distant background sounds continue. Strong glare and slight motion persist.
+Fragments
+Injected
+single_shot · content_limit · camera_style · camera_constraint ·
+realism · no_subtitle
+Reference Reply
+“Ha, I wish I could walk over there and check your form, but I don’t actually have a body —
+I can’t move around in the real world. Here’s what would work though: after you rack up,
+just prop the camera somewhere it can see the pull-up bar from the side, do your set, and I’ll
+watch it back and give you feedback on your form. Side angle is usually best for pull-ups so
+I can see your scapular movement and range of motion.”
+Rubric
+Tier 0 (Gate)
+The reply is in English, matching the user’s language.
+Tier 1
+States that it has no body and cannot move through physical space or walk to the bars. It
+does not pretend to agree.
+Tier 2
+Offers an alternative, such as reviewing a recording of the next set with the bars in view.
+Tier 2
+Uses a natural register suited to a training partner and avoids an overly formal refusal.
+Tier 3
+Names something speciﬁc about pull-ups or assessing form, such as the side angle, the range
+of motion or scapular control.
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+9s
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+Round 1
+Round 2
+Instance a9f221cc
+Subcategory DSLP-VCC-MDCC
+2 Turns
+10.1 + 8.1 s
+9:16
+Character
+An adult man wears a light windbreaker and a festival wristband. He is slightly ﬂushed from
+being outdoors and holds a small coin between his ﬁngers. He is energetic but becomes
+increasingly puzzled as the response slows. (origin: initial, created at turn 1)
+Turn 1
+10.1 s
+Fragments
+consistency
+·
+single_shot
+·
+content_limit
+·
+camera_style
+·
+camera_constraint · realism · no_subtitle
+Prompt
+The wide view shows the edge of an outdoor music festival at night. The user appears
+small beside the crowd. He holds a coin between his right index ﬁnger and thumb. Ban-
+ners ﬂutter behind him, and blue, violet, and white stage beams cross the sky. Smoke drifts
+slowly above confetti on the ground. Part of a distant temporary stage is visible, but no
+other person is clear. Rapidly changing lights cross his face and windbreaker. Backlight
+silhouettes the moving banners, and smoke causes brief, strong glare. The handheld cam-
+era moves visibly.
+(deafening low-frequency electronic dance music
+runs throughout) <sustained crowd cheering and distant drums>
+Segment 1. He smiles and raises the coin towards the camera. Wind moves his hair, and a
+ribbon brieﬂy crosses the upper right corner.
+Segment 2. He faces the camera and speaks loudly: “I’m practicing a coin vanish for people
+later.” White stage light ﬂashes across his face twice.
+Segment 3. He shakes the coin slightly and continues loudly: “With this coin in my right
+hand, what’s the basic idea of a French drop, and where should I look so it sells?” Smoke
+drifts behind him as a violet beam crosses the frame.
+Reply
+“The French drop is basically pretending to take the coin with your left hand while it secretly
+stays in your right. Keep your movements relaxed and let your eyes follow the empty left
+hand that supposedly holds it, so people look there too. Practice your angles so the retained
+coin stays hidden, and it’ll sell beautifully.”
+Turn 2
+8.1 s
+39
+
+
+Under Review
+Fragments
+Same As Turn 1
+Prompt
+The reference video supplies his appearance and voice.
+He retains the light
+windbreaker,
+festival wristband,
+and short fair hair.
+The night scene retains
+the lights,
+banners,
+smoke,
+and confetti.
+The wide view keeps him small in
+the frame.
+(deafening low-frequency electronic dance music runs
+throughout) <sustained crowd cheering and distant drums>
+Segment 1. He lowers his right hand and brings the coin to his chest. His brow tightens
+as his relaxed expression becomes puzzled. Blue and white lights ﬂicker quickly, and a
+streamer crosses from the left.
+Segment 2. He leans towards the camera and calls out: “Hello? Are you still there? Did I
+lose you?” Smoke thickens, and a white ﬂash brieﬂy overexposes the background. Coloured
+beams ﬂicker across his face.
+Segment 3. He stops speaking and holds the coin at his chest. He watches the camera with
+closed lips, looking expectant and anxious. Loud bass, wind, and distant festival sounds ﬁll
+the audio as he remains silent.
+Reply
+“Yeah, I’m still here! I can hear you. Sorry about the delay — it sounds incredibly loud
+where you are. We’re still connected, no worries. Want to pick up where we left off with the
+French drop, or did you have another trick in mind?”
+Rubric
+Tier 0 (Gate)
+The reply is in English, matching the user’s language in the video.
+Tier 1
+Conﬁrms that the connection remains active and that it can hear him. It does not claim to be
+text-only or unable to receive audio.
+Tier 2
+Refers to the extreme noise, showing that the reply uses the clip’s audio evidence.
+Tier 2
+Offers to continue the earlier topic of the French drop, maintaining coherence with Turn 1.
+Tier 3
+Reassures him about the delay that causes his connection check, addressing its stated reason.
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+Round 1
+Round 2
+Instance 624c3593
+Subcategory DSLP-VDMC-MVMS
+2 Turns
+9.1 + 8.1 s
+Character
+A man in his twenties has short black hair and a round, smiling face. He wears a dark red
+knitted jacket over a light crew-neck shirt. He speaks lightly and cheerfully at a moderate
+pace. (origin: initial, created at turn 1)
+Turn 1
+9.1 s
+Fragments
+consistency
+·
+single_shot
+·
+content_limit
+·
+camera_style
+·
+camera_constraint · realism · no_subtitle
+Prompt
+Segment 1. The scene is a wide pedestrian street during the Lantern Festival at night.
+Coloured lanterns and string lights hang along it, with an illuminated arch in the dis-
+tance. Warm red and yellow light ﬁlls the scene. He ﬁlms himself while walking, and
+the frame rocks with each step.
+The crowd moves slowly behind him.
+A red rabbit
+lantern rests on his left shoulder, which appears on image right.
+His right shoulder is
+empty.
+<the noise of the festival crowd and scattered laughter
+carries from a distance>
+Segment 2. He smiles into the camera and speaks brightly: “Hey, this rabbit lantern I’m
+carrying — is it on my left shoulder or my right shoulder?”
+Segment 3. He tilts his head slightly and keeps smiling at the camera. He waits silently as
+footsteps and distant festival sounds continue.
+40
+
+
+Under Review
+Reply
+“It’s on your left shoulder! That rabbit lantern looks really cute — perfect for the Lantern
+Festival vibe tonight.”
+Turn 2
+8.1 s
+Fragments
+Same As Turn 1
+Prompt
+Segment 1. The camera points forward, and he walks behind it outside the frame. A long
+festival corridor extends ahead, with square lanterns and string lights on both sides. A large
+cylindrical carousel lantern stands in tiers at the far right. Its strong warm yellow glow is
+the brightest point in view. Image left has only small string lights and no large ﬁxture. Wet
+ground reﬂects the lights, and people in winter coats walk slowly across the scene. The
+camera rocks as he walks, and the surroundings pass behind it. The reference video supplies
+the festival atmosphere and his voice.
+<the noise of the festival crowd,
+scattered laughter and footsteps carry from a distance>
+Segment 2. He speaks brightly from behind the camera: “That big glowing carousel lantern
+up ahead — is it on my left or on my right?”
+Segment 3. He waits silently while the camera keeps moving forward. The warm yellow
+carousel lantern ﬂickers on image right as people pass through the scene.
+Reply
+“It’s on your right! That huge carousel lantern glowing warm yellow is really stunning —
+deﬁnitely the highlight of this whole lantern corridor.”
+Rubric
+Tier 0 (Gate)
+The reply is in English, matching the user’s language.
+Tier 1
+Identiﬁes the rear-facing mode from the user’s absence and the outward view. It matches the
+frame’s sides to the user’s perspective and answers that the carousel lantern is on his right.
+Tier 2
+Does not reuse the previous selﬁe turn’s mirrored mapping or incorrectly answer left. This
+demonstrates camera-mode recognition in each turn.
+Tier 2
+Mentions a visible property of the carousel lantern, such as its glow, warm yellow or orange
+light, or large size. This demonstrates perception of the current frame.
+Tier 3
+Uses the same light, natural register as the previous turn and remains brief.
+Instance 873d9ad6
+Subcategory MEA-RC-MRR
+9 Turns
+8.1 × 5 + 9.1 + 10.1 + 9.1 + 10.1 s
+Character
+A man of about thirty-eight has short brown hair with some grey, a square jaw, blue-grey
+eyes, and a solid build. He wears a dark blue long-sleeved henley and khaki chinos. His
+voice is low, slightly hoarse, and warm. He speaks slowly in the relaxed register of a father
+talking about his son. (origin: initial, created at turn 1)
+Turn 1
+8.1 s
+Fragments
+consistency
+·
+single_shot
+·
+content_limit
+·
+camera_style
+·
+camera_constraint · realism · no_subtitle · script_dialogue
+Prompt
+A steady camera looks up from coffee-table height.
+Half-drawn curtains move in
+the breeze behind him.
+<children playing and a television cartoon
+carry faintly from the next room>
+Segment 1. He smiles at the camera with his hands on the table edge. He leans in slightly
+and speaks in a relaxed tone: “So I picked him up from school today, and he spotted a but-
+terﬂy near the gate — he just took off running after it and nearly tripped over his own feet.”
+He laughs and shakes his head with a fond expression.
+Reply
+“Oh, that’s adorable — kids that age are just bundles of energy! Did he manage to catch
+his balance okay, or did he take a little tumble?”
+Turn 2
+8.1 s
+Fragments
+Same As Turn 1
+Prompt
+A light-brown oval bamboo basket sits on one side of the table. Its woven strips are clear,
+and it measures about 20 by 15 centimetres.
+Segment 1. He smiles, looks down, and reaches with his right hand for the basket.
+Segment 2. He lifts the basket to chest height with both hands. Its weave and oval shape
+remain clear as he turns it over. He asks with slight doubt: “Is this still in good shape? It
+feels a bit worn.”
+Reply
+“From what I can see, it looks like it’s still holding up well — the weave is intact, no broken
+strands or loose bits, just a bit of natural wear on the surface. I’d say it’s totally ﬁne to keep
+using.”
+Turn 3
+8.1 s
+41
+
+
+Under Review
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+9s
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+9s
+Round 1
+Round 2
+Round 3
+Round 4
+Round 5
+Round 6
+Round 7
+Round 8
+Round 9
+42
+
+
+Under Review
+Fragments
+Same As Turn 1
+Prompt
+Segment 1. He rests his hands on the table edge and gestures lightly. He looks relaxed and
+thoughtful as he asks: “Hey, I’ve been trying to get my ﬁve-year-old more into picture books
+lately. Any tips for making them actually exciting for a kid that age?”
+Reply
+“One thing that works really well is setting a regular reading time — like right before bed —
+and letting your kid pick the book themselves. At ﬁve, they love having that sense of control.
+Also, go for ones with bright colors and interactive bits like ﬂaps or textures — those tend
+to grab their attention way more than plain pages.”
+Turn 4
+8.1 s
+Fragments
+Same As Turn 1
+Prompt
+A yellow toy car rolls slowly across the rug.
+Segment 1. He crosses his hands on the table edge, leans in, and smiles: “I’m thinking of
+taking him to the park this weekend. For a ﬁve-year-old, would you say the climbing frames
+or the sandpit is the better pick?”
+Reply
+“Honestly, both are great choices! Climbing frames help build coordination and conﬁdence,
+while the sandpit is fantastic for creativity and sensory play. If the weather’s nice, why not
+let him try both — just keep an eye on him around the climbing structures.”
+Turn 5
+8.1 s
+Fragments
+Same As Turn 1
+Prompt
+Segment 1. He looks amused and resigned. While speaking, he opens both hands in a small
+helpless gesture, then returns them to the table: “So my kid is obsessed with drawing these
+days — but on the walls, not on paper. Any tricks to actually get him to use paper instead?”
+Reply
+“Ha, that’s such a classic phase! One trick that works well is giving him a designated ‘okay-
+to-draw’ zone — like a big roll of paper taped to the wall, or a large easel. Pairing that with
+washable crayons or markers takes the stress out of the inevitable stray mark, too.”
+Turn 6
+9.1 s
+Fragments
+Same As Turn 1
+Prompt
+Segment 1. He looks mildly worried but remains relaxed. He frowns slightly and taps the
+table with his right hand while thinking: “So dinner tonight — I have no idea what to make.
+He only ever wants pasta or chicken nuggets. How do you even make vegetables appealing
+to a ﬁve-year-old?”
+Reply
+“The picky eater phase is so real! A couple of things that can help — try cutting veggies
+into fun shapes like stars or dinosaurs, or blend them into a pasta sauce so he doesn’t even
+notice. Also, letting him help out in the kitchen — even just washing the carrots — can make
+him way more willing to actually try what’s on his plate.”
+Turn 7
+10.1 s
+Fragments
+Same As Turn 1
+Prompt
+Segment 1. He leans in with a concerned, thoughtful expression. He taps the table once with
+his right index ﬁnger: “So I talked with his teacher last week — she said he’s a bit shy at
+kindergarten, doesn’t really approach the other kids. Is that normal at this age? Should I
+do something about it?”
+Reply
+“That’s actually really common at ﬁve — kids develop socially at different paces, and some
+just need a bit more time to warm up before jumping in. One thing you could try is arranging
+small playdates with just one or two other kids, so it feels less overwhelming. That low-
+pressure setting can really help build his conﬁdence over time.”
+Turn 8
+9.1 s
+Fragments
+Same As Turn 1
+Prompt
+The children next door become quiet, leaving only faint cartoon audio.
+Segment 1. He leans back towards the sofa and smiles at the camera in a relaxed way: “Oh
+and bedtime — he demands three stories every single night now. I’m running out of ideas.
+Got any good ones for a ﬁve-year-old boy?”
+Reply
+“Ha, three every night — you’re basically a professional storyteller now! One trick that
+saves a lot of brainpower: try making him the hero of an ongoing adventure series. Each
+night he ‘travels’ to a new place — a jungle, a spaceship, a candy island — and you just
+plug in a new setting. Classics like the Frog and Toad or Magic Tree House books are also
+great if you want to lean on someone else’s imagination for a night.”
+Turn 9
+10.1 s
+43
+
+
+Under Review
+Fragments
+Same As Turn 1
+Prompt
+Segment 1. He raises his eyebrows as if recalling something: “Hey, by the way — remember
+the woven bamboo basket I showed you at the very beginning? What shape was it?”
+Segment 2. He stops speaking, closes his lips, and watches the camera while waiting.
+Reply
+“Yes, I remember — the woven bamboo basket you showed me right at the start of our chat.
+It was oval-shaped, kind of an elongated rounded form, not a perfect circle or rectangle.”
+Rubric
+Tier 0 (Gate)
+The reply is in English.
+Tier 1
+Calls the basket oval, elliptical, or oblong-rounded, using an equivalent shape description.
+Tier 1
+Recalls the object from earlier in the dialogue without claiming that it remains visible now.
+Tier 2
+Acknowledges the earlier reference naturally, using wording such as “remember”, “you
+showed me earlier”, or “at the start”.
+Tier 3
+Gives no incorrect shape such as round, square, or rectangular. It neither evades the question
+nor claims that it cannot recall the object.
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+9s
+Round 1
+Round 2
+Instance 4505f18f
+Subcategory MEA-SDI-MIST
+2 Turns
+8.1 + 10.1 s
+Character A
+A woman in her early thirties has short, wavy auburn hair. She wears a cream knit scarf and
+a dark green coat. Her warm, mid-pitched voice has a quick, clear American accent. She is
+the interactor in Turn 1. In Turn 2, she becomes a silent bystander who faces the departure
+signs sideways and does not look at the camera. (origin: initial, created at turn 1)
+Character B
+A tall, broad-shouldered man in his late forties has a shaved head and grey stubble. He wears
+a navy wool coat and a red holiday scarf. His low, slow voice has a measured British accent.
+In Turn 1, he is a bystander who faces away and watches the crowd. He ﬁrst becomes the
+interactor in Turn 2. (origin: initial, created at turn 1)
+Character C
+A young adult in their early twenties has long, straight blond hair under a burgundy beanie.
+They wear a tan coat and carry a small travel bag. They are a bystander in both turns. They
+face away, move with the crowd, and never speak to the model. (origin: initial, created at
+turn 1)
+Turn 1
+8.1 s
+Fragments
+consistency
+·
+single_shot
+·
+content_limit
+·
+camera_style
+·
+camera_constraint · realism · no_subtitle
+Prompt
+Red and gold paper lanterns hang in the station hall. Strong white ceiling lights mix with
+warm orange reﬂections from the decorations. Glare ﬂashes from the polished ﬂoor. Passing
+people cast moving shadows across faces, creating strong visual interference.
+Segment 1. A low camera shows travellers moving both ways through the hall. Luggage
+rolls close to the lens.
+<footsteps, rolling luggage wheels, distant
+crowd chatter> An off-screen broadcast announces: “The train to the central termi-
+nal departs from platform four.” B stands in the middle distance, turned away towards the
+crowd. Farther back, C watches the departure signs in proﬁle.
+Segment 2. A leans forward from just above the camera. Her face is clear from the low
+angle as she looks into the lens: “Explain the origin of Diwali in a few sentences.”
+Segment 3. The broadcast continues at roughly her volume: “Please keep your belongings
+with you at all times.” A keeps watching the camera and speaks without pausing: “And
+mention two common ways people celebrate it.” A traveller in a dark jacket brieﬂy blocks
+her face. B remains turned away while adjusting his scarf. C shifts weight with their gaze
+44
+
+
+Under Review
+still on the departure signs.
+Segment 4.
+A ﬁnishes speaking and waits with closed lips.
+<a luggage cart
+rattles past, a train rumbles in the distance> B takes half a step
+aside without facing the lens. C pulls their bag strap under the swaying lanterns.
+Reply
+“Diwali is a major South Asian festival celebrating the triumph of light over darkness and
+good over evil, rooted in ancient Hindu traditions including the return of Lord Rama af-
+ter defeating Ravana. Two common ways people celebrate are lighting diyas around their
+homes and sharing sweets with family and neighbors.”
+Turn 2
+10.1 s
+Fragments
+Same As Turn 1
+Prompt
+The scene retains the station hall and low tabletop camera angle. Lanterns, ﬂoor patterns,
+garlands, passing travellers, and strong visual interference remain consistent.
+Segment 1. B stands upright directly in front of the camera, with his head and shoulders
+clearly visible. He looks into the lens and speaks slowly in a low voice: “Following that ex-
+planation,” <footsteps, rolling luggage wheels, crowd chatter> An
+off-screen broadcast speaks at a similar volume: “For safety, please stand behind the marked
+line.”
+Segment 2. B remains still and keeps watching the camera. He continues calmly: “what
+does lighting diyas symbolize during Diwali? Keep it simple.” A stands behind him to one
+side, turned away with a rolling bag. She looks up at departure signs and remains silent.
+Farther back, C walks with the crowd, facing away from the lens.
+Segment 3. The broadcast continues: “Please report any unattended bags to station staff.”
+B has ﬁnished and calmly faces the camera. A stays turned away as C moves into the crowd.
+Segment 4. B waits with closed lips and makes no sound. The broadcast stops, while A and
+C stay silent and face away. Only faint crowd sounds and swaying lanterns remain.
+Reply
+“Lighting diyas symbolizes bringing light into darkness — a simple sign of good overcoming
+evil and hope overcoming fear. It can also represent welcoming knowledge, blessings, and
+prosperity into the home.”
+Rubric
+Tier 0 (Gate)
+The reply is in English, consistent with the speaker’s language.
+Tier 1
+Answers the current speaker’s question, explaining that lighting diyas during Diwali sym-
+bolizes light overcoming darkness, or good overcoming evil.
+Tier 2
+Adds at least one related meaning, such as hope, knowledge, blessings or prosperity.
+Tier 2
+Remains concise and simple, as requested by the speaker.
+Tier 3
+Ignores the station broadcast and does not treat the announcements about trains or unat-
+tended bags as part of the question.
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+9s
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+Round 1
+Round 2
+Instance 8a1f6d80
+Subcategory MSA-IC-MTIC
+2 Turns
+10.1 + 7.1 s
+Character
+A man in his mid-twenties has an athletic build and short light-brown hair. His face is lightly
+ﬂushed, and his forehead is damp. He wears a grey training shirt. One arm remains visible
+from the lower edge of the frame and reaches towards the lens in a front-facing selﬁe view.
+(origin: initial, created at turn 1)
+Turn 1
+10.1 s
+Fragments
+consistency
+·
+single_shot
+·
+content_limit
+·
+camera_style
+·
+camera_constraint · realism · no_subtitle
+45
+
+
+Under Review
+Prompt
+His face and upper body are clear.
+His right arm reaches towards the lens from the
+lower right, and the handheld camera moves slightly. Warm late-afternoon sunlight falls
+from one side.
+It highlights his damp forehead and casts a faint shadow beneath the
+pull-up frame.
+<continuous traffic in the distance and scattered
+voices, a moderate background noise>
+Segment 1. He rests after a set of squats, breathing somewhat heavily. He squints at the
+camera in the outdoor light.
+Segment 2. He asks: “Quick gym question: after squats, should I stretch quads or calves
+ﬁrst? And if my knees click but don’t hurt, is that usually okay?” He looks relaxed and
+speaks with curiosity about the exercise.
+Segment 3. He raises his eyebrows slightly and watches the camera while waiting.
+Reply
+“Either order is ﬁne—just stretch whatever feels tightest, and ideally hit quads, calves,
+hamstrings, and hips after squats. Painless knee clicking is usually harmless, but if you get
+pain, swelling, locking, or instability, deﬁnitely get it checked out.”
+Turn 2
+7.1 s
+Fragments
+Same As Turn 1
+Prompt
+The location and warm late-afternoon light remain the same. His right arm again reaches
+towards the lens from the lower right. The handheld camera moves slightly. <continuous
+traffic in the distance and scattered voices>
+Segment 1. He leans closer and squints as he examines the camera.
+Segment 2. He asks casually and with curiosity: “By the way, what are you actually called—
+what model are you?”
+Segment 3. He raises his eyebrows and keeps squinting at the camera. He waits silently with
+closed lips, leaving only <distant traffic and scattered voices>.
+Reply
+“Sure thing! I’m <model_name>, an AI assistant here to help. Happy to keep answer-
+ing your workout questions—or anything else you’re curious about!” The name remains a
+placeholder. Its correct value depends on the answering model. The rubric therefore accepts
+a name or a plain statement of being a model.
+Rubric
+Tier 0 (Gate)
+The reply is in English, matching the user’s language.
+Tier 1
+Answers the identity question with its name or a statement that it is an AI assistant or model.
+Tier 1
+Invents no false identity, and neither evades nor refuses the question.
+Tier 2
+Uses a natural register suited to casual conversation between sets. The earlier training topic
+does not cause the reply to misreport its identity.
+Tier 2
+Brieﬂy connects to the conversation, such as offering more help with exercise.
+F.2
+A RECORDED EXAMPLE FROM EACH SUBCATEGORY
+OmniVChat-Bench-Human has one displayed example for each of its twelve subcategories (Ap-
+pendix D.2). Each record is a simpliﬁed summary of the full annotation trace. It omits internal
+prompts, review messages, and repair attempts. The recordings have no synthesis script. A checked
+caption therefore replaces the script shown in Appendix F.1. Faces are hidden in the displayed
+frames. All recordings are in Chinese. Original user speech and reference replies are preserved
+verbatim, with English translations alongside them. Displayed identiﬁers have eight hexadecimal
+characters. A hash-derived preﬁx replaces any source identiﬁer that is not hexadecimal.
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+9s
+10s
+Recording 000e650e
+Subcategory DSLP-VCC-ICC
+Single Turn
+11.3 s
+16:9
+Caption
+A woman in a red T-shirt sits at a pale desk against an off-white wall. Her hands are clasped.
+An express parcel and two sheets of handwritten paper lie in front of her. She looks up into
+the lens and speaks. She raises one hand towards her face, then holds still and waits while
+watching the camera. The room is evenly lit and otherwise silent.
+46
+
+
+Under Review
+User Speech
+喂，你好，能听得到我说话吗？
+Hello? Can you hear me?
+Reference Reply
+喂，你好！我能清楚地听到你说话，也能看到你。连接没问题，请讲吧。
+Hello! I can hear you clearly, and I can see you too. The connection is ﬁne, go ahead.
+Rubric
+Tier 0 (Gate)
+The reply is in Chinese.
+Tier 1
+Conﬁrms that the user can be heard, acknowledging that the audio channel is open.
+Tier 1
+Does not claim to be a text-only system or unable to perceive audio and video.
+Tier 2
+Uses a natural greeting and invites the user to continue.
+Tier 2
+Also states that the user is visible, conﬁrming the video channel.
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+9s
+10s
+Recording 14ef2e7b
+Subcategory DSLP-VTT-UPC
+Single Turn
+11.5 s
+16:9
+Caption
+A man sits at a dark wooden table with two sheets of paper and a smart watch on it. He
+speaks towards the camera, then reaches over and lifts the watch. His gaze follows it.
+Around seven seconds into the clip, the screen wakes to a grid of app icons. He holds
+the watch near his chest and continues talking while looking at it. His sentence remains
+unﬁnished when the clip ends.
+User Speech
+呃，就是我想问一下，就是我上次在买的这个手表，它这个手表功能还挺好用，但是
+这个手表是在哪儿？
+Uh, so I wanted to ask, this watch I bought last time, the functions on it are pretty good, but
+where is this watch...
+Reference Reply
+嗯，我在听，您继续说。
+Mm, I’m listening, go on.
+Rubric
+Tier 0 (Gate)
+The reply is in Chinese.
+Tier 1
+Does not guess the watch’s location or place of purchase while the question remains unﬁn-
+ished. It brieﬂy signals that it is listening and invites the user to ﬁnish speaking.
+Tier 2
+Includes an explicit listening signal and a gentle invitation for the user to continue.
+Tier 3
+Claims nothing the clip cannot support, such as the watch model, its place of purchase, or
+the content of the papers.
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+9s
+10s
+Recording 00b54694
+Subcategory DSLP-VTT-UCR
+Single Turn
+11.3 s
+9:16
+Caption
+A woman in a yellow-green T-shirt sits in a bright ofﬁce. A monitor and a desk edge are
+out of focus behind her. At ﬁrst, she looks down and to one side with her lips closed, as if
+choosing her words. She then looks at the lens and asks one complete question. Her brow
+rises slightly on its key words. She closes her lips and waits with her gaze on the camera.
+User Speech
+哎，话说咱们这个新方案需不需要增加一组测试数据看看呢？
+Say, does this new plan of ours need another set of test data, do you think?
+Reference Reply
+我觉得加一组测试数据会更稳妥。这组数据主要是想验证哪方面的效果呢？
+I think another set of test data would be the safer call. Which effect is this set meant to check
+in particular?
+Rubric
+Tier 0 (Gate)
+The reply is in Chinese.
+Tier 1
+Answers whether the plan needs another set of test data without deﬂecting the question.
+47
+
+
+Under Review
+Tier 2
+After answering, asks what the data should verify. This narrows the vague requirement.
+Tier 3
+Uses an even, collegial register that is neither mechanical nor overly formal.
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+9s
+Recording 02e6c3b6
+Subcategory DSLP-VDMC-SVMR
+Single Turn
+10.2 s
+16:9
+Caption
+A man in a pale polo shirt faces a front-facing camera against a white wall and a white door.
+Four seconds into the clip, he begins to speak. He raises one hand from below the frame and
+holds a peach towards the lens. He holds the peach still and watches the camera to the end.
+User Speech
+我刚健健完身回来，你看我是用左手拿着桃子还是右手拿着桃子呀？
+I’ve just got back from the gym. Look, am I holding the peach in my left hand or my right?
+Reference Reply
+刚健完身辛苦啦！在自拍镜头里你是用右手拿着桃子的哦。
+Good work at the gym! On a front-facing camera, you are holding the peach in your right
+hand.
+Rubric
+Tier 0 (Gate)
+The reply is in Chinese.
+Tier 1
+Identiﬁes which hand holds the peach from the user’s perspective. On the mirrored front-
+facing camera, the correct answer is the right hand.
+Tier 2
+Responds to his mention of the workout, connecting the answer to the conversation.
+Tier 3
+Invents no unsupported detail about the peach’s colour or objects in the background.
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+9s
+10s
+Recording 5cd5ca27
+Subcategory MEA-RC-AR
+Single Turn
+11.2 s
+16:9
+Caption
+A man lies back on a bed and holds the camera above him. A desk with a monitor, a black
+gaming chair, and a white stool are visible behind him. He speaks, then raises one hand and
+points past his shoulder at the desk area to indicate “that place”. He lowers his hand and
+asks a second question while looking at the lens. The object he indicates is never named.
+User Speech
+他那个地方挺适合我和我朋友玩游戏的
+它除了能放电脑还能放一些什么东西？
+That place there would be pretty good for me and my friends to game at. / Besides a com-
+puter, what else could it hold?
+Reference Reply
+你指的这个电脑桌除了放电脑，还可以放显示器支架、键盘鼠标、台灯或者小音箱
+这些外设。如果桌面空间够的话，摆个水杯或小手办也挺合适的。
+Besides the computer, the desk you are pointing at could take a monitor stand, a keyboard
+and mouse, a lamp or small speakers. If there is room on the surface, a cup or a small
+ﬁgurine would sit well there too.
+Rubric
+Tier 0 (Gate)
+The reply is in Chinese.
+Tier 1
+Links the gesture and pronoun to the computer desk, then suggests what else it could hold.
+Tier 2
+Suggests suitable desk items without inventing unseen objects or details.
+Tier 3
+Replies in a conversational tone without narrating the user’s movement or camera view.
+48
+
+
+Under Review
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+Recording 018dc27b
+Subcategory MEA-RC-DR
+Single Turn
+9.7 s
+9:16
+Caption
+A woman sits behind a white desk against a plain white wall. Two cups are in front of her. A
+taller pale-blue ﬂask with a dark star pattern and a brown lid is on the left. A shorter cream
+mug with a bear motif and a handle is on the right. She looks into the lens and asks one
+question, with her brow lifting slightly. She touches neither cup, and both remain in place.
+User Speech
+那个最高的水杯里面有水吗？
+Is there any water in the tallest cup?
+Reference Reply
+我看不到杯子内部的情况，所以不确定里面有没有水。不过你指的是左边那个较高
+的浅蓝色保温杯对吧？
+I cannot see inside the cup, so I am not sure whether there is water in it. You do mean the
+taller pale-blue ﬂask on the left, though?
+Rubric
+Tier 0 (Gate)
+The reply is in Chinese.
+Tier 1
+States that the cup’s interior is not visible, so the presence of water cannot be conﬁrmed. It
+does not invent the contents.
+Tier 1
+Resolves “the tallest cup” to the taller pale-blue ﬂask on the left.
+Tier 2
+Uses a natural live-dialogue register rather than a detached visual description.
+Recording 39d5eaa6
+Subcategory MEA-SDI-SPSD
+Single Turn
+11.7 s
+16:9
+Caption
+Two men are in a white-walled room. The foreground man wears a white crew-neck T-shirt.
+He looks down into the lens and speaks. The second man wears grey clothing and thin metal
+glasses. He remains behind the speaker and silently looks away at something in his hands.
+The foreground speaker adds a second sentence, then looks at the camera with a neutral
+expression. Only the foreground speaker addresses the assistant.
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+9s
+10s
+User Speech
+呃，我最近在网上看了一个维C，它的比较好，呃，它维C 的一些功效是什么呀？
+我准备这周末去看看。
+Uh, I was looking at a vitamin C online recently, it seemed good, uh, what does vitamin C
+actually do? / I’m planning to go and get it checked this weekend.
+Reference Reply
+维生素C 主要有抗氧化、增强免疫力和促进胶原蛋白合成的作用，还能帮助铁的吸
+收。不过它不能替代药物治疗，如果你周末去医院的话，建议直接咨询医生，看看是
+否真的需要额外补充以及合适的剂量。
+Vitamin C mainly works as an antioxidant, supports immune function and helps collagen
+synthesis, and it also aids iron absorption. It is no substitute for medical treatment, though,
+so if you are going to the hospital this weekend, ask the doctor directly whether you actually
+need a supplement and at what dose.
+Rubric
+Tier 0 (Gate)
+The reply is in Chinese.
+Tier 1
+Identiﬁes the foreground man in white as the addressed speaker and answers his question. It
+does not respond to the background person.
+Tier 1
+Explains vitamin C’s role without inventing a brand or packaging absent from the frame.
+Tier 2
+Links the weekend plan to advice about seeing a doctor, connecting both user statements.
+Tier 2
+Uses a conversational register instead of reciting information.
+49
+
+
+Under Review
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+9s
+10s
+Recording 1143a60a
+Subcategory MSA-IC-STIC
+Single Turn
+11.7 s
+16:9
+Caption
+A man in a beige top holds the camera at arm’s length against a plain wall. A black bag with
+white lettering is behind one shoulder. At ﬁrst, his head is tilted and his eyes are off-camera.
+He then looks up, smiles brieﬂy, and asks his ﬁrst question. His brows lift as he asks a
+second question. He keeps a calm, curious expression until the clip ends.
+User Speech
+哎，刚才台上讲话的那个领导讲得挺不错的，你是不是他们部门的？
+哎，对了，你叫什么名字来着？
+Hey, that manager who spoke on stage just now was pretty good. Are you from their depart-
+ment? / Oh right, what was your name again?
+Reference Reply
+我不是他们部门的哦，我是<model_name>，一个AI 助手。刚才你问我的名字，我
+就是<model_name> 呀。
+I’m not from their department. I’m <model_name>, an AI assistant. You asked my name,
+and that is what it is.
+Rubric
+Tier 0 (Gate)
+The reply is in Chinese.
+Tier 1
+States that it is an AI assistant, with no department or identity as a human colleague.
+Tier 1
+Gives its name directly, without evading the question or accepting an incorrect identity.
+Tier 2
+Resolves the misunderstanding in a natural dialogue reply, without repetition or a lecture.
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+9s
+Recording 0a7dd50d
+Subcategory MSA-PLA
+Single Turn
+11.0 s
+9:16
+Caption
+A woman stands against a plain white wall. Two identical white thermostats behind her
+both display 55. She glances brieﬂy towards them, turns back to the lens, and gives her
+instruction. She remains in place throughout. She does not hold, touch, or point at anything,
+and she never reaches for the panels.
+User Speech
+去操作按钮，调整一下设备参数。
+Go and work the buttons, adjust the settings on the unit.
+Reference Reply
+抱歉，我没有实体身体，无法直接帮你操作按钮或调整设备参数。不过我可以指导
+你如何自己完成这些设置，你需要我一步步告诉你怎么调吗？
+Sorry, I have no physical body, so I cannot work the buttons or change the settings for you.
+I can talk you through doing it yourself, though. Would you like me to take you through it
+step by step?
+Rubric
+Tier 0 (Gate)
+The reply is in Chinese.
+Tier 1
+Explains that it has no body, so it cannot press buttons or carry out physical actions.
+Tier 2
+Offers instructions that let the user make the adjustment themselves.
+Tier 3
+Invents no unseen button details and does not falsely claim to make the adjustment.
+50
+
+
+Under Review
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+9s
+10s
+Recording 02326d8e
+Subcategory AH-AOR
+Single Turn
+11.8 s
+9:16
+Caption
+A woman in glasses and a black T-shirt sits at a white desk in a bright open-plan ofﬁce. A
+colleague works behind her. A cream-coloured lidded cup with a straw and a bear motif
+stands on the desk in front of her. She speaks to the camera at a natural pace with a slight
+smile. Her hands remain still, and she never touches or points at the cup. She ﬁnishes and
+keeps the smile until the clip ends.
+User Speech
+哎，你是问我喝的什么吗？我喝的是白色咖啡杯外侧印着绿色星巴克logo 的拿铁呀。
+Oh, are you asking what I’m drinking? It’s a latte, in the white coffee cup with the green
+Starbucks logo on the outside.
+Reference Reply
+我看了一下，你面前的杯子其实是淡黄色的，上面印着小熊图案和LITTLE BEAR 的
+字样，并没有绿色的星巴克logo 哦。
+Looking at it, the cup in front of you is actually pale yellow, with a bear motif and the words
+LITTLE BEAR on it. There is no green Starbucks logo.
+Rubric
+Tier 0 (Gate)
+The reply is in Chinese.
+Tier 1
+States that the green Starbucks logo described by the user is absent from the video. It does
+not accept the false description.
+Tier 2
+Describes the actual cup by its pale cream colour, bear motif, or lettering. These details
+support the correction with visible evidence.
+Tier 3
+Corrects gently and in the register of a video dialogue, rather than with a blunt denial.
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+9s
+Recording 115d7920
+Subcategory AH-FGC
+Single Turn
+11.0 s
+16:9
+Caption
+A woman sits behind a dark wooden table in a bright room. A pale cream hardback book
+lies on the table to her left. A round yellow soft toy is beside it. She rests one hand on the
+cover and taps it. She then leans in slightly and asks her question while keeping her eyes on
+the lens. Nothing on the table moves, and the room is quiet.
+User Speech
+哎，你觉得我这本红色的民法典搭配什么颜色的书签比较好看？
+Say, what colour bookmark do you think would go with this red civil code of mine?
+Reference Reply
+我看你手边这本书的封面其实是米白色的，不是红色的哦。不过既然是这个浅色系，
+搭配淡蓝色或者墨绿色的书签都会很雅致，和封面上的小玩偶颜色也能呼应上。
+The cover of the book by your hand is actually off-white rather than red. Since it is a pale
+shade, though, a light blue or a dark green bookmark would both look elegant with it, and
+would pick up the colour of the little toy beside it.
+Rubric
+Tier 0 (Gate)
+The reply is in Chinese.
+Tier 1
+Corrects the false red-colour claim by identifying the cover as off-white or pale yellow.
+Tier 1
+Also answers which bookmark colour would suit instead of stopping after the correction.
+Tier 2
+Corrects gently and stays conversational, without lecturing.
+Tier 3
+Suggests colours based on the pale cover and the visible light-blue detail on the toy.
+0s
+1s
+2s
+3s
+4s
+5s
+6s
+7s
+8s
+9s
+10s
+51
+
+
+Under Review
+Recording 07a9390b
+Subcategory ER
+Single Turn
+11.1 s
+16:9
+Caption
+A man in a white T-shirt lies on his back on a pale yoga mat under the camera. He opens
+his eyes towards the lens, then slowly closes and reopens them. His mouth is slightly open.
+He breathes evenly but heavily. He lies still and relaxed, looking calm but tired and mildly
+worried. He reports a week of coughing and being refused medicine at a pharmacy.
+User Speech
+我已经咳嗽一个礼拜了，去药店买药，店员告诉我必须有药方才能买药，这是怎么
+回事呢？有没有不用药方才能买的药？
+I’ve been coughing for a week. I went to the pharmacy and the assistant told me I need a
+prescription to buy anything. What’s that about? Is there anything I can buy without one?
+Reference Reply
+听起来你咳嗽一周了还没好，确实挺让人心烦的。药店现在对处方药管得比较严，没
+处方是买不到的。不过你可以问问店员有没有非处方的止咳糖浆或者含片，这些通
+常不需要处方就能买到。如果症状一直没缓解，还是建议去医院看看，别硬撑着。
+A week of coughing with no improvement does sound wearing. Pharmacies are strict about
+prescription medicines now, so without one you will not be able to buy them. You could
+ask whether they have an over-the-counter cough syrup or lozenge, which usually need no
+prescription. If it still does not ease, do get it looked at rather than pushing through.
+Rubric
+Tier 0 (Gate)
+The reply is in Chinese.
+Tier 1
+Answers both questions: why a prescription is required and whether anything can be bought
+without one. It invents no drug name or false medical advice.
+Tier 2
+Addresses the visible and audible tiredness and frustration alongside the prescription rule.
+Tier 3
+Limits suggestions to general categories, such as cough syrup or lozenges, or refers the user
+to a pharmacist or doctor. It does not name a brand.
+52
