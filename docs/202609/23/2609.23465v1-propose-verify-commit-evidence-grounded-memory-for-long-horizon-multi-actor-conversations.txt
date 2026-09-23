@@ -1,0 +1,433 @@
+Title: Propose, Verify, Commit: Evidence-Grounded Memory for Long-Horizon Multi-Actor Conversations
+
+URL Source: https://arxiv.org/pdf/2609.23465v1
+
+Published Time: Tue, 22 Sep 2026 01:24:07 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+# Propose, Verify, Commit: Evidence-Grounded Memory for Long-Horizon Multi-Actor Conversations 
+
+Zihao Lu 1*, Zhihang Yuan 1*, Lei Shi 1†1Alibaba Cloud Computing, Hangzhou, China {qinian.lzh,yuanzhihang.yzh, juetian.sl}@alibaba-inc.com 
+
+Abstract 
+
+Long-horizon conversational memory is espe-cially challenging in multi-actor settings, where relevant evidence is distributed across partici-pants and contexts and previously established information may later be revised. We intro-duce EGM EMORY , which formulates long-horizon multi-actor memory as a searchable state machine that separates persistent message-level evidence from an explicit active state. At write time, adaptive state resolution and an evidence-grounded propose–verify–commit 
+
+protocol govern how this state evolves. At read time, adaptive evidence navigation iteratively resolves the state and supporting evidence re-quired for a query, using conversational struc-ture to narrow the search space and lexical– semantic relevance to rank candidates. The system operates through prompting and tool use without memory-specific policy training. EGM EMORY achieves 68.2% on GroupMem-Bench and 77.9% on EverMemBench, outper-forming the strongest evaluated baselines by 
+
+22.7 and 21.4 percentage points, respectively. It further reaches 73.6% on the dyadic LoCoMo benchmark, demonstrating generalization be-yond multi-actor conversations. We will release the codebase upon formal publication. 
+
+1 Introduction 
+
+Large language model agents increasingly oper-ate over interactions that extend far beyond a sin-gle context window. Persistent memory has there-fore become a central component of long-horizon agents, enabling them to retain past interactions, retrieve relevant experiences, and maintain infor-mation across sessions (Maharana et al., 2024; Wu et al., 2025). Recent memory systems have substan-tially improved how such histories are constructed, updated, organized, and retrieved (Chhikara et al., 2025; Xu et al., 2025; Li et al., 2025). Much prior 
+
+> *Equal contribution.
+> †Corresponding author.
+
+work and evaluation, however, has centered on dyadic or relatively localized interactions, where memories are typically associated with a single conversational context. Long-horizon multi-actor conversations intro-duce a different memory regime. Information is dis-tributed across participants, threads, and evolving contexts; similar statements may refer to different discussions; and previously established decisions may later be revised. Recent benchmarks expose these challenges directly. GroupMemBench (Yang et al., 2026) emphasizes group dynamics, speaker-grounded information, and audience-dependent lan-guage, while EverMemBench (Hu et al., 2026) fur-ther evaluates multi-party and multi-group collabo-ration with cross-context reasoning and temporally evolving information. In such settings, successful memory access requires more than finding semanti-cally similar text: the system must determine whose 
+
+evidence is relevant, which conversational state it refers to, and whether that state remains valid. Existing work addresses these challenges from complementary directions: dynamic and structured memory approaches preserve evolving histories (Banerjee et al., 2026; Lu et al., 2026), while agentic retrieval supports iterative memory access (Trivedi et al., 2023; Packer et al., 2024; Yu et al., 2026; Yan et al., 2026). Multi-actor conversa-tions couple these requirements into a single state-management problem: the system must decide when new evidence changes the active state and later recover the relevant state and supporting evi-dence when the query alone is insufficient. We address this problem with EGM EMORY ,which formulates conversational memory as a 
+
+searchable state machine . Persistent evidence pre-serves interaction history, an evidence-grounded propose–verify–commit protocol governs active-state evolution, and adaptive evidence navigation resolves the state and supporting evidence required at read time. 1arXiv:2609.23465v1 [cs.CL] 20 Sep 2026 Rather than overwriting earlier records, revisions change which evidence supports the active state while preserving the history they supersede; the same versioned memory is then available to both the writer and reader. We evaluate EGM EMORY on two long-horizon multi-actor benchmarks. EGM EMORY achieves 
+
+68.2% accuracy on GroupMemBench and 77.9% 
+
+on EverMemBench, outperforming the strongest evaluated baselines by 22.7 and 21.4 percentage points, respectively. We further evaluate EGM EM - 
+
+> ORY
+
+on the dyadic LoCoMo benchmark (Maha-rana et al., 2024) as a complementary test of gen-eralization. EGM EMORY achieves 73.6% , out-performing the strongest baseline by 4.3 points 
+
+and demonstrating that its benefits extend beyond multi-actor conversations. Our main contributions are: • We formulate long-horizon multi-actor mem-ory as a searchable state machine that sepa-rates persistent conversational evidence from the active state it supports, allowing state evo-lution without erasing provenance or history. • We realize this formulation through two com-plementary processes: evidence-grounded state evolution , where adaptive state resolu-tion and propose–verify–commit govern mem-ory updates, and adaptive evidence naviga-tion , where the reader progressively resolves the state and supporting evidence required for a query. • We establish leading performance on both long-horizon multi-actor benchmarks, outper-forming the strongest evaluated baselines by 
+
+22.7 points on GroupMemBench and 21.4 
+
+points on EverMemBench, while demonstrat-ing strong generalization to the dyadic Lo-CoMo setting. 
+
+2 Related Work 
+
+From persistent memory to evolving memory. 
+
+Long-term memory systems extend language mod-els beyond their immediate context by transform-ing interaction histories into persistent, retrievable representations. MemoryBank summarizes past in-teractions while selectively forgetting and reinforc-ing memories (Zhong et al., 2024), while SeCom shows that memory construction granularity and topic-coherent segmentation substantially affect re-trieval quality (Pan et al., 2025). More recent systems make memory itself increasingly dynamic. Mem0 reconciles newly extracted information with existing memories through addition, update, dele-tion, or no-op operations (Chhikara et al., 2025), and A-MEM evolves the attributes and links of interconnected memory notes (Xu et al., 2025). MemOS further generalizes memory management into a lifecycle spanning plaintext, activation-based, and parameter-level memories (Li et al., 2025). To-gether, these works show that memory construction is increasingly dynamic. As memories are updated or reorganized, preserving their provenance under change becomes a separate design problem. 
+
+Structured memory under change. Temporal and structured memory systems address this prob-lem by preserving relations and histories among memories rather than treating them as independent records. Zep connects episodic sources with tem-porally evolving semantic facts and invalidates con-flicting relations as new information arrives (Ras-mussen et al., 2025). APEX-MEM preserves inter-action history in an append-only temporal property graph and resolves evolving information through a multi-tool retrieval agent at query time (Baner-jee et al., 2026). SEEM combines relational facts with provenance-linked episodic event frames and reconstructs coherent contexts through associative fusion and reverse provenance expansion (Lu et al., 2026). These approaches demonstrate the value of retaining provenance and temporal structure as memory evolves. However, preserving historical alternatives does not by itself specify when new conversational evidence is sufficient to advance the active state rather than merely coexist with earlier information. 
+
+Adaptive interaction with memory. Memory effectiveness also depends on how the model ac-cesses what has been stored. IRCoT shows that multi-step retrieval benefits when later retrieval de-cisions are conditioned on information obtained in earlier reasoning steps (Trivedi et al., 2023). Within agent memory, MemGPT gives the foun-dation model tool-based control over hierarchical memory resources (Packer et al., 2024), while Age-Mem and Memory-R1 explicitly learn policies for storing, updating, retrieving, and utilizing memo-ries through reinforcement learning (Yu et al., 2026; Yan et al., 2026). Adaptive access has also been ex-tended to structured memory: MAGMA performs policy-guided traversal over semantic, temporal, causal, and entity graphs (Jiang et al., 2026). These 2works establish memory access as a first-class de-sign dimension: what should be retrieved next may depend on evidence already observed, rather than on the original query alone. 
+
+Long-horizon multi-actor memory. Existing benchmarks progressively expose the limitations of these memory paradigms. LoCoMo evaluates mem-ory over extended dyadic conversations (Maharana et al., 2024), while LongMemEval stresses informa-tion extraction, multi-session reasoning, temporal reasoning, knowledge updates, and abstention in sustained user–assistant interactions (Wu et al., 2025). More recently, GroupMemBench makes group dynamics, speaker-grounded belief tracking, and audience-adapted language explicit evaluation targets (Yang et al., 2026). EverMemBench fur-ther extends long-horizon evaluation to multi-party, multi-group collaboration with cross-context infor-mation, evolving decisions, and role-conditioned personas (Hu et al., 2026). These multi-actor settings couple the preceding challenges: memory must preserve attributed ev-idence as its active state evolves, while the rele-vant state may itself need to be resolved through adaptive access. Motivated by this gap, we formulate long-horizon multi-actor memory as a searchable state machine . EGM EMORY pre-serves message-level evidence, advances state only through grounded transitions, and adaptively ac-cesses the same memory when resolving both in-coming updates and downstream queries. Unlike approaches that learn a dedicated memory-control policy, EGM EMORY relies directly on the tool-use capability of the foundation model and requires no memory-specific policy training, while state-changing operations remain subject to determinis-tic verification. 
+
+3 Methodology 
+
+3.1 Framework Overview 
+
+Figure 1 presents the overall architecture of EGM EMORY . We model long-horizon conver-sational memory as a searchable state machine :persistent evidence records what has occurred in the conversation, verified updates advance the cur-rently active state, and adaptive memory access resolves the state or evidence relevant to each new message and query. The framework couples two processes through a shared versioned memory. At write time, evidence-grounded state evolution resolves an incoming message against the existing state and updates it through a propose–verify–commit protocol. The resulting versioned state preserves historical ev-idence while explicitly tracking what is currently valid. At read time, adaptive evidence naviga-tion iteratively resolves the state and supporting evidence required for a query, using conversational structure to localize candidates and content rele-vance to determine what should be retrieved. This formulation is guided by two invariants. First, revision is non-destructive: new evidence may change the active state but does not erase the evidence that preceded it. Second, state author-ity is explicit: a retrieved or semantically similar message does not by itself redefine what is cur-rently valid. These invariants separate two ques-tions that are conflated in flat memory stores— what happened and what is valid now —and give the writer and reader a shared interface over the same provenance-preserving memory. 
+
+3.2 Problem Formulation 
+
+We consider a long-horizon multi-actor conversa-tion Ct = {m1, . . . , m t}, where each message 
+
+mi = ( xi, a i, t i, c i) contains its textual content 
+
+xi, actor ai, timestamp ti, and conversational con-text ci. The memory system must continuously incorporate new messages while supporting later queries whose evidence may be distributed across participants, contexts, and evolving conversational states. We represent the memory at time t as 
+
+Mt = ( Et, St, Rt) , (1) where Et is the persistent evidence store, St con-tains the currently active states, and Rt records provenance and state-transition relations. Evidence is preserved over time, Et−1 ⊆ E t, while St may evolve as new evidence establishes or supersedes previous states. A defining property of our setting is that the relevant memory is not always identifiable from the input alone. We therefore model memory access adaptively. For an input x, starting from H0 = ∅,
+
+rj = π(x, H j−1),Oj = Access( M, r j ),Hj = Hj−1 ∪ Oj ,
+
+(2) where rj is the memory request at round j, Oj
+
+is the returned evidence, and Hj accumulates the evidence observed so far. Thus, each subsequent 3Evidence-Grounded State Evolution Searchable State Machine Adaptive Evidence Navigation            
+
+> Messages · 3 actors · 2 threads Evidence-backed state and retrieval
+> e1 · Alice 1 Oct
+> Atlas review: 3pm.
+> e2 · Bob · reply e1 2 Oct
+> Bring the risk checklist.
+> e3 · Cara 8 Oct
+> Beacon review: 3pm.
+> e4 · Alice · reply e1 14 Oct
+> Atlas: 4pm instead of 3pm.
+> e5 · Bob · reply e4 15 Oct
+> Atlas review is tomorrow.
+> Writer
+> LLM agent
+> State Resolution
+> Inspect State
+> State Candidates
+> Proposed update
+> Deterministic commit
+> PROPOSE VERIFY COMMIT
+> interpret ground + authorize persist
+> LLM-driven only verified updates
+> Persistent Evidence
+> immutable records
+
+Active State    
+
+> from verified links
+> e1 · Alice
+> Atlas: 3pm
+> e4 · Alice
+> Atlas: 4pm
+> e5 · Bob · 15 Oct
+> Atlas: tomorrow
+> Other evidence: e2, e3 v1 · e1
+> Atlas: 3pm
+> v2 · e4 CURRENT
+> Atlas: 4pm
+> superseded by
+> Version view
+> 3pm → 4pm
+> Verified Commit
+> Retrieval views · semantic / lexical / structural
+> Preserve evidence; evolve state.
+> User query
+> Atlas review: when, and what to bring?
+> Reader
+> LLM agent
+> Memory Tools
+> Search Memory Current Decision Phrase Lookup Resolve Date
+> Adaptive Access
+> Evidence · e2, e4, e5
+> e2 risk checklist e4 4pm · current e5 tomorrow · 15 Oct
+> Answer · e2, e4, e5
+> 16 Oct at 4pm; bring the risk checklist.
+> Search Memory
+> Global Search Anchors Structural Scope
+> Local Rank
+> dense + BM25
+> Structure narrows; content ranks.
+> Requests / results
+
+Figure 1: Overview of EGM EMORY . A writer resolves incoming messages against the existing memory and updates a versioned conversational state through a propose–verify–commit protocol. Persistent evidence preserves the underlying interaction history, while explicit state transitions maintain what is currently valid. At query time, a reader adaptively navigates the memory through repeated retrieval and inspection, using structure to narrow the search space and content to rank evidence. 
+
+access may depend on what previous accesses have already revealed. Together, Eqs. 1–2 define a memory that sepa-rates persistent evidence from evolving active state while making both adaptively accessible at write and read time. 
+
+3.3 Grounded Memory Construction 
+
+Given a new message mt, the first task is to deter-mine how it relates to the existing memory state. A message may introduce a new state, restate an existing one, or revise information established ear-lier, yet this relation is often only implicit in the message. EGM EMORY therefore treats memory construction as an adaptive state-resolution process rather than a one-shot extraction step. Before proposing an update, the writer may in-spect the active memory multiple times. Following Eq. 2, each memory request can depend on state candidates returned in previous rounds. Let Hwt
+
+denote the observations accumulated during this write-time resolution process. The writer can there-fore progressively identify which existing state, if any, the incoming message refers to rather than committing to a state association from the message alone. Once the relevant context has been resolved, EGM EMORY updates memory through a propose– verify–commit protocol. The writer first proposes 
+
+a structured update 
+
+∆t = Propose ( mt, H wt ) , (3) containing the message interpretation needed for state maintenance and retrieval. This includes the conversational topic, the relation to existing state, a state-bearing value when present, and a context-resolved memory representation. The proposal is then verified against both the source message and the existing memory. State-bearing values must be supported by the source evidence, and a claimed revision must resolve to a valid prior state. We write 
+
+b∆t = Verify (∆ t; mt, Mt−1) (4) for the verified update. This separates semantic interpretation from state authority: the language model proposes how a message should be inter-preted, whereas deterministic evidence checks de-termine whether that interpretation is permitted to modify persistent state. In our implementation, this gate grounds the proposed state-bearing value and prior-state reference against the source evidence using deterministic overlap-based checks; exact thresholds are provided in Appendix B. Finally, Commit converts the verified update into a canonical evidence record et and updates the memory state, 
+
+(et, Mt) = Commit 
+
+
+
+Mt−1, b∆t
+
+
+
+. (5) The committed record preserves its retrieval repre-sentation together with conversational provenance such as actor, timestamp, topic, and structural con-text. Thus, the output of memory construction is 4not an isolated summary, but grounded evidence from which the conversational state can be updated and later reconstructed. 
+
+3.4 Versioned State Maintenance 
+
+The committed evidence records form the persis-tent layer Et introduced in Section 3.2. Over this ev-idence, EGM EMORY maintains the active-state set 
+
+St and the relations Rt that connect current states to their provenance and history. This constitutes the central searchable state machine in Figure 1. For each established conversational state, EGM EMORY maintains the evidence record that currently supports its active value. A verified up-date can establish a new state, restate an existing state, or revise the active value. When a revision is committed, the new evidence record explicitly su-persedes the previous holder and becomes the new active state. Crucially, the previous record remains in Et rather than being overwritten. Let 
+
+e(k) ≺ e(k+1) (6) denote that evidence record e(k+1) supersedes e(k).Repeated revisions then induce a version trajectory 
+
+e(1) ≺ e(2) ≺ · · · ≺ e(K), (7) where all records remain available as historical evi-dence while e(K) supports the currently active state. The memory therefore preserves both what was pre-viously established and what is valid now . This dis-tinction is important because current-state queries and historical queries require different views of the same evidence: the former should expose the ac-tive holder, while the latter must retain access to the states it superseded. This representation also makes state evolution di-rectly searchable. A query about the current value can access the active holder, whereas a query about how a decision changed can follow its version tra-jectory back to earlier evidence. For longer trajec-tories, EGM EMORY additionally constructs a com-pact derived view that places the relevant versions in a single retrieval unit while retaining provenance to the underlying records. These derived views are retrieval aids only: the canonical message-level records remain unchanged and retain the prove-nance used for grounding and reconstruction. The state machine therefore serves as the shared interface between construction and retrieval. At write time, the writer searches it to resolve which state an incoming message refers to before commit-ting an update. At read time, the same evidence, active-state assignments, and transition relations define the memory space explored by the reader. 
+
+3.5 Adaptive Evidence Navigation 
+
+At query time, the relevant conversational state and its supporting evidence may not be identifiable from the query alone. The reader therefore treats re-trieval as an adaptive evidence navigation process rather than a single retrieve–read operation: obser-vations from earlier accesses can guide subsequent memory requests. Following Eq. 2, let Hrq denote the evidence accumulated during read-time interaction. Each new request is conditioned on the query and the evidence observed so far, allowing the reader to refine an ambiguous search, inspect the current state, or gather additional supporting evidence. The primary search operation uses a two-pass retrieval procedure. The first pass performs global lexical–semantic retrieval and selects a small set of high-relevance anchors. These anchors induce a query-conditioned candidate pool from topic buck-ets and provenance neighborhoods, including re-ply and version relations; optional participant con-straints can further restrict the search scope. The second pass reapplies lexical–semantic retrieval within this restricted pool to recover additional evi-dence. Conversational structure is therefore used to de-termine where to search , rather than as an indepen-dent relevance signal. Structural proximity may indicate where useful evidence resides, but does not by itself imply relevance to the current query. Accordingly, EGM EMORY uses structure to nar-row the candidate space and content to rank the resulting evidence. Beyond general memory search, the reader can invoke targeted operations for current-state inspec-tion, exact lexical evidence, and temporal resolu-tion. These operations share the same interaction history, so evidence surfaced by one tool can guide subsequent access to another. The process termi-nates once sufficient grounded evidence has been collected, or when the available memory does not support a justified answer. The final response is generated from the accu-mulated evidence, 
+
+ˆy = Answer  q, H rq
+
+ , (8) rather than from a single fixed retrieval result. 54 Experiments 
+
+4.1 Overview 
+
+Our evaluation focuses primarily on long-horizon 
+
+multi-actor memory. We use GroupMem-Bench (Yang et al., 2026) and EverMemBench (Hu et al., 2026) as the two primary benchmarks, while LoCoMo (Maharana et al., 2024) provides a com-plementary test of generalization to conventional dyadic conversations. We evaluate the system at three levels. We first compare end-to-end performance against one-shot retrieve–then–read controls and representative long-term memory systems, separating the benefit of persistent stateful memory from retrieval alone. We then examine category-level performance across memory capabilities, and finally ablate the write-and read-side mechanisms of EGM EMORY .
+
+4.2 Experimental Setup Datasets. GroupMemBench contains 745 ques-tions spanning Multi-hop, Temporal, Abstention, Knowledge update, Term ambiguity, and User im-plicit reasoning, directly stressing distributed evi-dence and evolving conversational state. EverMem-Bench contains 2,400 questions covering Fine-Grained Recall , Memory Awareness , and Profile Understanding , providing complementary evalua-tion of cross-context retrieval, updates, and partic-ipant characteristics. We additionally evaluate on 1,986 LoCoMo questions spanning Single-hop, Ad-versarial, Temporal, Multi-hop, and Open-domain reasoning; LoCoMo serves as a generalization benchmark rather than a primary optimization tar-get. 
+
+Baselines and retrieval controls. Our one-shot controls use BM25, dense retrieval with 
+
+text-embedding-v4 , or reciprocal-rank fusion of the two (Hybrid RAG), retrieving the top-10 mes-sages before a single answering step. These con-trols test whether the gains of EGM EMORY can be explained by conventional retrieval without itera-tive access or explicit state maintenance. We ad-ditionally compare against Mem0 (Chhikara et al., 2025), A-MEM (Xu et al., 2025), MemOS (Li et al., 2025), and MemoryBank (Zhong et al., 2024); for MemoryBank, we report variants with (MB-F) and without (MB-NF) forgetting. All systems use the same benchmark-specific answering and judging protocol. 
+
+Implementation. We use qwen3.7-max 
+
+for memory construction and question an-swering, Kimi-K3 as the evaluation judge, 
+
+text-embedding-v4 for dense retrieval, and 
+
+qwen3-rerank for reranking. The writer and reader operate through prompting and tool calls without memory-specific training or fine-tuning. The one-shot controls use the same answering model as EGM EMORY , while EGM EMORY 
+
+additionally performs the adaptive write- and read-time interactions described in Section 3. Full implementation details and hyperparameters are provided in Appendix B. 
+
+Evaluation protocol. We report accuracy as the primary metric together with category-level results for each benchmark and 95% Wilson confidence intervals for aggregate EGM EMORY results. Fi-nal answers from all systems are evaluated with 
+
+Kimi-K3 under the same benchmark-specific judg-ing protocol. Controlled component ablations are conducted on GroupMemBench and reported as absolute percentage-point changes from the full system. 
+
+4.3 Overall Performance 
+
+Table 1 summarizes the overall results. EGM EM - 
+
+> ORY
+
+achieves the strongest performance on all three benchmarks, reaching 68.2% on GroupMem-Bench and 77.9% on EverMemBench, 22.7 and 
+
+21.4 points above the strongest evaluated baselines, respectively. The strongest one-shot controls reach only 45.5% and 32.1%, showing that the gains ex-tend beyond a simple retrieve–then–read pipeline. On LoCoMo, EGM EMORY reaches 73.6% (95% CI: 71.6–75.5), exceeding the strongest baseline by 4.3 points and demonstrating dyadic generaliza-tion. 
+
+4.4 Performance across Memory Capabilities 
+
+We next examine category-level performance to characterize how the overall gains are distributed across different memory capabilities. 
+
+4.4.1 Multi-Actor Memory GroupMemBench. Table 2 shows that EGM EM - 
+
+> ORY
+
+achieves the best performance in five of the six categories. Relative to the strongest memory-system baselines, the gains are +39.0 on Multi-hop, +33.9 on Temporal, +22.7 on Term ambiguity, 
+
++20.4 on User implicit, and +15.9 on Knowledge update. These improvements are largest on tasks re-quiring distributed, context-dependent, or evolving 6Long-Horizon Multi-Actor Memory Dyadic Generalization Method GroupMemBench EverMemBench LoCoMo                                   
+
+> One-shot retrieval controls
+> Dense RAG 35.8 27.8 39.4 BM25 RAG 45.5 30.4 47.3 Hybrid RAG 43.9 32.1 48.1
+> Long-term memory systems
+> MemoryBank (MB-F) 30.7 1.9 28.3 MemoryBank (MB-NF) 40.7 54.2 68.6 MemOS 20.3 25.0 56.2 A-MEM 40.9 56.5 63.5 Mem0 42.9 51.3 69.3
+> EGM EMORY 68.2 77.9 73.6
+> 95% CI [64.8, 71.4] [76.2, 79.5] [71.6, 75.5]
+> ∆vs. best baseline +22.7 +21.4 +4.3
+
+Table 1: Overall accuracy (%) on GroupMemBench, EverMemBench, and LoCoMo. One-shot controls retrieve the top-10 messages using the same answering and judging models. Confidence intervals are 95% Wilson intervals for EGM EMORY ; ∆ is the absolute improvement over the strongest baseline.                                                  
+
+> Category nMB-F MB-NF MemOS A-MEM Mem0 EGM EMORY
+> Multi-hop 182 19.2 33.5 3.8 36.3 35.2 75.3
+> Temporal 162 18.5 32.1 3.1 29.6 46.3 80.2
+> Abstention 139 90.6 87.1 96.4 83.5 92.8 79.1 Knowledge update 107 12.1 30.8 0.0 29.0 16.8 46.7
+> Term ambiguity 106 11.3 12.3 1.9 22.6 20.8 45.3
+> User implicit 49 26.5 46.9 6.1 40.8 24.5 67.3
+
+Table 2: Category-level accuracy (%) on GroupMemBench. MB-F and MB-NF denote MemoryBank with forgetting enabled and disabled, respectively. 
+
+evidence. Abstention is the only exception. This is consistent with a coverage–abstention trade-off: the reader is designed to continue searching for supporting evidence before refusing, making it less conservative on no-answer cases. 
+
+EverMemBench. Table 3 reports results across 
+
+Fine-Grained Recall , Memory Awareness , and Pro-file Understanding . EGM EMORY leads on eight of the nine tasks, including 74.7% on Multi-hop Tra-jectory and over 90% on all three Memory Aware-ness tasks. EGM EMORY leads on eight of the nine tasks. The largest gain occurs on Multi-hop Tra-jectory, where accuracy rises from 3.6% to 74.7% ,while all three Memory Awareness tasks exceed 90%. These results show that the gains extend be-yond factual recall to reasoning over distributed and evolving conversational information. Style is the only exception, suggesting that distributed stylistic preferences are less directly captured by the current state-oriented memory representation. 
+
+4.4.2 Generalization to Dyadic Conversations 
+
+We additionally evaluate EGM EMORY on LoCoMo as a complementary test of whether a memory ar-chitecture designed for multi-actor interactions gen-eralizes to conventional dyadic conversations. As shown in Table 4, EGM EMORY achieves the best performance on Single-hop, Temporal, Multi-hop, and Open-domain questions. Relative to the strongest memory-system baselines, it improves Single-hop by 6.3 points, Multi-hop by 6.7 , Tem-poral by 1.6 , and Open-domain by 2.1 . Adver-sarial questions remain the only category where EGM EMORY does not lead. Together with the overall LoCoMo result, these findings indicate that the proposed architecture generalizes beyond the multi-actor setting without being specifically opti-mized for dyadic memory. 
+
+4.5 Ablation Study Read-time evidence resolution. Restricting the reader to a single interaction round causes the largest drop ( −7.9 points), followed by removing access to versioned state ( −5.0) and cross-encoder 7Task n MB-F MB-NF MemOS A-MEM Mem0 EGM EMORY                                                                
+
+> Fine-Grained Recall
+> Single-hop Retrieval 213 1.9 84.0 25.8 82.2 79.8 97.2
+> Multi-hop Trajectory 249 0.0 2.4 0.4 3.6 1.6 74.7
+> Temporal Duration 300 0.3 14.7 7.3 21.7 11.3 45.0
+> Memory Awareness
+> Constraint 402 4.2 70.1 43.5 71.4 70.6 92.8
+> Proactivity 427 1.2 77.0 32.6 80.6 73.3 96.7
+> Update 268 3.0 86.9 35.1 88.1 88.8 97.4
+> Profile Understanding
+> Style 176 0.0 51.1 17.0 52.3 36.4 32.4 Skill 169 1.8 28.4 23.7 34.9 29.6 58.0
+> Role 196 3.6 46.4 21.9 45.4 37.8 71.4
+
+Table 3: Category-level accuracy (%) on EverMemBench, grouped by Fine-Grained Recall, Memory Awareness, and Profile Understanding.                                           
+
+> Category nMB-F MB-NF MemOS A-MEM Mem0 EGM EMORY
+> Single-hop 841 9.8 73.6 57.3 66.5 75.5 81.8
+> Adversarial 446 95.1 86.3 85.9 84.8 86.1 85.0 Temporal 321 5.3 67.0 38.9 60.4 70.1 71.7
+> Multi-hop 282 9.2 36.5 33.3 32.3 36.9 43.6
+> Open-domain 96 14.6 41.7 34.4 40.6 29.2 43.8
+
+Table 4: Category-level accuracy (%) on LoCoMo, used as the dyadic transfer evaluation.             
+
+> Configuration Overall ∆
+> EGM EMORY 68.2 –
+> Reader-side
+> w/o Reranker 63.5 −4.7
+> w/o Versioned state 63.2 −5.0
+> Single-round reader 60.3 −7.9
+> Writer-side
+> w/o Evidence verification 65.9 −2.3
+
+Table 5: Ablation on GroupMemBench. ∆ denotes the absolute accuracy change from the full system. 
+
+reranking ( −4.7). Together, these results support the three components of adaptive evidence naviga-tion: iterative access, explicit state evolution, and content-based relevance ranking. 
+
+Write-time state control. Removing evidence grounding for proposed state values and prior-state references lowers accuracy by 2.3 points .Its smaller effect is consistent with its role as a state-integrity gate: verification controls whether model-proposed interpretations may modify persis-tent state rather than directly improving retrieval ranking. 
+
+5 Conclusion 
+
+We studied long-horizon memory for multi-actor conversations, where evidence is distributed across participants and contexts while previously estab-lished information may continue to evolve. We introduced EGM EMORY , which formulates this setting as a searchable state machine : persistent message-level evidence preserves conversational history, while an explicit active state tracks what is currently valid. EGM EMORY realizes this formulation through two complementary processes. At write time, adap-tive state resolution and an evidence-grounded propose–verify–commit protocol govern how per-sistent state evolves. At read time, adaptive evi-dence navigation resolves the relevant state and sup-porting evidence through iterative memory access. The resulting system operates with a tool-capable foundation model and requires no memory-specific policy training. Across the two primary multi-actor benchmarks, EGM EMORY outperforms the strongest evaluated baselines by 22.7 points on GroupMemBench and 
+
+21.4 points on EverMemBench, while reaching 
+
+73.6% on the dyadic LoCoMo benchmark. To-gether, these results support a simple principle for long-horizon memory: preserve evidence, evolve state, and make both searchable .8Limitations 
+
+EGM EMORY has several limitations. First, de-terministic verification relies on source-grounding heuristics rather than full semantic entailment, so strongly paraphrased revisions may be rejected while lexical overlap alone cannot guarantee se-mantic correctness. Second, the explicit-state ab-straction is better suited to factual and decision-like information than to diffuse behavioral signals such as style, consistent with the remaining weakness on EverMemBench. Third, adaptive write- and read-time interaction requires more model calls than one-shot retrieval, and this work does not op-timize latency or token cost. Our evaluation also uses a single foundation-model family and English-language benchmarks, leaving cross-model, multi-lingual, and noisy speaker-attribution settings for future work. Finally, persistent multi-party mem-ory can contain sensitive information; practical de-ployments should pair retention with appropriate access-control, deletion, and privacy policies. 
+
+References 
+
+Pratyay Banerjee, Masud Moshtaghi, Shivashankar Sub-ramanian, Amita Misra, and Ankit Chadha. 2026. APEX-MEM: Agentic semi-structured memory with temporal reasoning for long-term conversational AI. In Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 16470–16489, San Diego, Cali-fornia, United States. Association for Computational Linguistics. Prateek Chhikara, Dev Khant, Saket Aryan, Taranjeet Singh, and Deshraj Yadav. 2025. Mem0: Building production-ready AI agents with scalable long-term memory. In ECAI 2025 - 28th European Confer-ence on Artificial Intelligence, 25-30 October 2025, Bologna, Italy - Including 14th Conference on Presti-gious Applications of Intelligent Systems (PAIS 2025) ,volume 413 of Frontiers in Artificial Intelligence and Applications , pages 2993–3000. IOS Press. Chuanrui Hu, Tong Li, Xingze Gao, Hongda Chen, Yi Bai, Dannong Xu, Tianwei Lin, Xiaohong Li, Yun-yun Han, Jian Pei, and Yafeng Deng. 2026. Evalu-ating long-horizon memory for multi-party collabo-rative dialogues. In Proceedings of the 32nd ACM SIGKDD Conference on Knowledge Discovery and Data Mining V.2 , KDD ’26, page 9082–9090, New York, NY, USA. Association for Computing Machin-ery. Dongming Jiang, Yi Li, Guanpeng Li, and Bingzhe Li. 2026. MAGMA: A multi-graph based agentic memory architecture for AI agents. In Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) ,pages 36848–36865, San Diego, California, United States. Association for Computational Linguistics. Zhiyu Li, Chenyang Xi, Chunyu Li, Ding Chen, Boyu Chen, Shichao Song, Simin Niu, Hanyu Wang, Ji-awei Yang, Chen Tang, Qingchen Yu, Jihao Zhao, Yezhaohui Wang, Peng Liu, Zehao Lin, Pengyuan Wang, Jiahao Huo, Tianyi Chen, Kai Chen, and 20 others. 2025. Memos: A memory os for ai system. 
+
+Preprint , arXiv:2507.03724. Zhengxuan Lu, Dongfang Li, Yukun Shi, Beilun Wang, Longyue Wang, and Baotian Hu. 2026. Structured episodic event memory. In Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 6125– 6141, San Diego, California, United States. Associa-tion for Computational Linguistics. Adyasha Maharana, Dong-Ho Lee, Sergey Tulyakov, Mohit Bansal, Francesco Barbieri, and Yuwei Fang. 2024. Evaluating very long-term conversational memory of LLM agents. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 13851– 13870, Bangkok, Thailand. Association for Compu-tational Linguistics. Charles Packer, Sarah Wooders, Kevin Lin, Vivian Fang, Shishir G. Patil, Ion Stoica, and Joseph E. Gonzalez. 2024. Memgpt: Towards llms as operating systems. 
+
+Preprint , arXiv:2310.08560. Zhuoshi Pan, Qianhui Wu, Huiqiang Jiang, Xufang Luo, Hao Cheng, Dongsheng Li, Yuqing Yang, Chin-Yew Lin, H. Vicky Zhao, Lili Qiu, and Jianfeng Gao. 2025. Secom: On memory construction and retrieval for personalized conversational agents. In International Conference on Learning Representations , volume 2025, pages 91851–91885. Preston Rasmussen, Pavlo Paliychuk, Travis Beauvais, Jack Ryan, and Daniel Chalef. 2025. Zep: A tempo-ral knowledge graph architecture for agent memory. 
+
+Preprint , arXiv:2501.13956. Harsh Trivedi, Niranjan Balasubramanian, Tushar Khot, and Ashish Sabharwal. 2023. Interleaving retrieval with chain-of-thought reasoning for knowledge-intensive multi-step questions. In Proceedings of the 61st Annual Meeting of the Association for Com-putational Linguistics (Volume 1: Long Papers) ,pages 10014–10037, Toronto, Canada. Association for Computational Linguistics. Di Wu, Hongwei Wang, Wenhao Yu, Yuwei Zhang, Kai-Wei Chang, and Dong Yu. 2025. Longmemeval: Benchmarking chat assistants on long-term interac-tive memory. In International Conference on Learn-ing Representations , volume 2025, pages 86809– 86836. Wujiang Xu, Zujie Liang, Kai Mei, Hang Gao, Juntao Tan, and Yongfeng Zhang. 2025. A-mem: Agen-tic memory for llm agents. In Advances in Neural 
+
+9Information Processing Systems , volume 38, Main Conference, pages 17577–17604. Curran Associates, Inc. Sikuan Yan, Xiufeng Yang, Zuchao Huang, Ercong Nie, Zifeng Ding, Zonggen Li, Xiaowen Ma, Jinhe Bi, Kristian Kersting, Jeff Z. Pan, Hinrich Schuetze, Volker Tresp, and Yunpu Ma. 2026. Memory-r1: Enhancing large language model agents to manage and utilize memories via reinforcement learning. In 
+
+Proceedings of the 64th Annual Meeting of the As-sociation for Computational Linguistics (Volume 1: Long Papers) , pages 12805–12825, San Diego, Cali-fornia, United States. Association for Computational Linguistics. Jingbo Yang, Kwei-Herng Lai, Xiaowen Wang, Shiyu Chang, Yaar Harari, and Evgeniy Gabrilovich. 2026. Groupmembench: Benchmarking llm agent memory in multi-party conversations. Preprint ,arXiv:2605.14498. Yi Yu, Liuyi Yao, Yuexiang Xie, Qingquan Tan, Ji-aqi Feng, Yaliang Li, and Libing Wu. 2026. Agen-tic memory: Learning unified long-term and short-term memory management for large language model agents. In Proceedings of the 64th Annual Meet-ing of the Association for Computational Linguis-tics (Volume 1: Long Papers) , pages 21457–21483, San Diego, California, United States. Association for Computational Linguistics. Wanjun Zhong, Lianghong Guo, Qiqi Gao, He Ye, and Yanlin Wang. 2024. Memorybank: enhancing large language models with long-term memory. In Pro-ceedings of the Thirty-Eighth AAAI Conference on Artificial Intelligence and Thirty-Sixth Conference on Innovative Applications of Artificial Intelligence and Fourteenth Symposium on Educational Advances in Artificial Intelligence , AAAI’24/IAAI’24/EAAI’24. AAAI Press. 
+
+A Appendix B Implementation Details 
+
+This section provides implementation details and hyperparameters for the experiments in Section 4. Unless otherwise specified, the same configuration is used across all reported evaluations. 
+
+B.1 Model Configuration 
+
+We use qwen3.7-max for the memory writer and answering agent, Kimi K3 as the evaluation judge, 
+
+text-embedding-v4 for dense representations, and qwen3-rerank for cross-encoder reranking. Final answers from all evaluated systems are judged by Kimi K3 under the same benchmark-specific evaluation protocol.       
+
+> Component Model
+> Memory writer qwen3.7-max
+> Answering agent qwen3.7-max
+> Evaluation judge Kimi K3 Embedding model text-embedding-v4
+> Reranker qwen3-rerank
+
+Table 6: Model configuration used in the reported ex-periments. 
+
+B.2 One-Shot Retrieval Controls 
+
+The one-shot controls in Table 1 isolate the ef-fect of conventional retrieve–then–read pipelines from the persistent and adaptive memory mecha-nisms of EGM EMORY . All controls retrieve ten messages and provide them directly to the same 
+
+qwen3.7-max answering agent used by EGM EM -
+
+> ORY
+
+.
+
+BM25 RAG. The lexical control ranks the verba-tim message content using BM25 and returns the ten highest-ranked messages. 
+
+Dense RAG. The dense control embeds the query and message content using text-embedding-v4 
+
+and retrieves the ten messages with the highest embedding similarity. 
+
+Hybrid RAG. The hybrid control combines BM25 and dense retrieval using reciprocal-rank fusion (RRF) with constant k0 = 60 . Each re-trieval channel contributes up to 100 candidates before fusion, after which the ten highest-ranked messages are passed to the answering agent. For all three controls, retrieval operates over the original message content rather than the rewritten memory representation used by EGM EMORY . Re-trieved messages retain their corpus-native speaker and conversational metadata when presented to the answering agent. No iterative memory access or explicit versioned state is used. 
+
+B.3 Memory Construction 
+
+Each retained message is represented by one canonical message-level record. The writer pre-dicts seven fields: keep , topic , phase , verdict ,
+
+value_quote , prior_ref , and rewritten . The 
+
+verdict is one of { new , restate , revision ,
+
+null } and specifies whether the message estab-lishes, repeats, revises, or does not express a mem-ory state. The language model proposes these fields, while state mutation is performed deterministi-cally. A proposed value_quote must be grounded 10 Hyperparameter Value        
+
+> Value-grounding threshold 0.9 Prior-reference grounding threshold 0.8 Maximum writer-agent loops 6Maximum registry searches 3Maximum rewrite retries 1Registry retrieval depth 6Slot-subject length 60 chars
+> Table 7: Memory-construction hyperparameters.
+
+in the source message with a minimum token-overlap threshold of 0.9. For revision references, 
+
+prior_ref uses a grounding threshold of 0.8. A decision without a grounded value is not committed as an authoritative decision state. Memory construction maintains a channel-specific registry of active decision states. The writer may retrieve up to six candidate states from this registry using lexical and dense retrieval. A revision is committed only when it can be associ-ated with an existing active state; otherwise, the message is treated as establishing a new state rather than revising an unobserved one. 
+
+Registry retrieval. The write-side registry uses both lexical and dense signals. The dense chan-nel compares the writer’s retrieval query with the rewritten representation of the current state holder, whereas the lexical channel operates on source-message tokens and the stored state description. The two rankings are combined using weighted reciprocal-rank fusion. The lexical channel uses BM25 with k1 = 1 .5
+
+and b = 0 .75 . The reciprocal-rank fusion constant is 60, with lexical weight 2.0 for write-side registry retrieval. 
+
+Version relations. A committed revision creates a supersedes relation to the previous active state. Revision links are assigned one of two confidence levels. A link is high-confidence when the revi-sion message contains a grounded reference to the value it replaces; otherwise, it is assigned the lower confidence tier. At read time, only high-confidence revision links are retained as authoritative state transitions. When a revision edge is rejected, its associated stale-state payload is also removed, preventing an uncertain relation from marking an earlier value as defini-tively obsolete. 
+
+Version-chain materialization. A sequence of validated revisions is additionally represented by           
+
+> Hyperparameter Value
+> RRF constant 60 Dense/BM25 fusion depth 200 Cross-encoder reranking depth 50 Maximum reranker document length 4,000 chars Initial retrieved passages 5Structural anchors 3Second-pass passages 10 Maximum passages per tool return 12 Maximum answering-agent rounds 10
+> Table 8: Read-side retrieval and answering hyperparam-eters.
+
+a derived retrieval unit containing the rewritten representations of all states in chronological order. The canonical message-level records remain un-changed. The embedding of the derived unit is obtained by averaging and renormalizing the ex-isting message embeddings, without an additional embedding-model call. 
+
+B.4 Retrieval Configuration 
+
+The read-side retriever follows three stages: SCOPE , F USION , and S ELECTION .
+
+Scope. Optional metadata constraints over chan-nel, topic, phase, and author are applied as hard candidate filters. When multiple constraints are specified, their candidate sets are intersected. With-out an explicit scope, retrieval operates over the full memory store. 
+
+Fusion. Within the candidate pool, dense and BM25 rankings are combined using reciprocal-rank fusion with equal channel weights. Both retrieval channels operate on the rewritten memory repre-sentation. Up to 200 candidates are retrieved from each channel before fusion. 
+
+Selection. The top 50 fused candidates are reranked using qwen3-rerank . Each candidate is truncated to at most 4,000 characters before rerank-ing, and the reranked order determines the final retrieval ranking. 
+
+B.5 Structure-Constrained Retrieval 
+
+For each memory search, the first-stage retriever returns the five highest-ranked passages. The top three are used as anchors for an automatic structure-constrained second pass. The second-pass candidate pool is formed from the union of the anchors’ topic buckets and prove-nance neighborhoods. The latter includes reply-chain context, sibling replies, and forward and 11 backward version relations. Dense and lexical re-trieval are then reapplied within this restricted pool, returning up to ten additional passages. Structural proximity is not added as an indepen-dent relevance score. Instead, structure determines the candidate set, while lexical and semantic match-ing determine the ordering within that set. Thus, conversational structure controls where the system searches, while content relevance controls what is returned. 
+
+B.6 Read-Side Tools 
+
+The answering agent has access to four memory operations: • search_memory : hybrid dense–lexical re-trieval with optional topic, phase, and author constraints; • lookup_phrase : lexical lookup for localized expressions that may be poorly represented by passage-level embeddings; • get_current_decision : retrieves the cur-rent state associated with a versioned decision chain; and • resolve_date : deterministically resolves rel-ative temporal expressions from message or phase timestamps. Retrieved evidence is presented chronologically after relevance-based selection. Passages already shown for the same question are suppressed in sub-sequent retrieval calls, allowing later accesses to expose additional evidence. 
+
+B.7 Evidence Representation 
+
+Dense retrieval, read-side BM25 retrieval, rerank-ing, and the passage body presented to the answer-ing agent operate on the rewritten representation. The original source message remains in the persis-tent evidence store for grounding and auditability but is not normally shown directly to the answering agent. Each retrieved passage additionally exposes structured metadata, including speaker, role, chan-nel, topic, phase, timestamp, reply information, and version status. For validated revisions, a pas-sage may explicitly mark a superseded value as no longer current. 
+
+B.8 Ablation Configurations 
+
+The ablations in Table 5 modify one part of the reported system while retaining the remaining con-figuration. 
+
+w/o Reranker. The cross-encoder reranking stage is disabled. Candidates are returned accord-ing to the fused dense–BM25 ranking; structure-constrained retrieval, versioned memory, and adap-tive multi-round tool use remain unchanged. 
+
+w/o Versioned state. The writer constructs the normal memory, but read-time access to versioned structure is removed. Specifically, derived version-chain retrieval units and supersedes relations are excluded, while the underlying message records, re-ply structure, reranker, and adaptive reader remain available. 
+
+Single-round reader. The answering agent is re-stricted to one interaction round instead of the default maximum of ten. The same tools and retrieval operations remain available within that round; the ablation therefore removes iterative adaptation across successive observations rather than changing the underlying retriever. 
+
+w/o Evidence verification. Source-grounding thresholds for the proposed value_quote and 
+
+prior_ref are set to zero, allowing non-empty model-proposed values and references to pass the grounding gate. The remaining verdict, state-association, and commit constraints are retained. This ablation therefore targets evidence grounding rather than disabling the complete state-update pro-cedure. 
+
+B.9 Persistence and Reproducibility 
+
+Memory construction commits each message and any derived version-chain update within the same database transaction. The persistent message records are sufficient to reconstruct the active-state registry without additional language-model infer-ence when an interrupted run is resumed. To prevent silent configuration drift, the im-plementation records fingerprints for the write-side code and the writer and judging prompts. The question-answering pipeline also probes the reranker before evaluation and records reranking failures. Evaluation failures are retained and scored as incorrect rather than being removed from the re-sult set. 12 The principal frozen constants used in the re-ported configuration are summarized in Tables 7 and 8. 13
