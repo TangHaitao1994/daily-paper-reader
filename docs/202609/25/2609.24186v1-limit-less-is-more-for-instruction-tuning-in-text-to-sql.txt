@@ -1,0 +1,479 @@
+Title: LIMIT: Less Is More for Instruction Tuning in Text-to-SQL
+
+URL Source: https://arxiv.org/pdf/2609.24186v1
+
+Published Time: Tue, 22 Sep 2026 02:57:09 GMT
+
+Number of Pages: 17
+
+Markdown Content:
+# LIMIT: Less Is More for Instruction Tuning in Text-to-SQL 
+
+## Haoyuan Ma 1, Hengwei Liu 1, Linjuan Wu 1, Yongliang Shen 1† , Weiming Lu 1† 
+
+> 1
+
+## Zhejiang University, 
+
+## {mahaoyuan, syl, luwm}@zju.edu.cn 
+
+## Abstract 
+
+Large language models have achieved re-markable progress on Text-to-SQL through reasoning-enhanced fine-tuning, yet existing approaches predominantly rely on massive in-struction corpora under the assumption that scale drives performance. We challenge this paradigm by investigating a fundamental ques-tion: what is the minimal data requirement for effective Text-to-SQL instruction tuning? We propose LIMIT (Less Is More for Instruction 
+
+Tuning in Text-to-SQL), a data-centric frame-work that demonstrates strong database reason-ing can emerge from an extremely compact training set when examples are strategically se-lected. LIMIT operates through four stages: difficulty-aware filtering that identifies samples within the model’s learning frontier, chain-of-thought synthesis with consistency-based se-lection, multi-dimensional quality scoring via LLM-as-judge, and genetic algorithm optimiza-tion that jointly maximizes schema coverage and sample quality. On the BIRD and Spi-der benchmark, LIMIT selects only 796 and 863 samples while achieving 100% table cov-erage, enabling Qwen3-8B to reach 69.1% and 88.9% execution accuracy. This result sur-passes methods trained on 20 times more data and establishes a new state-of-the-art among open-source approaches. Our findings suggest that careful data curation, rather than scale, is the key to efficient Text-to-SQL learning. 
+
+## 1 Introduction 
+
+Text-to-SQL systems translate natural language queries into executable database commands, en-abling non-experts to interact with structured data without SQL proficiency. Recent advances in large language models (Liu et al., 2024; Yu et al., 2025) have substantially improved performance on this task, with reasoning-enhanced approaches achiev-ing notable success on challenging benchmarks 
+
+> †Corresponding author.
+
+(Ma et al., 2025b; Pourreza et al., 2025). These methods typically combine SFT (supervised fine-tuning) with RL (reinforcement learning) objec-tives, leveraging CoT (chain-of-thought) annota-tions to elicit multi-step reasoning behavior. A common thread underlying these successes is the reliance on large-scale training data: OmniSQL (Li et al., 2025) employs 2.5 million instruction samples, CodeS (Li et al., 2024b) requires 21.5GB of pretraining corpora, and even recent reasoning-enhanced approaches (Ma et al., 2025b; Pourreza et al., 2025) depend on tens of thousands of an-notated examples. This scaling-centric paradigm, while effective, incurs substantial computational costs and raises questions about whether such data volumes are truly necessary. Recent work on mathematical reasoning has challenged the conventional wisdom that complex reasoning requires massive datasets. LIMO (Ye et al., 2025) demonstrated that when base mod-els have internalized sufficient domain knowledge during pretraining, a small number of high-quality examples can effectively activate latent reasoning capabilities. This finding suggests an intriguing possibility: can we achieve strong Text-to-SQL per-formance with dramatically fewer training sam-ples? This is not about filtering out low-quality or irrelevant data, but about identifying the small-est subset of highly valuable examples that offers the greatest instructional benefit. Answering this question affirmatively would not only reduce com-putational costs but also provide insights into the fundamental data requirements for structured rea-soning tasks. However, directly transferring the Less-Is-More principle to Text-to-SQL reveals fundamental chal-lenges absent in general reasoning domains. Text-to-SQL demands that models comprehend diverse table structures, column semantics, and referential relationships across heterogeneous databases. A training set achieving high quality scores but cov-1arXiv:2609.24186v1 [cs.AI] 21 Sep 2026 ering only partial schema elements will inevitably fail on queries involving unseen tables or columns. This observation exposes a critical tension: mini-mizing data volume inherently conflicts with max-imizing schema coverage, a constraint unique to database-grounded tasks. We argue that effective data selection for Text-to-SQL must jointly optimize two objectives that previous work treats independently. The first ob-jective concerns database structural coverage, en-suring selected examples collectively span all ta-bles and sufficient columns in target schemas. The second objective concerns instructional quality, re-quiring each example to exhibit clear semantics, correct SQL implementations, and coherent reason-ing traces. Existing selection methods based on difficulty filtering (Ye et al., 2025), diversity sam-pling (Muennighoff et al., 2025), or quality scoring (Li et al., 2025) address only one dimension and therefore achieve suboptimal data efficiency for structured generation tasks. To address these challenges, we propose LIMIT 
+
+(Less Is More for Instruction Tuning in Text-to-SQL), a data-centric framework that systematically constructs minimal yet effective training sets. Our approach operates through four complementary stages. The first stage performs difficulty-aware pre-filtering using a dual-model strategy: samples easily solved by a weak model are removed as un-informative, while samples that a strong model can-not reliably solve are excluded as potentially noisy. This filtering identifies examples within the opti-mal learning zone. The second stage synthesizes CoT annotations using a reasoning-capable model, selecting the shortest correct reasoning trace to maximize instructional clarity while minimizing re-dundancy. The third stage employs a unified LLM evaluator to score each candidate along multiple dimensions including question-SQL alignment, in-put clarity, SQL quality, and reasoning coherence. The fourth stage formulates dataset selection as a combinatorial optimization problem, using a ge-netic algorithm to search for subsets that jointly maximize schema coverage and aggregate quality while satisfying data budget constraints. We evaluate LIMIT on the BIRD benchmark (Li et al., 2023b), which features complex real-world databases across diverse domains. Our framework selects only 796 training samples while achieving 100% table coverage and 86.8% column coverage. Fine-tuning Qwen3-8B with supervised learning followed by GRPO (group relative policy optimiza-tion) (Shao et al., 2024) enables LIMIT to reach 69.1% execution accuracy, establishing state-of-the-art performance among open-source model ap-proaches. This result is achieved using fewer than 5% of the training data employed by prior meth-ods, demonstrating that dramatic data reduction is possible without sacrificing performance. Our contributions are threefold. First, we iden-tify the unique challenges of applying data-efficient learning to Text-to-SQL and formalize the joint op-timization of schema coverage and example qual-ity as the central problem. Second, we develop a principled four-stage framework that addresses this optimization through complementary filtering, scoring, and selection mechanisms. Third, we pro-vide empirical evidence that Text-to-SQL models can achieve strong performance with two orders of magnitude less data than previously assumed, suggesting new directions for resource-efficient se-mantic parsing research. 
+
+## 2 Related Work 
+
+Early Text-to-SQL efforts built on closed-source LLMs often augmented a frozen backbone with modular components to compensate for limited task-specific adaptation. Typical modules include schema linking and retrieval to surface relevant tables and columns (Li et al., 2023a; Cao et al., 2024), decomposition and planning to split com-plex queries (Zhang et al., 2024; Fan et al., 2024; Qu et al., 2024; Pourreza and Rafiei, 2023), candi-date generation and execution-based ranking (Dong et al., 2023; Deng et al., 2025; Li et al., 2024c; Lee et al., 2025; Li et al., 2024a; Sun et al., 2023; Wang et al., 2025), and iterative execution feedback or multi-agent consensus for self-correction (Wang et al., 2023; Talaei et al., 2024; Liu and Tan, 2024). While these modules improve robustness without changing model weights, reliance on closed mod-els raises privacy concerns and limits adaptation to database-specific schemas. Open-source fine-tuning approaches address adaptation and privacy by internalizing similar modules through SFT (Pourreza and Rafiei, 2024; Ma et al., 2025a), continual pretraining on SQL corpora (Li et al., 2024b, 2025), bidirectional data synthesis (Yang et al., 2024) and multi-task data synthesis (Qin et al., 2024; Sheng and Xu, 2025; Gao et al., 2024), and by adding search or RL ob-jectives (e.g., MCTS, GRPO) to reward executable correctness (Lyu et al., 2025; Ma et al., 2025b; 2Pourreza et al., 2025). However, like methods in mathematical and reasoning, these pipelines fre-quently rely on very large collections of annotated, stepwise solutions to stabilize multi-step logical behavior, incurring high annotation and synthesis costs. The Less-is-More principle (Ye et al., 2025) con-tests that scale is not the only path: a small, care-fully curated set of high-difficulty examples with explicit reasoning chains can activate latent reason-ing in pretrained models. Validated across math (Muennighoff et al., 2025), reasoning (Zhou et al., 2023) and agentic coding tasks (Xiao et al., 2025), this data-efficient perspective motivates an alterna-tive tuning approach for the Text-to-SQL task. Mo-tivated by this, we propose LIMIT, a Less-Is-More instruction-tuning framework that curates training examples to elicit database reasoning. 
+
+## 3 Methodology 
+
+In this section, we introduce LIMIT, a framework for instruction tuning in Text-to-SQL that empha-sizes high quality, small-scale training data and efficient model learning. As illustrated in Figure 1, LIMIT comprises four key stages: 1) Difficulty-Aware Pre-filtering, 2) Chain-of-Thought Gener-ation, 3) Multi-Dimensional LLM-Based Scoring and 4) Genetic Data Selection. LIMIT begins by difficulty-aware pre-filtering to remove samples that are too easy or too hard, en-suring that retained examples provide strong learn-ing signals. Next, high-quality CoT annotations are generated and selected. To further control data quality, a unified LLM evaluates each sample along multiple dimensions, producing a composite score used for filtering and ranking in single data level. In dataset level, a genetic algorithm searches for an optimal subset that balances schema coverage, overall quality, and dataset size under constrained budgets. Finally, LIMIT trains models using a two-stage protocol combining SFT and RL to enforce correctness, executability, concision, and structured output. In the following subsections, we provide a detailed description of each component of LIMIT. 
+
+3.1 Difficulty-Aware Pre-filtering 
+
+To construct an efficient and informative fine tuning dataset, LIMIT expands the original DB-Explore (Ma et al., 2025a) generation pipeline by adding richer inter-table relationships and more complex query structures (including multi-table joins and aggregation operations). Combined with the orig-inal data from DB-Explore (Ma et al., 2025a), it can better support database structure learning and advanced query reasoning. On top of this candidate set, we apply a difficulty based pre-filtering stage to select high value train-ing samples. We consider two undesirable cases, samples that are too easy and samples that are too hard, and address them using a tiered filtering strat-egy with models of different capacities. 
+
+Removing easy samples. For each sample, we perform a single rollout using Qwen3-4B (Yang et al., 2025) with temperature set to 0. If the gen-erated SQL is correct, the sample is regarded as trivial and removed. 
+
+Removing hard samples. For the remaining samples, we conduct 8 rollouts using Qwen3-Coder-30B-A3B-Instruct (Yang et al., 2025) with temperature set to 0.8. Let k be the number of cor-rect generations. If k < 2, the sample is removed as overly difficult, indicating unstable or uninforma-tive learning signals even for strong models. This threshold preserves learnable challenges while fil-tering out noise dominated cases. 
+
+3.2 Chain-of-Thought Generation 
+
+After difficulty based pre-filtering, LIMIT further augments the retained samples with high quality CoT annotations to improve instruction fine tun-ing effectiveness. We use the reasoning model DeepSeek-R1 (Guo et al., 2025) to generate CoT for each sample. Given a natural language ques-tion and its database schema, DeepSeek-R1 (Guo et al., 2025) is prompted under a fixed template to produce reasoning traces and the final SQL. For each sample, we perform 8 independent rollouts to obtain diverse candidate reasoning paths. To ensure correctness and instructional value, LIMIT applies a consistency based selection strat-egy. A generated CoT is considered valid only if the execution result of its SQL is correct. When multiple correct rollouts exist, we select the CoT with the shortest token length as the final anno-tation. This preference for concise and complete reasoning reduces redundancy, highlights core rea-soning patterns, and controls the overall token bud-get, thereby improving fine-tuning efficiency. 
+
+3.3 Multi-Dimensional LLM Based Scoring 
+
+After chain-of-thought generation, LIMIT intro-duces a model based data evaluation module to 3Figure 1: Overall framework of LIMIT. Our framework operates through four principal phases: (1) Difficulty-Aware Pre-filtering, (2) Chain-of-Thought Generation, (3) Multi-Dimensional LLM Based Scoring and (4) Genetic Data Selection. The data volume in the figure represents the amount of data after each stage on the BIRD dataset. 
+
+enforce fine grained and controllable quality selec-tion. Building on the findings of OmniSQL (Li et al., 2025), which show that strong LLMs can approxi-mate human judgment in Text-to-SQL data evalua-tion, LIMIT extends these principles by incorporat-ing an explicit assessment of CoT quality into its scoring framework. It employs a multi-dimensional evaluation strategy for each sample, which compre-hensively considers the tight coupling between the question, SQL, and the reasoning. We use GPT-4o (Hurst et al., 2024) as a unified evaluator to assess each sample along four complementary di-mensions: • Adherence evaluates whether the generated SQL accurately reflects the semantics and in-tent of the natural language question. • Input quality assesses the clarity, formality, and information sufficiency of the natural lan-guage question. • SQL quality measures the soundness of the SQL query such as structural clarity, readabil-ity and execution efficiency. • Reasoning quality evaluates whether the gen-erated CoT provides a clear, complete, and pedagogically useful reasoning process. Each dimension is further subdivided into sev-eral smaller dimensions. The evaluation prompts are provided in Appendix A. For each dimension, GPT-4o assigns a categori-cal rating from Excellent , Good , Average , to Poor ,mapped to scores 4, 3, 2, and 1, and a weighted av-erage over the four dimensions is then computed to produce a single composite quality score for each sample. This score serves as a fitness signal for sub-sequent dataset optimization, enabling LIMIT to retain highly instructive samples under constrained data budgets. 
+
+3.4 Genetic Data Selection 
+
+From a dataset level perspective, LIMIT introduces a genetic algorithm based optimization module to perform secondary filtering and combinatorial op-timization over candidate samples. Unlike previ-ous stages that focus on individual sample quality, this stage aims to automatically search for a train-ing subset that achieves an optimal balance among database coverage, overall quality, and dataset size under a fixed data budget. LIMIT formulates dataset selection as a com-binatorial optimization problem. Let the post fil-tered data pool be D = {d1, . . . , d N }. Each can-didate subset is represented by a binary vector 
+
+z ∈ { 0, 1}N , where zi = 1 indicates that sam-4ple di is selected. The genetic algorithm iteratively evolves a population of such vectors by optimiz-ing a global fitness function, defined in Eq. (1) as a weighted combination of coverage, quality, and size control objectives. 
+
+F(z) = wtable Ctable (z) + wcolumn Ccolumn (z)+ wscore S(z) − wpenalty P (z) (1) 
+
+Database coverage. Coverage measures how well the selected subset represents the database schema. Table coverage Ctable is defined as the pro-portion of distinct tables appearing in the selected samples relative to all tables, and column coverage 
+
+Ccolumn is defined analogously for columns. This term encourages broad schema coverage and pre-vents over concentration on a small subset of tables or columns. 
+
+Overall quality score. S(z) denotes the aggre-gated quality score of the selected samples, ob-tained from the multi dimensional GPT-4o based evaluation in the previous stage. It measures the average quality of the selected subset and serves as the main optimization signal. 
+
+Data size penalty. To enforce the Less-Is-More principle and avoid trivial improvements through increasing data volume, LIMIT introduces an ex-plicit size penalty term P (z). When the number of selected samples exceeds a predefined target size, the excess is penalized proportionally, encourag-ing the algorithm to favor compact yet high quality subsets. 
+
+Genetic operators. Crossover exchanges corre-sponding bits between two parent vectors to com-bine structural information from different subsets. Mutation flips individual bits to introduce random-ness and avoid premature convergence. In a large binary chromosome, crossover and bit-flip muta-tion treat 0 and 1 symmetrically, making it difficult for the population to escape local optima in terms of dataset size. To address this issue, LIMIT intro-duces cardinality mutation, which more effectively explores solutions with different dataset sizes by randomly selecting a subset of individuals and di-rectly increasing or decreasing the number of active bits through perturbing a fraction of selected sam-ples. This mechanism allows the search process to explore solutions with varying sizes and works jointly with the size penalty to identify subsets that balance quality, coverage, and scale. The overall process and parameter settings for the optimization algorithm are detailed in the Ap-pendix C. 
+
+3.5 Model Training 
+
+LIMIT adopts a two stage training paradigm com-bining SFT and RL to fully exploit high quality, small scale instruction data. Prior work has shown that this paradigm improves reasoning and gener-ation stability on Text to SQL tasks, for example SQL-R1 (Ma et al., 2025b). 
+
+Supervised fine tuning The SFT stage learns a mapping from ⟨Qi, D i⟩ to an executable SQL Ri.We fine tune the base model by minimizing the negative log likelihood 
+
+Loss = − 1
+
+|T | 
+
+> |T|
+
+X
+
+> i=1
+
+p(Ri|Qi, D i, M i) (2) where Qi is the natural language question, Di is the database schema, and Mi denotes associated metadata. 
+
+Reinforcement learning The RL stage refines generation with a composite reward that bal-ances output format, executability, correctness, and brevity. Referencing the successful experience of SQL-R1 (Ma et al., 2025b), the overall reward is 
+
+R = Sf + Se + Sr + Sl, (3) where Sf , Se, Sr and Sl denote format, execution, result, and length rewards respectively. Training and inference prompt template is pro-vided in Appendix B. 
+
+## 4 Experiments 
+
+Benchmarks We evaluate LIMIT on the BIRD benchmark (Li et al., 2023b) and the Spider dataset (Yu et al., 2018). BIRD contains 95 large scale rela-tional databases from real world business systems across 37 domains, with highly complex schemas and realistic Text to SQL challenges. Spider is a large scale cross domain Text to SQL benchmark with 10 ,181 questions and 5,693 unique complex SQL queries over 200 databases spanning 138 do-mains. We use execution accuracy (EX) (Yu et al., 2018) as the evaluation metric. EX compares query results by executing generated SQL against the reference outputs, avoiding sensitivity to syntac-tic variations and providing a reliable measure of practical correctness in real database environments. 5Methods BIRD-Dev-EX Spider-Dev-EX                                                   
+
+> Prompting with Closed-Source LLMs
+> MCS-SQL + GPT-4 (Wang et al., 2023) 63.4 89.5 XIYAN (Gao et al., 2024) 73.3 69.7 CHASE-SQL + Gemini-1.5 (Pourreza et al., 2024) 73.1 87.6 MAC-SQL + GPT-4 (Wang et al., 2023) 59.4 86.8 Agentar-Scale-SQL (Wang et al., 2025) 74.9 -
+> Fine-Tuning with Open-Source LLMs 14B-15B
+> CODES-15B (Li et al., 2024b) 58.5 84.9 ROUTE + Qwen2.5-14B (Qin et al., 2024) 60.9 87.3 OmniSQL-14B (Li et al., 2025) 64.2 81.4 SQL-R1 + Qwen2.5-Coder-14B(self-consistency@8) (Ma et al., 2025b) 67.1 86.7 Reasoning-SQL + Qwen2.5-Coder-14B(Pourreza et al., 2025) 65.3 81.4
+> Fine-Tuning with Open-Source LLMs 7B-8B
+> CODES-7B (Li et al., 2024b) 57.2 85.4 ROUTE + Qwen2.5-7B (Qin et al., 2024) 55.9 83.6 OmniSQL-7B (Li et al., 2025) 63.9 81.6 SQL-o1 + Qwen2.5-7B (Lyu et al., 2025) 66.7 84.7 SQL-o1 + Llama3-8B (Lyu et al., 2025) 63.4 87.4 SQL-R1 + Qwen2.5-Coder-7B(self-consistency@8) (Ma et al., 2025b) 66.6 87.6 Reasoning-SQL + Qwen2.5-Coder-7B(Pourreza et al., 2025) 64.0 -SLM-SQL(self-consistency@16)(Sheng and Xu, 2025) 67.1 76.7 EvolSQL + Qwen2.5-Coder-7B(Pan et al., 2026) 65.1 86.1 RingSQL + Qwen2.5-Coder-7B(Sterbentz et al., 2026) 61.7 85.5 SQL-Trail + Qwen2.5-Coder-7B(self-consistency@8) (Hua et al., 2026) 64.2 86.8 DB-Explore (Ma et al., 2025a) 65.2 87.2 DB-Explore + self-consistency@8 (Ma et al., 2025a) 67.0 87.8
+> Ours: LIMIT + Qwen3-8B 66.9 88.4
+> Ours: LIMIT + Qwen3-8B + self-consistency@8 69.1 88.9
+
+Table 1: Experimental results on BIRD benchmarks. Within the Fine-Tuning with Open-Source LLMs 7B-8B group, top-performing entries are bold with runner-up scores underlined. 
+
+Implementation Details LIMIT uses Qwen3-8B (Yang et al., 2025) as the base model. The initial DB-Explore pool for BIRD dev grew from 16,457 to 24,457 samples; after pre-filtering 2,907 candidates remained and the evaluation and optimization modules yielded 796 high quality training samples. The Spider pool grew from 21,237 to 29,237, was reduced by pre-filtering to 3,476, and produced 863 final samples. For a de-tailed training cost analysis, please refer to Ap-pendix E. Training is implemented with LLaMA-Factory (Zheng et al., 2024) and VERL (Sheng et al., 2024). In the SFT stage we use the AdamW optimizer for 15 epochs with an initial learning rate of 1 × 10 −5
+
+and a cosine decay schedule. The context win-dow is set to 4096 tokens. In the RL stage we apply a GRPO based policy optimizer with learn-ing rate 3 × 10 −7 and 4 rollouts per sample. For inference we use self-consistency decoding. Un-der τ = 0 .8 we sample 8 candidate SQLs per input and select the final output via execution consistency. For single shot generation we set temperature to 0 to ensure deterministic output. Genetic algorithm parameters and sensitivity analysis are shown in Appendix D. 
+
+Baselines We benchmark LIMIT against a di-verse set of recent Text to SQL methods. MCS-SQL (Lee et al., 2025) uses multiple prompts and result selection to reduce single shot instability, XIYAN (Gao et al., 2024) leverages structured rea-soning and tool enhanced prompting, CHASE-SQL (Pourreza et al., 2024) applies multi round reason-ing with candidate tracking. Agentar-Scale-SQL (Wang et al., 2025) employs orchestrated test time scaling with RL enhanced internal reasoning and parallel expansion. MAC-SQL (Wang et al., 2023) uses multi agent collaboration for generation val-idation and correction. CODES (Li et al., 2024b) integrates large scale code pretraining and plug-ins, ROUTE (Qin et al., 2024) applies multi task learning, OmniSQL (Li et al., 2025) uses large scale instruct fine tuning, SQL-o1 (Lyu et al., 2025) and SQL-R1 (Ma et al., 2025b) leverage execution-guided reasoning tuning; Reasoning-SQL (Pour-reza et al., 2025), SLM-SQL (Sheng and Xu, 2025), and SQL-TRAIL (Hua et al., 2026) apply RL-based reasoning strategies; EVOLSQL (Pan et al., 2026) and RINGSQL (Sterbentz et al., 2026) focus on scalable synthetic Text-to-SQL data generation. 65 Results and Analysis 
+
+5.1 Main Results 
+
+Figure 2: Comparison of dataset scores between LIMIT and BIRD train.      
+
+> Methods BIRD-Dev-EX Qwen3-8B (Yang et al., 2025) 57.4 SFT 65.4 SFT + RL 66.9 SFT + RL + self-consistency@8 69.1
+
+Table 2: Performance of LIMIT at different training stages on the BIRD dataset.        
+
+> Methods Data volume Bird-Train 9428 Codes (Li et al., 2024b) 21.5GB OmniSQL (Li et al., 2025) 2500000 Route (Qin et al., 2024) 30000 DB-Explore (Ma et al., 2025a) 16457 LIMIT 796
+
+Table 3: LIMIT data volume analysis in BIRD. 
+
+Performance on Main Benchmarks Table 1 summarizes the performance of LIMIT on BIRD-Dev-EX and Spider-Dev-EX, comparing it with representative prompting based approaches and fine tuned open source models. Overall, LIMIT achieves competitive and often superior perfor-mance with a very small amount of data. Using only an 8B open source model, it surpasses mul-tiple methods based on larger 14B models and re-mains competitive with strong closed source base-lines, validating the Less-Is-More principle for Text to SQL. Among fine tuning methods with 7B to 8B models, SQL-o1 (Lyu et al., 2025), SQL-R1 (Ma et al., 2025b), and SLM-SQL (Sheng and Xu, 2025) represent state of the art reasoning enhanced         
+
+> Cover Rate Table column Bird-DEV 100% 71.7% DB-Explore (Ma et al., 2025a) 100% 100% LIMIT 100% 86.8%
+
+Table 4: DB coverage analysis. 
+
+Figure 3: LIMIT DB Coverage Analysis. 
+
+systems with peak BIRD accuracy around 66% to 67%. DB-Explore (Ma et al., 2025a), which forms the basis of LIMIT, reaches 67.0% with self consis-tency, demonstrating the effectiveness of database exploration and instruction synthesis. Building on this foundation, LIMIT applies strict data selection and combines SFT with RL, achieving 66.9% under single pass inference with fewer but more focused samples, indicating that large scale instruction data is not necessary for strong performance. With self consistency@8 (Wang et al., 2022), LIMIT further improves to 69.1%, outperforming DB-Explore with self consistency and strong baselines such as SQL-o1 and SLM-SQL. On Spider, LIMIT attains 88.4% EX and reaches 88.9% with self consistency, outperforming most open source fine tuned mod-els and remaining competitive with closed source methods, which suggests that LIMIT generalizes well across datasets and better supports stable rea-soning under multi path sampling. 
+
+Analysis of Training Stage Table 2 reports how model performance on BIRD-Dev-EX evolves across training stages, allowing a systematic analy-sis of data selection, SFT and RL. Qwen3-8B (Yang et al., 2025) achieves 57.4% accuracy on BIRD (Li et al., 2023b), which indicates reasonable general 7Methods BIRD-Dev-EX SFT RL               
+
+> Ours: LIMIT + Qwen3-8B 65.4 66.9
+> - w/o DB Cover Rate 58.4 ↓7.061.1 ↓5.8
+> - w/o Adherence 60.6 ↓4.861.4 ↓5.5
+> - w/o Input Quality 63.8 ↓1.665.0 ↓1.9
+> - w/o SQL Quality 63.5 ↓1.964.8 ↓2.1
+> - w/o Reasoning Quality 64.1 ↓1.364.1 ↓2.8
+> Table 5: Ablation study on LIMIT, complete method of LIMIT is bold .
+
+language understanding but limited ability to pro-duce semantically correct and executable SQL on real world databases with complex schemas and implicit constraints. Fine-tuning with 796 high quality instruction samples selected by LIMIT im-proves accuracy to 65.4%, an increase of 8.3 per-centage points. Introducing the RL stage further raises performance to 66.9%, highlighting the high quality of the generated CoT, as well as the high information density and instructional value of the curated data. Finally, applying self consistency@8 increases accuracy to 69.1%, which demonstrates that the selected training examples offer diverse and coherent reasoning paths that allow multi sam-ple voting to converge more reliably to correct SQL. Together these results emphasize the importance of domain aligned, high quality samples for efficient Text-to-SQL learning and the complementary roles of SFT, RL and multi sample aggregation. 
+
+Analysis of Data Quality To analyze the ad-vantages of LIMIT in data quality and data effi-ciency, we compare it with representative Text-to-SQL methods from the perspectives of data scale, multi dimensional quality scores, and database cov-erage. Table 3 shows that most prior approaches rely on large scale training data.In contrast, LIMIT selects only 796 high quality samples from the DB-Explore pool, reducing data size by about 95% relative to DB-Explore and by several orders of magnitude compared to OmniSQL, while still achieving competitive performance. This result supports the Less-is-More principle, where per-formance gains depend more on semantic align-ment, structural coverage, and reasoning signals than on raw data volume. Figure 2 further shows that LIMIT consistently outperforms the original BIRD (Li et al., 2023b) training set in overall qual-ity scores, especially in instruction clarity, question SQL alignment, and reasoning consistency, while remaining comparable on engineering oriented as-pects such as SQL security, maintainability, effi-ciency, and correctness. Table 4 reports that LIMIT achieves full table coverage and 86.8% column coverage with only 796 samples, striking a bal-ance between coverage and compactness, whereas BIRD has lower column coverage and DB-Explore achieves full coverage at much higher cost. Figure 3 shows that LIMIT samples are evenly distributed across 11 databases, avoiding concentration on a few schemas and favoring databases with higher structural complexity and reasoning value. 
+
+5.2 Ablation Study 
+
+Table 5 reports module level ablation results of LIMIT on BIRD-Dev-EX at the SFT and RL stages. The full framework achieves 65.4% after SFT and 66.9% after RL, serving as the performance upper bound. Removing the DB cover rate constraint causes the largest degradation, with accuracy drop-ping to 58.4% at SFT and decreasing by 5.8 points at RL, showing that insufficient table and column coverage leads to overfitting to local schemas and weak cross table generalization on complex bench-marks such as BIRD (Li et al., 2023b). Remov-ing the adherence constraint also yields substantial drops of 4.8% and 5.3%, indicating that misalign-ment between questions and SQL structures harms the learning of correct mappings. Input quality, SQL quality, and reasoning quality have milder but consistent effects. Excluding input quality re-duces performance by about 1.6% and 1.9%, while removing SQL quality leads to larger drops, espe-cially at RL, reflecting the importance of executable and efficient queries under execution based re-wards. Notably, removing reasoning quality causes the largest RL stage drop of 2.8%, exceeding the SFT drop, which shows that high quality reason-ing traces are particularly critical for RL. Overall, these results demonstrate that LIMIT relies on the synergy of schema coverage and multiple quality constraints, with DB coverage and adherence as core factors and reasoning quality amplifying gains during RL. 
+
+## 6 Conclusion 
+
+We introduce LIMIT, a data centric pipeline for Text-to-SQL instruction tuning that pioneeringly applies the Less-Is-More principle to this do-main. LIMIT emphasizes compact, high quality datasets over large instruction corpora by integrat-ing difficulty-aware pre-filtering, chain-of-thought generation, multi-dimensional LLM based scoring, 8and genetic data selection, followed by SFT and RL. On the BIRD benchmark, LIMIT achieves com-petitive performance with only 796 curated sam-ples.Overall, LIMIT offers a practical and extensi-ble path toward data efficient Text-to-SQL learning across larger models and broader domains. 
+
+## Limitations 
+
+Although LIMIT demonstrates strong data effi-ciency and highly competitive performance, sev-eral limitations remain. First, while the framework significantly reduces training-time computation, it relies on multiple large language models for CoT generation and multi-dimensional scoring, intro-ducing additional API costs that may hinder re-producibility. Second, although LIMIT achieves state-of-the-art results among approaches based on 7B-8B open-source models, it still lags behind some methods built on substantially larger mod-els. Finally, while LIMIT performs well on an 8B backbone, its effectiveness on much larger model architectures has not been systematically studied, leaving its scalability and robustness across differ-ent model sizes as open questions. 
+
+## Ethics Statements 
+
+We use LLMs to synthesize training data and to perform data quality evaluation, as well as to gener-ate chain-of-thought annotations. All processes are conducted exclusively on publicly available Text-to-SQL benchmarks and database schemas. No private, proprietary, or personal data are used, and no human subjects are involved. 
+
+## References 
+
+Zhenbiao Cao, Yuanlei Zheng, Zhihao Fan, Xiaojin Zhang, Wei Chen, and Xiang Bai. 2024. RSL-SQL: Robust Schema Linking in Text-to-SQL Generation. 
+
+arXiv preprint . ArXiv:2411.00073 [cs]. Minghang Deng, Ashwin Ramachandran, Canwen Xu, Lanxiang Hu, Zhewei Yao, Anupam Datta, and Hao Zhang. 2025. Reforce: A text-to-sql agent with self-refinement, format restriction, and column explo-ration. In ICLR 2025 Workshop: VerifAI: AI Veri-fication in the Wild .Xuemei Dong, Chao Zhang, Yuhang Ge, Yuren Mao, Yunjun Gao, lu Chen, Jinshu Lin, and Dongfang Lou. 2023. C3: Zero-shot Text-to-SQL with ChatGPT. 
+
+arXiv preprint . ArXiv:2307.07306 [cs]. Yuankai Fan, Zhenying He, Tonghui Ren, Can Huang, Yinan Jing, Kai Zhang, and X Sean Wang. 2024. Metasql: A generate-then-rank framework for natural language to sql translation. In 2024 IEEE 40th Inter-national Conference on Data Engineering (ICDE) ,pages 1765–1778. IEEE. Yingqi Gao, Yifu Liu, Xiaoxia Li, Xiaorong Shi, Yin Zhu, Yiming Wang, Shiqi Li, Wei Li, Yuntao Hong, Zhiling Luo, et al. 2024. Xiyan-sql: A multi-generator ensemble framework for text-to-sql. arXiv preprint arXiv:2411.08599 .Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Ruoyu Zhang, Runxin Xu, Qihao Zhu, Shirong Ma, Peiyi Wang, Xiao Bi, et al. 2025. Deepseek-r1: In-centivizing reasoning capability in llms via reinforce-ment learning. arXiv preprint arXiv:2501.12948 .Harper Hua, Zhen Han, Zhengyuan Shen, Jeremy Lee, Patrick Guan, Qi Zhu, Sullam Jeoung, Yueyan Chen, Yunfei Bai, Shuai Wang, Vassilis N. Ioannidis, and Huzefa Rangwala. 2026. Sql-trail: Multi-turn re-inforcement learning with interleaved feedback for text-to-sql. CoRR , abs/2601.17699. Aaron Hurst, Adam Lerer, Adam P Goucher, Adam Perelman, Aditya Ramesh, Aidan Clark, AJ Os-trow, Akila Welihinda, Alan Hayes, Alec Radford, et al. 2024. Gpt-4o system card. arXiv preprint arXiv:2410.21276 .Dongjun Lee, Choongwon Park, Jaehyuk Kim, and Heesoo Park. 2025. Mcs-sql: Leveraging multiple prompts and multiple-choice selection for text-to-sql generation. In COLING , pages 337–353. Association for Computational Linguistics. Boyan Li, Yuyu Luo, Chengliang Chai, Guoliang Li, and Nan Tang. 2024a. The dawn of natural lan-guage to sql: Are we fully ready? arXiv preprint arXiv:2406.01265 .Haoyang Li, Shang Wu, Xiaokang Zhang, Xinmei Huang, Jing Zhang, Fuxin Jiang, Shuai Wang, Tiey-ing Zhang, Jianjun Chen, Rui Shi, et al. 2025. Om-nisql: Synthesizing high-quality text-to-sql data at scale. arXiv preprint arXiv:2503.02240 .Haoyang Li, Jing Zhang, Cuiping Li, and Hong Chen. 2023a. RESDSQL: Decoupling Schema Linking and Skeleton Parsing for Text-to-SQL. Proceedings of the AAAI Conference on Artificial Intelligence ,37(11):13067–13075. Number: 11. Haoyang Li, Jing Zhang, Hanbing Liu, Ju Fan, Xi-aokang Zhang, Jun Zhu, Renjie Wei, Hongyan Pan, Cuiping Li, and Hong Chen. 2024b. CodeS: Towards Building Open-source Language Models for Text-to-SQL. arXiv preprint . ArXiv:2402.16347 [cs]. Jinyang Li, Binyuan Hui, Ge Qu, Jiaxi Yang, Binhua Li, Bowen Li, Bailin Wang, Bowen Qin, Rongyu Cao, Ruiying Geng, Nan Huo, Xuanhe Zhou, Chenhao Ma, Guoliang Li, Kevin C. C. Chang, Fei Huang, Reynold Cheng, and Yongbin Li. 2023b. Can LLM Already Serve as A Database Interface? A BIg Bench for Large-Scale Database Grounded Text-to-SQLs. 
+
+arXiv preprint . ArXiv:2305.03111 [cs]. 
+
+9Zhishuai Li, Xiang Wang, Jingjing Zhao, Sun Yang, Guoqing Du, Xiaoru Hu, Bin Zhang, Yuxiao Ye, Ziyue Li, Rui Zhao, and Hangyu Mao. 2024c. PET-SQL: A Prompt-Enhanced Two-Round Refine-ment of Text-to-SQL with Cross-consistency. arXiv preprint . ArXiv:2403.09732 [cs]. Aixin Liu, Bei Feng, Bing Xue, Bingxuan Wang, Bochao Wu, Chengda Lu, Chenggang Zhao, Chengqi Deng, Chenyu Zhang, Chong Ruan, et al. 2024. Deepseek-v3 technical report. arXiv preprint arXiv:2412.19437 .Xiping Liu and Zhao Tan. 2024. Epi-sql: Enhancing text-to-sql translation with error-prevention instruc-tions. arXiv preprint arXiv:2404.14453 .Shuai Lyu, Haoran Luo, Zhonghong Ou, Yifan Zhu, Xi-aoran Shang, Yang Qin, and Meina Song. 2025. Sql-o1: A self-reward heuristic dynamic search method for text-to-sql. arXiv preprint arXiv:2502.11741 .Haoyuan Ma, Yongliang Shen, Hengwei Liu, Wenqi Zhang, Haolei Xu, Qiuying Peng, Jun Wang, and Weiming Lu. 2025a. Db-explore: Automated database exploration and instruction synthesis for text-to-sql. CoRR , abs/2503.04959. Peixian Ma, Xialie Zhuang, Chengjin Xu, Xuhui Jiang, Ran Chen, and Jian Guo. 2025b. Sql-r1: Training natural language to sql reasoning model by reinforce-ment learning. arXiv preprint arXiv:2504.08600 .Niklas Muennighoff, Zitong Yang, Weijia Shi, Xi-ang Lisa Li, Li Fei-Fei, Hannaneh Hajishirzi, Luke Zettlemoyer, Percy Liang, Emmanuel Candès, and Tatsunori B Hashimoto. 2025. s1: Simple test-time scaling. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing ,pages 20286–20332. Xuan-guang Pan, Chongyang Tao, Jiayuan Bai, Jianling Gao, Zhengwei Tao, Xiansheng Zhou, Gavin Cheung, and Shuai Ma. 2026. Evolsql: Structure-aware evo-lution for scalable text-to-sql data synthesis. CoRR ,abs/2601.04875. Mohammadreza Pourreza, Hailong Li, Ruoxi Sun, Yeounoh Chung, Shayan Talaei, Gaurav Tarlok Kakkar, Yu Gan, Amin Saberi, Fatma Ozcan, and Sercan Ö. Arik. 2024. Chase-sql: Multi-path reason-ing and preference optimized candidate selection in text-to-sql. CoRR , abs/2410.01943. Mohammadreza Pourreza and Davood Rafiei. 2023. DIN-SQL: Decomposed In-Context Learning of Text-to-SQL with Self-Correction. arXiv preprint .ArXiv:2304.11015 [cs]. Mohammadreza Pourreza and Davood Rafiei. 2024. DTS-SQL: Decomposed Text-to-SQL with Small Large Language Models. arXiv preprint .ArXiv:2402.01117 [cs]. Mohammadreza Pourreza, Shayan Talaei, Ruoxi Sun, Xingchen Wan, Hailong Li, Azalia Mirhoseini, Amin Saberi, Sercan Arik, et al. 2025. Reasoning-sql: Re-inforcement learning with sql tailored partial rewards for reasoning-enhanced text-to-sql. arXiv preprint arXiv:2503.23157 .Yang Qin, Chao Chen, Zhihang Fu, Ze Chen, Dezhong Peng, Peng Hu, and Jieping Ye. 2024. ROUTE: Ro-bust Multitask Tuning and Collaboration for Text-to-SQL. arXiv preprint . ArXiv:2412.10138 [cs]. Ge Qu, Jinyang Li, Bowen Li, Bowen Qin, Nan Huo, Chenhao Ma, and Reynold Cheng. 2024. Before generation, align it! a novel and effective strategy for mitigating hallucinations in text-to-sql generation. In 
+
+ACL (Findings) , pages 5456–5471. Association for Computational Linguistics. Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, YK Li, Yang Wu, et al. 2024. Deepseekmath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300 .Guangming Sheng, Chi Zhang, Zilingfeng Ye, Xibin Wu, Wang Zhang, Ru Zhang, Yanghua Peng, Haibin Lin, and Chuan Wu. 2024. Hybridflow: A flexible and efficient rlhf framework. arXiv preprint arXiv: 2409.19256 .Lei Sheng and Shuai-Shuai Xu. 2025. Slm-sql: An exploration of small language models for text-to-sql. 
+
+arXiv preprint arXiv:2507.22478 .Marko Sterbentz, Kevin Cushing, Cameron Barrie, and Kristian J. Hammond. 2026. Ringsql: Generat-ing synthetic data with schema-independent tem-plates for text-to-sql reasoning models. CoRR ,abs/2601.05451. Ruoxi Sun, Sercan Ö Arik, Alex Muzio, Lesly Miculi-cich, Satya Gundabathula, Pengcheng Yin, Hanjun Dai, Hootan Nakhost, Rajarishi Sinha, Zifeng Wang, et al. 2023. Sql-palm: Improved large language model adaptation for text-to-sql (extended). arXiv preprint arXiv:2306.00739 .Shayan Talaei, Mohammadreza Pourreza, Yu-Chen Chang, Azalia Mirhoseini, and Amin Saberi. 2024. Chess: Contextual harnessing for efficient sql synthe-sis. arXiv preprint arXiv:2405.16755 .Bing Wang, Changyu Ren, Jian Yang, Xinnian Liang, Jiaqi Bai, Qian-Wen Zhang, Zhao Yan, and Zhou-jun Li. 2023. MAC-SQL: A Multi-Agent Collabo-rative Framework for Text-to-SQL. arXiv preprint .ArXiv:2312.11242 [cs]. Pengfei Wang, Baolin Sun, Xuemei Dong, Yaxun Dai, Hongwei Yuan, Mengdie Chu, Yingqi Gao, Xiang Qi, Peng Zhang, and Ying Yan. 2025. Agentar-scale-sql: Advancing text-to-sql through orchestrated test-time scaling. ArXiv , abs/2509.24403. 
+
+10 Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc Le, Ed H. Chi, and Denny Zhou. 2022. Self-consistency improves chain of thought reasoning in language models. ArXiv , abs/2203.11171. Yang Xiao, Mohan Jiang, Jie Sun, Keyu Li, Jifan Lin, Yumin Zhuang, Ji Zeng, Shijie Xia, Qishuo Hua, Xuefeng Li, et al. 2025. Limi: Less is more for agency. arXiv preprint arXiv:2509.17567 .An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chengen Huang, Chenxu Lv, Chujie Zheng, Dayi-heng Liu, Fan Zhou, Fei Huang, Feng Hu, Hao Ge, Haoran Wei, Huan Lin, Jialong Tang, Jian Yang, Jianhong Tu, Jianwei Zhang, Jianxin Yang, Jiaxin Yang, Jingren Zhou, Jingren Zhou, Junyan Lin, Kai Dang, Keqin Bao, Ke-Pei Yang, Le Yu, Li-Chun Deng, Mei Li, Min Xue, Mingze Li, Pei Zhang, Peng Wang, Qin Zhu, Rui Men, Ruize Gao, Shi-Qiang Liu, Shuang Luo, Tianhao Li, Tianyi Tang, Wenbiao Yin, Xingzhang Ren, Xinyu Wang, Xinyu Zhang, Xuancheng Ren, Yang Fan, Yang Su, Yi-Chao Zhang, Yinger Zhang, Yu Wan, Yuqiong Liu, Zekun Wang, Zeyu Cui, Zhenru Zhang, Zhipeng Zhou, and Zihan Qiu. 2025. Qwen3 technical report. ArXiv ,abs/2505.09388. Jiaxi Yang, Binyuan Hui, Min Yang, Jian Yang, Jun-yang Lin, and Chang Zhou. 2024. Synthesizing Text-to-SQL Data from Weak and Strong LLMs. arXiv preprint . ArXiv:2408.03256 [cs]. Yixin Ye, Zhen Huang, Yang Xiao, Ethan Chern, Shijie Xia, and Pengfei Liu. 2025. Limo: Less is more for reasoning. arXiv preprint arXiv:2502.03387 .Qiying Yu, Zheng Zhang, Ruofei Zhu, Yufeng Yuan, Xiaochen Zuo, Yu Yue, Tiantian Fan, Gaohong Liu, Lingjun Liu, Xin Liu, Haibin Lin, Zhiqi Lin, Bole Ma, Guangming Sheng, Yuxuan Tong, Chi Zhang, Mofan Zhang, Wang Zhang, Hang Zhu, Jinhua Zhu, Jiaze Chen, Jiangjie Chen, Chengyi Wang, Honglin Yu, Weinan Dai, Yuxuan Song, Xiang Wei, Haodong Zhou, Jingjing Liu, Wei Ma, Ya-Qin Zhang, Lin Yan, Mu Qiao, Yong-Xu Wu, and Mingxuan Wang. 2025. Dapo: An open-source llm reinforcement learning system at scale. ArXiv , abs/2503.14476. Tao Yu, Rui Zhang, Kai Yang, Michihiro Yasunaga, Dongxu Wang, Zifan Li, James Ma, Irene Li, Qingn-ing Yao, Shanelle Roman, et al. 2018. Spider: A large-scale human-labeled dataset for complex and cross-domain semantic parsing and text-to-sql task. 
+
+arXiv preprint arXiv:1809.08887 .Qinggang Zhang, Hao Chen, Junnan Dong, Shengyuan Chen, Feiran Huang, and Xiao Huang. 2024. Struc-ture guided large language model for sql generation. 
+
+arXiv preprint arXiv:2402.13284 .Yaowei Zheng, Richong Zhang, Junhao Zhang, Yan-han Ye, Zheyan Luo, Zhangchi Feng, and Yongqiang Ma. 2024. Llamafactory: Unified efficient fine-tuning of 100+ language models. arXiv preprint arXiv:2403.13372 .Chunting Zhou, Pengfei Liu, Puxin Xu, Srinivasan Iyer, Jiao Sun, Yuning Mao, Xuezhe Ma, Avia Efrat, Ping Yu, Lili Yu, et al. 2023. Lima: Less is more for align-ment. Advances in Neural Information Processing Systems , 36:55006–55021. 
+
+11 A LLM based scoring rules 
+
+The scoring rules for LIMIT are as shown in Figure 4 - 7 
+
+## B LIMIT inference prompt 
+
+The prompt used in LIMIT inference phase are as shown in Figure 8 
+
+## C Genetic Data Selection Algorithm 
+
+The overall process of the Genetic Data Selection Algorithm is shown in Algorithm 1. 
+
+Fitness Function. Given a selection vector z ∈{0, 1}N , let 
+
+k =
+
+> N
+
+X
+
+> i=1
+
+zi (4) denote the number of selected samples. The fitness components are defined as 
+
+Ctable = |T sel |
+
+Ttotal 
+
+, (5) 
+
+Ccolumn = |C sel |
+
+Ctotal 
+
+, (6) 
+
+S = 14k
+
+X
+
+> i:zi=1
+
+score i, (7) 
+
+P = max(0 , k − T )
+
+T . (8) The overall fitness is computed as 
+
+F(z) = wtable Ctable (z) + wcolumn Ccolumn (z)+ wscore S(z) − wpenalty P (z) (9) Specifically, we assign wtable = 0.2 and 
+
+wcolumn = 0 .3 to encourage broad table and col-umn coverage, wscore = 0 .5 to prioritize high qual-ity samples, and wpenalty = 0 .5 to impose a strong constraint on the selected subset size. 
+
+## D Genetic Data Selection sensitivity analysis 
+
+We conducted a controlled sensitivity analysis by varying one weight at a time while keeping the other three fixed at their default values. As shown in Table 6, the Default configuration consistently achieves the highest execution accuracy of 66.9, indicating that it lies in a stable near optimal re-gion rather than being arbitrarily selected. When adjusting the table coverage weight, decreasing it reduces both coverage and execution accuracy to 65.1, while increasing it enlarges the subset and slightly improves coverage but lowers accuracy to 66.1 and 65.6, suggesting that over emphasizing coverage introduces redundancy that harms gener-alization. For the column coverage weight, lower-ing it substantially reduces column coverage and drops accuracy to 64.3, while increasing it expands the subset but still underperforms the Default at 65.2, indicating diminishing returns from exces-sive diversity. For the quality score weight, both decreasing and increasing it from the Default lead to lower accuracy between 64.5 and 66.0, showing that over prioritizing either coverage or evaluator score disrupts the balance. Finally, for the penalty weight, reducing regularization inflates the subset and lowers accuracy to 65.7, whereas increasing it compresses the subset to 675 examples and further reduces accuracy to 64.3. Overall, performance de-grades smoothly when moving away from the De-fault configuration, demonstrating that our weight choice achieves the best tradeoff between coverage, compactness, and quality and is robust rather than arbitrarily tuned. 
+
+## E Performance and cost analysis 
+
+We further analyze the computational efficiency of LIMIT by jointly considering training cost and performance (Table 7). Despite using only 796 samples, LIMIT achieves competitive execution accuracy (66.9% vs. 67.8% on GRE, and 69.1% vs. 69.6% on MV) compared to full-data training with 24K samples, indicating strong sample efficiency. From a training perspective, under the same hard-ware configuration (four NVIDIA A6000 GPUs), fine-tuning Qwen3-8B with LIMIT for 10 epochs takes 5.3 hours, whereas training on the full dataset for 4 epochs requires 61.5 hours. This corresponds to an approximate 91% reduction in GPU training time, demonstrating a substantial improvement in computational efficiency. Regarding data construction, LIMIT introduces additional one-time costs due to LLM-based pro-cessing. Specifically, the Chain-of-Thought gen-eration stage consumes 11,872,188 input tokens and 5,360,508 output tokens, while the multi-dimensional scoring stage requires 4,857,597 in-put tokens and 4,206,429 output tokens. A signifi-cant portion of these tokens arises from incorporat-ing complex database schema information into the prompts. However, this upfront cost is amortized in practi-12 Weight Value Subset Size Table Cov. (%) Column Cov. (%) EX (%) 
+
+wtable 
+
+0.2 (Default) 796 100.0 86.8 66.9 
+
+0.1 761 99.2 83.5 65.1 0.3 828 100.0 88.5 66.1 0.4 912 100.0 91.4 65.6 
+
+wcolumn 
+
+0.3 (Default) 796 100.0 86.8 66.9 
+
+0.1 785 100.0 78.2 64.3 0.2 790 100.0 82.5 65.4 0.4 847 100.0 91.0 65.2 
+
+wscore 
+
+0.5 (Default) 796 100.0 86.8 66.9 
+
+0.3 819 100.0 87.5 64.7 0.4 808 100.0 87.0 66.0 0.6 743 99.2 84.0 65.5 
+
+wpenalty 
+
+0.5 (Default) 796 100.0 86.8 66.9 
+
+0.3 845 100.0 88.2 65.7 0.4 822 100.0 87.4 66.2 0.6 675 98.7 82.0 64.3 
+
+Table 6: Sensitivity analysis of fitness weights. Each block varies one weight while fixing others at default values. 
+
+Methods EX (GRE) EX (MV) Samples Qwen3-8B + Full data 67.8 69.6 24,457 LIMIT 66.9 69.1 796 
+
+Table 7: Comparison between full data training and LIMIT. 
+
+cal scenarios. Once constructed, the curated dataset can be reused across multiple training runs, model variants, or downstream adaptations. In contrast, the reduction in training time directly translates to recurring savings in GPU computation. Therefore, LIMIT not only improves data efficiency but also leads to a more cost-effective training pipeline over-all, especially in iterative or resource-constrained settings. 13 Algorithm 1 Genetic Data Selection Algorithm 
+
+Require: Pre filtered set D = {d1, . . . , d N }; total tables Ttotal , total columns Ctotal ; 
+
+> 1:
+
+Weights wtable , w column , w score , w penalty ; 
+
+> 2:
+
+Target size T ; population size P , generations G; 
+
+> 3:
+
+Crossover probability pc, per bit mutation probability pm, cardinality mutation probability pcm ,cardinality fraction ρ; 
+
+> 4:
+
+Elite size E.
+
+Ensure: Optimized subset encoding zbest  
+
+> 5:
+
+Initialize a population of P binary vectors of length N 
+
+> 6:
+
+Q ← ∅ ▷ new population  
+
+> 7:
+
+for g = 1 to G do  
+
+> 8:
+
+Select parents via tournament selection to form a mating pool  
+
+> 9:
+
+Copy the top E individuals from the current population into Q ▷ elitism  
+
+> 10:
+
+for each randomly sampled parent pair (x, y ) from the mating pool do  
+
+> 11:
+
+u ∼ U (0 , 1)  
+
+> 12:
+
+if u < p c then  
+
+> 13:
+
+Perform single point crossover on (x, y ) to produce offspring (o1, o 2) 
+
+> 14:
+
+else  
+
+> 15:
+
+Copy (o1, o 2) ← (x, y ) 
+
+> 16:
+
+end if  
+
+> 17:
+
+Add o1, o 2 to Q 
+
+> 18:
+
+if |Q| ≥ P then  
+
+> 19:
+
+break  
+
+> 20:
+
+end if  
+
+> 21:
+
+end for  
+
+> 22:
+
+for each offspring o in Q excluding elites do  
+
+> 23:
+
+for i = 1 to N do  
+
+> 24:
+
+v ∼ U (0 , 1)  
+
+> 25:
+
+if v < p m then  
+
+> 26:
+
+oi ← 1 − oi 
+
+> 27:
+
+end if  
+
+> 28:
+
+end for  
+
+> 29:
+
+w ∼ U (0 , 1)  
+
+> 30:
+
+if w < p cm then  
+
+> 31:
+
+k ← PNi=1 oi 
+
+> 32:
+
+∆ ← ⌈ ρ · k⌉ 
+
+> 33:
+
+Draw b ∼ Bernoulli (0 .5)  
+
+> 34:
+
+if b = 1 then  
+
+> 35:
+
+Randomly set min(∆ , k ) active bits in o to 0 
+
+> 36:
+
+else  
+
+> 37:
+
+Randomly set ∆ inactive bits in o to 1 
+
+> 38:
+
+end if  
+
+> 39:
+
+end if  
+
+> 40:
+
+end for  
+
+> 41:
+
+Evaluate fitness of each individual in Q 
+
+> 42:
+
+Set population ← Q 
+
+> 43:
+
+end for  
+
+> 44:
+
+return the individual with highest fitness zbest 
+
+14 Figure 4: Adherence scoring prompt. 
+
+Figure 5: Input quality scoring prompt. 
+
+15 Figure 6: SQL quality scoring prompt. 
+
+Figure 7: Reasoning quality scoring prompt. 
+
+16 Figure 8: LIMIT inference prompt. 
+
+17

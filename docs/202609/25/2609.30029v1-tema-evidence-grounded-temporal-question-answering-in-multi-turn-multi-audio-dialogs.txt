@@ -1,0 +1,182 @@
+Title: TEMA: Evidence-Grounded Temporal Question Answering in Multi-Turn Multi-Audio Dialogs
+
+URL Source: https://arxiv.org/pdf/2609.30029v1
+
+Published Time: Fri, 25 Sep 2026 01:29:01 GMT
+
+Number of Pages: 5
+
+Markdown Content:
+## TEMA: EVIDENCE-GROUNDED TEMPORAL QUESTION ANSWERING IN MULTI-TURN MULTI-AUDIO DIALOGS 
+
+## Kaidi Yang 1,2 , Hualei Wang 1,2,Zhaohui Wang 1,2,Chenxuan Wang 1,2,Hong Liu 1,Xiangdong Wang 1,⋆  
+
+> 1
+
+## Institute of Computing Technology, Chinese Academy of Sciences, Beijing, China.  
+
+> 2
+
+## University of Chinese Academy of Sciences, Beijing, China. 
+
+ABSTRACT 
+
+Multi-turn, multi-audio temporal question answering requires models to track target events across follow-up questions, recording switches, and historical references, recovering complete instances and their boundaries for temporal calculation and comparison. We propose TEMA, which connects event perception with evidence-based answering through Route, specifying the audio scope, and Span, describing all relevant intervals as conditional audio captions. We construct TEMA-Dialog with 40,704 dialogs and per-turn evidence and answer supervision, and TEMA-Bench for joint evaluation of evidence and final answers. Training combines temporal grounding initialization, full-dialog supervised fine-tuning, and completeness-first Span-only GRPO. Experiments on Qwen2.5-Omni and AF-Next show improved temporal question answering, particularly event localization and cross-audio compar-ison. Reinforcement learning applied solely to evidence further improves interval recovery and answer accuracy. 
+
+Index Terms — audio question answering, temporal grounding, multi-turn dialog, multi-audio understanding 
+
+1. INTRODUCTION 
+
+Large audio-language models (LALMs) unify sound recognition, au-dio captioning, and question answering, giving users a flexible way to interact with recordings. As queries focus on specific events, mod-els must also understand when sounds occur, how long they last, and their temporal order. Answering when a particular sound oc-curs or how far apart two events are, for example, requires aligning linguistic descriptions with accurate event boundaries. Alignment between event semantics and temporal positions is therefore an im-portant foundation of fine-grained audio understanding. Prior work has strengthened localization through temporal representations and training data. Sridhar et al. [1] construct temporal question-answering supervision from event timestamps. TimeAudio [2] introduces time tokens and time-aware encoding, and constructs FTAR to support dense audio captioning, audio ground-ing, and timeline-based speech summarization. TimePro-RL [3] and TEMPO [4] further combine explicit temporal information with verifiable rewards to improve temporal alignment. TAG-Bench [5] further evaluates the recovery of all query-matching intervals within a single recording, including queries with multiple occurrences. Their main training and evaluation settings involve individual recordings. Precise localization is usually posed as a single-turn query, with an emphasis on timestamped audio captioning and audio grounding. In practical use, however, conversations often span multiple turns and may involve several recordings. As shown in Fig. 1, a  
+
+> ⋆
+
+Corresponding author. user first asks for an event interval in one recording, then uploads additional recordings to compare the target sound’s total duration and earliest occurrence. This interaction lets users refine questions based on previous analysis and requires models to maintain event– recording associations as queries change. AF-Chat [6] provides dialog data supporting follow-up questions and references to earlier audio, with human experts evaluating factuality, helpfulness, and response depth. MUGEN [7] examines acoustic-attribute identifi-cation and comparison across multiple recordings within a single turn. Although it includes temporal attributes such as duration and rhythm, it formulates questions as selection among candidate recordings and evaluates choice accuracy, without requiring event onset–offset intervals or explicit temporal calculations. These settings assess dialog understanding and cross-audio attribute judg-ments, but do not systematically test whether models can accurately recover event boundaries and correctly answer temporal questions across successive turns. For example, selecting the recording with the longer total ticking duration does not establish that a model has recovered every tick and its boundaries or calculated the total duration. A dataset and benchmark dedicated to such fine-grained temporal question answering in multi-turn, multi-audio dialogs remain lacking. Multi-turn, multi-audio temporal question answering requires models to reason over the current question and dialog history, iden-tify relevant recordings and events, recover instance boundaries on each timeline, and perform the requested calculations. Temporal lo-calization must therefore adapt to targets and operations that change with context. Recent work has explored incorporating temporal in-formation into reasoning. Echo [8] generates intervals in its chain of thought and reintroduces the corresponding audio segments for re-listening. AF-Next’s AF-Think-Time [9] associates intermediate reasoning steps with timestamps to integrate evidence from long au-dio. These methods organize content through temporal references selected or generated during reasoning. However, introducing tem-poral references does not itself ensure that generated intervals accu-rately delimit the events required by the question. Multi-turn tempo-ral questions also require evidence that accurately represents the cur-rent audio scope, event instances, and boundaries. Beyond tempo-ral alignment rewards in TimePro-RL and TEMPO, we target com-plete query-conditioned evidence across dialog turns and recordings, jointly checking audio scope, instance counts, absence states, and boundaries. This is particularly important for counting and cumu-lative duration, where missing one occurrence can change the re-sult. Event annotations should therefore define complete evidence for each question, enabling models to learn evidence acquisition be-fore temporal calculation and comparison. We study temporal question answering in multi-turn, multi-audio dialogs and propose TEMA, a framework based on query-conditioned temporal evidence. Recognizing the role of arXiv:2609.30029v1 [cs.SD] 24 Sep 2026 Task Formulation & Inference Example 
+
+> Five-turn dialog (multi-audio, multi-turn)
+
+Turn 1 [Upload Audio 1] When does a car pass by for the first time in this new clip? At 1.2–5.2 s. 
+
+Turn 2 [Upload Audio 2 and Audio 3] Which of the two clips with ticks has the longer total tick duration? Clip 3. 
+
+> …
+
+Turn 5 In which clip does the ticking start earliest? Clip 2.                 
+
+> Visible audios and target status at Turn 5
+> Target event: ticks Other event (e.g., car pass)
+> 0510
+> Car pass [1.2–5.2]
+> 0510
+> Ticks [0.1–0.2]
+> 0510
+> Ticks [2.6–2.7], [2.9–3.0], [3.1–3.2] Structured evidence for Turn 5
+> <route> Audios{1} Audios{2} Audios{3}
+> <span> Audios{1}[NONE]; Audios{2}[0.1-0.2]; Audios{3}[2.6-2.7,2.9-3.0,3.1-3.2]
+> <reason> Clip 1 has no ticks. Clip 2 has a tick starting at 0.1s. Clip 3 has ticks starting at 2.6s, 2.9s, and 3.1s; the earliest is 2.6s. Comparing 0.1s and 2.6s, 0.1s is earlier .
+> <answer> Clip 2.
+> …
+> Audio 1 Audio 2 Audio 3
+
+Fig. 1 . Temporal QA and evidence in multi-audio dialog. temporal evidence as an intermediate basis for reasoning, we construct a dataset and develop training methods that enable models to accurately acquire and use the information needed across follow-up questions, recording switches, and historical references. Our contributions are: 1. TEMA-Dialog. We filter and process public audio data and event timestamps to construct a dataset with 40,704 dialogs and 198,195 response turns. To our knowledge, this is the first multi-turn, multi-audio temporal question-answering dataset. It covers event times, counts, and durations across follow-ups, cross-audio comparisons, and historical references, with complete temporal evidence, explanations, and answers per turn. 2. Three-stage training for evidence acquisition and use. 
+
+Temporal grounding initialization aligns queries with event intervals; full-dialog SFT learns contextual evidence generation and answering; completeness-first Span-only GRPO directly optimizes instance completeness and boundary precision against event annotations. On TEMA-Bench, TEMA achieves higher overall QA than all compared baselines, including the open Qwen2.5-Omni-7B and AF-Next-Instruct and the proprietary Qwen3.5-Omni-Plus and Gemini 3.5 Flash. 3. TEMA-Bench for joint evaluation of temporal evidence and final answers. We retain model-generated history across 253 di-alogs and 1,239 questions to assess evidence recovery and tem-poral question answering in natural multi-turn interaction, bench-marking precise temporal understanding in continuous dialog. We have released the code, dataset details and model weights. 1
+
+2. METHODOLOGY 2.1. Task design and temporal evidence 
+
+Multi-turn, multi-audio temporal question answering uses currently visible recordings, dialog history, and the user question to answer questions involving event times, durations, counts, order, and tempo-ral relations across recordings. Audio can be uploaded in two ways: 
+
+upfront , with all recordings provided at the first turn, or incremen-tally , with new recordings introduced in later turns. Only uploaded audio is accessible at each turn. The upper part of Fig. 1 shows five turns with incremental up-loads. As recordings and queries change, the model must identify 
+
+> 1
+
+https://github.com/KadeeYoung/TEMA Dataset Construction     
+
+> Audio + temporal annotations
+> AudioSet Strong TACOS AudioTime-frequency Audio 1: Music[0.0–10.0] Audio 2: Male speech[0.2–1.2] Audio 3: Rain [2.6–8.1]
+> Two-stage dialog generation Dialog Planning Turn Instantiation Dialogs Audio Caption
+> Music plays throughout, with….
+> Evidence & dialog audit Rules checks
+> Similar
+> Random
+> Qwen3.5-Omni-Plus Qwen3.7-Plus A man speaks briefly at the … Rain falls in the middle of the …
+> DeepSeek V4-flash checks
+> Discard
+> Coarse Event Summary, Clip ID &Event Classes, Task Menu
+> Unified event label TEMA-Dialog
+> 40,704 dialogs 198,195 turns
+> TEMA-Bench
+> 253 dialogs 1,239 questions
+> Full Event timeline, Detailed Audio Captions Question Route Span Reason Answer
+
+Fig. 2 . Construction pipeline for TEMA-Dialog and TEMA-Bench. target events and answer temporal questions. We organize audio questions into five families comprising 18 types, covering temporal attributes, multiple instances, and historical references. 
+
+Task families. F1: Temporal localization and measurement cov-ers event localization, duration, and inter-event gaps. F2: Event identification and verification covers time-window identification, presence/absence, and false-premise correction. F3: Within-audio temporal structure covers instance counting and event ordering. 
+
+F4: Cross-audio retrieval and comparison covers event retrieval, count comparison, earliest occurrence, exclusion retrieval, presence-and-count comparison, duration comparison, and per-audio counts. 
+
+F5: Multi-turn temporal reference covers duration queries about recently mentioned or earlier-discussed event instances. For consistent temporal supervision, one model sequentially generates Route, Span, Reason, and Answer at each turn. Route specifies the recordings requiring inspection or a judgment, includ-ing those where event absence must be verified. Span represents complete query-conditioned temporal evidence and can be viewed as structured conditional audio captioning. The question and history determine what to retrieve; Span records every matching instance and its onset–offset interval within Route’s scope, marking recordings without matches as [NONE] . Reason selects instances, calculates, and compares; Answer gives the final response. Turn 5 in Fig. 1 illustrates the relation between evidence and operations. When comparing the earliest ticking occurrence, Route covers three recordings. Span records the absence of ticking in audio 1 and all ticking intervals in audios 2 and 3, after which Reason selects the earliest onset, 0.1 s. Although this question needs only the earliest instance, Span retains all instances to support different temporal operations. 
+
+2.2. Constructing the TEMA-Dialog dataset 
+
+Per-turn evidence requires accurate event annotations and consistent dialog content. We group recordings by event categories and inter-vals, then generate connected questions and answers (Fig. 2). 
+
+Preparing event annotations. We integrate AudioSet Strong [10], TACOS [11], and AudioTime-frequency [12] into unified event ta-bles. Existing onset–offset intervals are retained. We map TACOS segment descriptions to AudioSet categories and use its ontology to normalize label granularity. AudioTime-frequency uses AudioSet-style event names, overlays events on silence, and provides counts and onsets. We complete intervals by estimating offsets from wave-form amplitude and consecutive silence. Beyond temporal localization, counting requires verified corre-spondence between event counts and individual intervals. From the 456 AudioSet Strong categories used in this project, we manually se-lect 202 countable candidates and uniformly sample relevant record-ings. Qwen3.5-Omni-Plus predicts counts and timestamps. We se-lect core events using agreement between predicted and annotated counts and interval intersection-over-union (IoU), then expand to recordings containing these events and repeat verification. Count-ing questions use only verified audio–event records. AudioTime-frequency supplies supervision through its existing counts and onsets and the completed offsets. 
+
+Audio grouping and dialog generation. For cross-audio retrieval and temporal comparison, we use two grouping methods (Fig. 2). Similar groups retrieve candidates using Jaccard similarity over event labels and filter them by minimum pairwise CLAP [13] simi-larity within each group, supporting instance discrimination among similar sounds. Random groups introduce differences across acous-tic scenes to diversify comparison relations. Qwen3.5-Omni-Plus generates captions for question wording. To reduce factual and temporal errors in one-pass generation, Qwen3.7-Plus first plans dialogs, then instantiates each turn. Plan-ning uses coarse event information, audio IDs, and a valid question-type–target-event–audio menu to arrange questions, upload order, and historical references; instantiation combines full event tables and detailed audio captions to generate each question and its four-part response. Event tables constrain instances, intervals, and operation results, while captions only guide wording, preserving consistency with temporal annotations across turns. 
+
+Dialog auditing and dataset scale. Generated dialogs undergo rule-based and model-based auditing. Rules check Route and Span against event tables; DeepSeek V4-flash further audits factual wording, audio IDs, and references. Samples that fail are discarded. We also manually review 100 sampled dialogs, with conclusions agreeing with the model-based audit. TEMA-Dialog and TEMA-Bench draw recordings from the source datasets’ training and test splits, respectively. TEMA-Dialog comprises 40,704 dialogs, 198,195 response turns, and 75,561 recordings, with 1–6 recordings and 2–13 turns per dialog. Multi-audio dialogs account for 78.80%; 23,858 dialogs use incremental uploads and 16,846 use upfront uploads. TEMA-Bench Test253 comprises 253 dialogs and 1,239 questions, including 209 multi-audio dialogs, with additional manual review and correction. See Footnote 1 for dataset details. 
+
+2.3. Three-stage training 
+
+Building on TEMA-Dialog, we develop a training framework for evidence-grounded temporal question answering. The baseline trained with dialog supervision alone still shows limited fine-grained temporal perception, motivating dedicated training for temporal evidence. We adopt three stages: first, learning query–interval alignment using the AudioGrounding subset of TimeAudio’s FTAR; then, full-dialog SFT on TEMA-Dialog to learn contextual evidence generation and use; and finally, Span-only GRPO to improve instance completeness and boundary precision. 
+
+Temporal grounding initialization (I). We use 98,401 positive ex-amples from the AudioGrounding subset of TimeAudio’s FTAR [2]. Given one recording and a query, token cross-entropy supervises a Span response containing all relevant intervals, establishing query-to-interval alignment for dialog evidence generation. 
+
+Full-dialog supervised fine-tuning (S). TEMA-Dialog supervises the complete Route, Span, Reason, and Answer at each turn with reference dialog history. The model learns to infer audio scope from the question and history, generate evidence, select instances, and per-form temporal operations. 
+
+Completeness-first Span-only GRPO (G). Reinforcement learn-ing for audio question answering requires reliable verification. R1-AQA [14] and Audio-Thinker [15] verify selection-based answers by choice matching. TEMA’s open-ended answers require resolv-ing events, instance references, and recordings: equivalent facts may differ in wording, while identical values may refer to different in-stances. String or value matching is therefore insufficient. An LLM judge adds cost without ensuring reward reliability or consistency. TEMA’s temporal evidence provides a more direct verification target. Route and Span enable direct verification of scope, instance counts, absence states, and endpoints against event tables. Given the evidence-to-answer mapping learned through dialog SFT and the reference-evidence diagnostics (Sec. 3.4), we hypothesize that im-proving evidence accuracy and completeness can improve answer-ing. Span-only GRPO [16] generates and optimizes only Route and Span, stopping at </span> , without generating or directly reward-ing Reason or Answer. We jointly evaluate event sets and bound-aries because missing or extra instances affect counts, cumulative durations, and ordinal selections. For generated evidence y, H(y) = 1 iff the predicted audio scope, per-recording instance counts, and [NONE] states match the reference, with all onsets and offsets within 0.1 s under within-audio one-to-one matching; otherwise, H(y) = 0 . A continuous score 
+
+D(y) ∈ [0 , 1] distinguishes candidates that are not yet complete. The reward is 
+
+r(y) = 
+
+(
+
+0.9H(y) + 0 .1D(y), y is valid evidence ,
+
+−0.1, otherwise . (1) Complete candidates score at least 0.9 and valid incomplete candi-dates at most 0.1, prioritizing completeness over partial correctness. The continuous score combines audio scope, instance matching, and event absence. For a predicted interval p and reference interval 
+
+g, matching quality is 
+
+q(p, g ) = 0 .7 IoU( p, g )+ 0 .3 exp 
+
+
+
+− |ps − gs| + |pe − ge|
+
+2τ (g)
+
+
+
+,τ (g) = clip(0 .2( ge − gs), 0.1, 0.5) ,
+
+(2) where s, e denote onset and offset in seconds, and clip bounds the error scale to 0.1–0.5 s. We perform maximum-weight Hungarian matching independently within each recording shared by reference and prediction. With matched quality sum Q and reference/predicted nonempty interval counts n, bn, the soft instance score is Focc =2Q/ (n + bn) for n > 0.Let R∗, bR denote the reference and predicted audio sets. Set F1 measures their scope agreement: M = 2 |R∗ ∩ bR|/(|R∗| + | bR|).Let Z contain reference recordings without matching events. The absence score Nacc is the fraction of Z correctly included in the predicted scope and explicitly marked [NONE] ; it equals one when 
+
+Z is empty. Finally, 
+
+D = M
+
+
+
+0.8Focc + 0 .2Nacc , n > 0, |Z| > 0,Focc , n > 0, |Z| = 0 ,Nacc , n = 0 .
+
+(3) 
+
+3. EXPERIMENTS 3.1. Experimental setup Implementation details. We evaluate the training framework on Qwen2.5-Omni-7B [17] and AF-Next [9], both using the same tem-poral grounding data and TEMA-Dialog. The first two stages train LoRA [18] adapters in the language model and audio-projection lay-ers with rank 64, alpha 128, and dropout 0.05, keeping the base weights and audio encoder frozen. Table 1 . Natural multi-turn results and ablations on Test253; gold-evidence diagnostics below. I/S/G: temporal grounding initialization, dialog SFT, and Span-only GRPO. All scores are percentages; family columns report QA. Evidence metrics follow Sec. 3.1. —: not evaluated. Bold: best available natural score. Percentage-point changes use displayed rounded scores. Model Training Overall Evidence Task-family QA QA QA+T Span F1 H F1 F2 F3 F4 F5 Qwen2.5-Omni-7B Original 46.09 38.90 — — 26.05 76.89 54.84 22.67 33.33 AF-Next-Instruct Original 51.98 46.57 — — 39.07 72.79 80.65 29.78 36.11 TEMPO multitask-RL Original 41.89 19.77 — — 36.87 62.42 35.48 12.89 33.33 Qwen3.5-Omni-Plus Original 57.71 46.49 — — 28.04 89.42 87.10 52.44 5.56 Gemini 3.5 Flash Original 49.72 39.39 — — 21.41 80.78 53.23 48.00 11.11 TEMA (AF-Next) I+S 58.03 47.22 25.23 33.33 39.96 78.19 72.58 51.56 41.67 TEMA (AF-Next) I+S+G 58.84 49.88 39.52 33.66 40.18 78.83 75.81 53.78 38.89 TEMA (Qwen2.5-Omni) S 57.14 48.99 32.16 27.36 53.20 71.92 82.26 28.44 52.78 TEMA (Qwen2.5-Omni) I+S 68.93 58.27 52.30 42.78 61.37 82.51 80.65 53.33 66.67 TEMA (Qwen2.5-Omni) I+S+G 69.81 58.76 58.65 44.39 62.03 84.23 87.10 51.11 69.44 
+
+Supplied gold Route/Span: diagnostic only 
+
+Qwen2.5-Omni-7B Original 82.81 81.52 — — 89.62 87.69 72.58 62.22 80.56 TEMA (Qwen2.5-Omni) I+S 96.45 95.80 — — 95.36 99.35 98.39 92.44 94.44 Each backbone’s SFT model screens its own GRPO questions. Taking Qwen2.5-Omni as an example, we sample eight evidence candidates per question from 7,292 questions, retaining 1,034 with both a completely correct and a valid but incomplete candidate. Each step processes four questions with four resampled candidates each. GRPO trains new language-model LoRA adapters with rank 16 and alpha 32, keeping the audio encoder and projector frozen. 
+
+Evaluation protocol. We evaluate all five families on Test253 using upload-order recordings and model-generated history, with greedy decoding capped at 1,024 tokens per turn for all models. Compara-tors include the open models Qwen2.5-Omni-7B, AF-Next-Instruct, and TEMPO multitask-RL, and the proprietary Qwen3.5-Omni-Plus and Gemini 3.5 Flash. Baselines in Table 1 answer directly; TEMA and its ablations generate Route, Span, Reason, and Answer. We score all final answers and evidence only for structured outputs. 
+
+Metrics. Our questions concern verifiable event properties, includ-ing identity, occurrence counts, temporal order, and timing. Given the question, reference history, and event annotations, DeepSeek V4-flash judges non-temporal correctness, including event identity, counts, order, and recording/instance selection, and extracts required and optional temporal claims. Deterministic rules verify temporal values with an inclusive 0.1 s tolerance. Within-event time points and explicitly stated subintervals are checked for containment. QA measures whether the final Answer satisfies the question’s require-ments; QA+T additionally checks all volunteered temporal claims. Reference histories are used only for scoring, and scores are aggre-gated across turns. Evidence metrics are Span micro F1@0.5, pool-ing TP/FP/FN from within-audio one-to-one matching at IoU ≥ 0.5,and H@0.1 for complete evidence (Sec. 2.3). 
+
+3.2. Main results 
+
+TEMA achieves 69.81%/58.84% QA on Qwen2.5-Omni/AF-Next, also outperforming non-TEMA models in QA+T (Table 1). Relative to original Qwen2.5-Omni, localization and measurement (F1) in-creases from 26.05% to 62.03%, cross-audio comparison (F4) from 22.67% to 51.11%, and historical reference (F5) also improves sub-stantially. Qwen3.5-Omni-Plus leads in event identification and ver-ification (F2) but remains well below TEMA in F1, highlighting the value of learning event intervals and their use for precise temporal understanding. 
+
+3.3. Training-stage ablations Temporal grounding initialization. Under identical dialog supervi-sion, I+S improves Qwen2.5-Omni’s QA and Span F1 by 11.79 and 20.14 percentage points, respectively, while also improving cross-audio comparison. This supports learning query-to-interval align-ment before contextual evidence use. 
+
+Span-only GRPO. Adding GRPO improves Span F1 by 6.35/14.29 percentage points and QA by 0.88/0.81 points on Qwen2.5-Omni/AF-Next. Without directly rewarding Reason or Answer, these gains support our hypothesis (Sec. 2.3) that optimizing verifiable evidence after dialog supervision can improve answering. 
+
+3.4. Temporal-evidence analysis The value of accurate evidence for answering. To isolate evi-dence use, we supply reference Route and Span per turn, retaining model-generated history and excluding reference Reason and An-swer. Qwen2.5-Omni’s I+S model gains 27.52 percentage points in QA, indicating that it can use accurate temporal facts effectively. Even without explicit explanations of Route and Span, the original model reaches 82.81%. These results support evidence-based an-swering while revealing room to improve evidence acquisition. 
+
+Interval improvement and complete answering. Evidence rein-forcement learning improves interval recovery and overall answering on both backbones. However, Qwen2.5-Omni’s cross-audio compar-ison drops from 53.33% with I+S to 51.11% with I+S+G, indicating that interval gains do not consistently translate into better answers across temporal operations. Future work should use turn-level er-ror analysis to improve instance coverage, boundary precision, and cross-turn evidence consistency. 
+
+4. CONCLUSION 
+
+TEMA connects event perception with multi-turn, multi-audio answering through complete query-conditioned temporal evidence, supported by TEMA-Dialog for per-turn supervision and TEMA-Bench for joint evaluation. Three-stage training improves temporal QA on both backbones, with reinforcement learning on verifiable evidence alone further improving interval recovery and answering, supporting precise temporal understanding across multi-turn, multi-audio dialogs. 5. REFERENCES 
+
+[1] Arvind Krishna Sridhar, Yinyi Guo, and Erik Visser, “Enhanc-ing temporal understanding in audio question answering for large audio language models,” in Proceedings of the 2025 Con-ference of the Nations of the Americas Chapter of the Associ-ation for Computational Linguistics: Human Language Tech-nologies (Volume 3: Industry Track) , 2025, pp. 1026–1035. [2] Hualei Wang, Yiming Li, Shuo Ma, Hong Liu, and Xiang-dong Wang, “Listening between the frames: Bridging tem-poral gaps in large audio-language models,” Proceedings of the AAAI Conference on Artificial Intelligence , vol. 40, no. 31, pp. 26233–26241, 2026. [3] Yanfeng Shi, Pengfei Cai, Jun Liu, Qing Gu, Nan Jiang, Lirong Dai, Ian McLoughlin, and Yan Song, “Towards fine-grained temporal perception: Post-training large audio-language models with audio-side time prompt,” arXiv preprint arXiv:2604.13715 , 2026. [4] Apoorva Kulkarni, Kaousheik Jayakumar, Sreyan Ghosh, Utathya Aich, Ramani Duraiswami, and Dinesh Manocha, “Tempo: Temporally-grounded multi-task post-training for large audio-language models,” arXiv preprint arXiv:2608.29999 , 2026. [5] Yuhang Dai, Xin Shu, Zengxi Li, Lei Xie, Xiangang Li, and Jianwei Yu, “Tag-bench: Benchmarking temporal audio grounding in large audio language models,” arXiv preprint arXiv:2609.01542 , 2026. [6] Sreyan Ghosh, Arushi Goel, Jaehyeon Kim, Sonal Kumar, Zhifeng Kong, Sang-gil Lee, Chao-Han Yang, Ramani Du-raiswami, Dinesh Manocha, Rafael Valle, et al., “Audio flamingo 3: Advancing audio intelligence with fully open large audio language models,” Advances in Neural Information Pro-cessing Systems , vol. 38, pp. 41819–41886, 2026. [7] Chih-Kai Yang, Yun-Shao Tsai, Yu-Kai Guo, Ping-Le Tsai, Yen-Ting Piao, Hung-Wei Chen, Ting-Lin Hsiao, Yun-Man Hsu, Ke-Han Lu, and Hung-yi Lee, “Mugen: Evaluating and improving multi-audio understanding of large audio-language models,” arXiv preprint arXiv:2603.09714 , 2026. [8] Daiqing Wu, Xuan Zhang, Dongbao Yang, Jiashu Yao, Longfei Chen, Qingsong Liu, Sicheng Zhao, Can Ma, Yangyang Kang, and Yu Zhou, “Echo: Towards advanced audio com-prehension via audio-interleaved reasoning,” arXiv preprint arXiv:2602.11909 , 2026. [9] Sreyan Ghosh, Arushi Goel, Kaousheik Jayakumar, Lasha Koroshinadze, Nishit Anand, Zhifeng Kong, Siddharth Gu-rurani, Sang-gil Lee, Jaehyeon Kim, Aya Aljafari, et al., “Audio flamingo next: Next-generation open audio-language models for speech, sound, and music,” arXiv preprint arXiv:2604.10905 , 2026. [10] Shawn Hershey, Daniel PW Ellis, Eduardo Fonseca, Aren Jansen, Caroline Liu, R Channing Moore, and Manoj Plakal, “The benefit of temporally-strong labels in audio event classifi-cation,” in ICASSP 2021-2021 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) . IEEE, 2021, pp. 366–370. [11] Paul Primus, Florian Schmid, and Gerhard Widmer, “Tacos: Temporally-aligned audio captions for language-audio pre-training,” in 2025 IEEE Workshop on Applications of Signal Processing to Audio and Acoustics (WASPAA) . IEEE, 2025, pp. 1–5. [12] Zeyu Xie, Xuenan Xu, Zhizheng Wu, and Mengyue Wu, “Au-diotime: A temporally-aligned audio-text benchmark dataset,” in ICASSP 2025-2025 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) . IEEE, 2025, pp. 1–5. [13] Yusong Wu, Ke Chen, Tianyu Zhang, Yuchen Hui, Taylor Berg-Kirkpatrick, and Shlomo Dubnov, “Large-scale con-trastive language-audio pretraining with feature fusion and keyword-to-caption augmentation,” in ICASSP 2023-2023 IEEE International Conference on Acoustics, Speech and Sig-nal Processing (ICASSP) . IEEE, 2023, pp. 1–5. [14] Gang Li, Jizhong Liu, Heinrich Dinkel, Yadong Niu, Junbo Zhang, and Jian Luan, “Reinforcement learning outperforms supervised fine-tuning: A case study on audio question answer-ing,” arXiv preprint arXiv:2503.11197 , 2025. [15] Shu Wu, Chenxing Li, Wenfu Wang, Hao Zhang, Hualei Wang, Meng Yu, and Dong Yu, “Audio-Thinker: Guiding audio lan-guage model when and how to think via reinforcement learn-ing,” arXiv preprint arXiv:2508.08039 , 2025. [16] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, YK Li, Yang Wu, et al., “Deepseekmath: Pushing the limits of math-ematical reasoning in open language models,” arXiv preprint arXiv:2402.03300 , 2024. [17] Jin Xu, Zhifang Guo, Jinzheng He, Hangrui Hu, Ting He, Shuai Bai, Keqin Chen, Jialin Wang, Yang Fan, Kai Dang, Bin Zhang, Xiong Wang, Yunfei Chu, and Junyang Lin, “Qwen2.5-omni technical report,” arXiv preprint arXiv:2503.20215, 2025. [18] Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen, “Lora: Low-rank adaptation of large language models,” arXiv preprint arXiv:2106.09685 , 2021.

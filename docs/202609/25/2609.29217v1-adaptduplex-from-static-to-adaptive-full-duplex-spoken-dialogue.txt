@@ -1,0 +1,183 @@
+Title: AdaptDuplex: from static to adaptive full-duplex spoken dialogue
+
+URL Source: https://arxiv.org/pdf/2609.29217v1
+
+Published Time: Fri, 25 Sep 2026 00:46:17 GMT
+
+Number of Pages: 5
+
+Markdown Content:
+# ADAPTDUPLEX: FROM STATIC TO ADAPTIVE FULL-DUPLEX SPOKEN DIALOGUE 
+
+# Zhiyang Zhou, Yingxin Shang, Zhou Wang, Hongwei Cai, Weixu Wang, Shuran Zhou ∗,Shuofeng Zhao, Wenke Fan, Qingxiang Guo, Dawei Yang, Lin Yang, Yang Song 
+
+# Zuoyebang Education Technology 
+
+ABSTRACT 
+
+Full-duplex spoken dialogue requires simultaneous listening and speaking at sub-second latency, under conversational timing and cognitive demands that change moment to moment. Yet current models mostly impose static operating points, lacking a systematic mechanism for adaptive decisions. We present AdaptDuplex, which upgrades Qwen3-Omni with such a mechanism, co-designed across three layers. A compact token-level protocol represents every win-dow as a canonical sequence, trains dual-stream alignment through a bounded text lead over speech, and exposes every behavioral decision as an explicit token for training-free runtime control via logits bias. Adaptive mechanisms dynamically predict among dis-crete window durations and augment direct response as needed with non-blocking cognitive consolidation and multi-flight external rea-soning. A progressive pipeline introduces these behaviors through a three-stage Thinker curriculum, then Talker-only and joint SFT, with GRPO as a further increment. On Full-Duplex-Bench v1 and v1.5, AdaptDuplex outperforms DuplexOmni and MiniCPM-o 4.5 on the majority of comparable turn-taking, overlap-behavior, and timing metrics, with gains in both interaction decisions and response timing. On the human-recorded HumDial-FDBench, it attains the highest Final score (72.9) of the compared duplex models. 
+
+Index Terms — full-duplex spoken dialogue, real-time, token-level protocol, adaptive interaction, curriculum learning 
+
+1. INTRODUCTION 
+
+Human conversation is inherently full-duplex: listeners acknowl-edge, interrupt, and revise while the other party is still speaking. Replicating this requires a spoken dialogue model that listens con-tinuously while generating, coordinates overlapping speech, and re-sponds within sub-second time scales as conversational timing and cognitive demands shift from moment to moment. Dedicated duplex models have established the feasibility of such interaction [1, 2, 3, 4, 5], and strong omni-models provide a capable pretrained starting point for multimodal understanding and generation; yet a full-duplex model that adapts as these demands change remains hard to obtain. Existing duplex models still impose a static operating point: window duration and available actions are hard-wired at design time, and the protocol is either too heavy to grow with each added decision or too sparse to carry a richer policy. DuplexOmni [6] and MiniCPM-o 4.5 [7] both fix the window duration; the former admits only single-flight external reasoning without intermediate cogni-tive consolidation, and the latter provides only binary interaction control. Adaptive full-duplex interaction therefore requires a real-time stream of context-dependent decisions: temporal granularity 
+
+> ∗Corresponding author.
+
+must remain selectable and available actions composable at runtime, rather than hard-wired into the protocol and training setup. Introducing these decisions into a pretrained omni-model presents a further challenge. Prior work has separately explored state tokens, latent cognition, and policy optimization for interac-tion control [8, 9, 10], but exposing a pretrained model to protocol adherence, interaction control, and speech generation all at once entangles their learning objectives, and staging training only by data scale, quality, or trainable modules does not address the difficulty ordering among duplex behaviors. We initialize AdaptDuplex from Qwen3-Omni [11], building on its pretrained multimodal capabilities rather than learning duplex competence from scratch, and co-design three layers—a compact canonical sequence protocol, adaptive interaction mechanisms, and a progressive training pipeline—around one principle: every behav-ioral decision is an explicit token (Fig. 1). Our contributions are threefold: 1. We formalize a compact canonical sequence protocol for full-duplex interaction. It reduces structural decoding overhead, trains dual-stream alignment through a bounded text lead over speech, and exposes interaction decisions to training-free runtime control through logits bias. 2. We propose adaptive interaction mechanisms along two axes: dy-namically predicting among discrete window durations, and con-ditionally augmenting direct response with cognitive consolida-tion and multi-flight external reasoning. 3. We develop a progressive pipeline staging duplex behaviors through a three-stage Thinker curriculum by data difficulty, then Talker-only and joint SFT, with GRPO as a further increment. 
+
+2. PROPOSED METHOD 
+
+AdaptDuplex inherits the Thinker–Talker architecture of Qwen3-Omni [11], but moves the Thinker from generating a complete response per user turn to making per-window interaction decisions throughout an episode, with reply text only as an optional output. The Talker keeps its synthesis role but changes its conditioning. 
+
+2.1. Token-level Sequence Protocol 
+
+Each window is organized as a canonical sequence , enclosed by Unit delimiters. The Thinker consumes the causally available environ-ment and then emits, in a fixed order, a listen/speak control; a possi-bly empty sequence of action tokens drawn from <|memory |> and the indexed <|launch:N |>/<|cancel:N |> families; optional assistant text; a next-window token; and boundary tokens. The window that ends a speaking turn emits <|turn eos |> before <|chunk eos |>.The complete grammar is given in the Appendix 1.                                                                 
+
+> 1Appendix: https://adaptduplex.github.io/appendix arXiv:2609.29217v1 [cs.SD] 24 Sep 2026 A/V Input Thinker Text FIFO Talker
+> AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVVVVVVVVLM
+> Talker inactive no FIFO / codec
+> SSSLSMTB
+> bounded Text-ahead
+> Wk−1LISTEN short WkSPEAK mid Wk+1 SPEAK short Wk+2 SPEAK long
+> zk−1zkzk+1
+> Thinker episode ·history retained across LISTEN / SPEAK Talker speaking turn ·state persists across windows ·reset at turn end
+> L1 memory backend
+> profile ·episodic memory
+> L2 reasoning backends
+> multi-flight requests
+> Tool Block
+> complete semantic result
+> AND/OR Action levels
+> L0 direct L1 consolidation L2 external reasoning Audio Video Control Action Window Text Boundary PAD EOS Codec
+
+Fig. 1 . AdaptDuplex overview: one interleaved token protocol carries adaptive windows, dual-stream alignment, and tiered reasoning. Window bands, token placements, and A/V interleaving are schematic; explicit decision tokens allow inference-time control via logits bias. The canonical sequence also drives speech generation. When a <|speak |> decision starts a speaking turn, the Talker prefills once from the environment history through that Unit, instead of re-collecting user-turn segments; later Units reach the Thinker but not the current Talker. After one bootstrap, the Talker gener-ates codec tokens autoregressively, popping one text condition per acoustic position from a turn-local FIFO that queues assistant text as the Thinker emits it, rather than consuming text as a continu-ous stream; <|tts pad |> fills empty positions. Queued text carries across windows but never across speaking turns. On <|turn eos |>,
+
+<|tts eos |> is enqueued; after the remaining speech, the Talker predicts <|codec eos |> and resets its turn-local state. 
+
+A. Compact serialization. DuplexOmni [6] serializes per-window metadata as JSON. We instead encode protocol fields as compact tokens in a fixed order, reducing structural decoding overhead (§3.3). 
+
+B. Dual-stream alignment. The FIFO coordinates the Thinker and Talker despite their different token rates. We further introduce a bounded Text-ahead strategy during training, moving an order-preserving prefix of text to earlier adjacent windows within the same speaking turn. This changes only the per-window allocation: the flattened speaking-turn text sequence, control decisions, codec targets, and causal boundary for future environments remain un-changed. Together with interleaved text/ <|tts pad |> conditioning, this yields streaming text–speech alignment with a bounded text lead, without modifying the Talker architecture. 
+
+C. Runtime controllability. Because behavioral decisions are ex-plicit tokens, additive logits bias adjusts runtime behavior at infer-ence without modifying model weights. 
+
+2.2. Adaptive Interaction Mechanisms 
+
+The canonical sequence exposes two context-dependent runtime de-cisions: temporal granularity and action composition. 
+
+A. Dynamic window prediction. Fixed windows impose a global latency–context trade-off: short windows react quickly but see little acoustic context, while long windows see more but respond slowly. At the end of window k, the model predicts zk ∈ { short, mid, long }
+
+from only causally available multimodal context, setting window 
+
+k+1 to 0.48, 0.64, or 0.96 s (6, 8, or 12 Mimi frames); mid is the fallback under insufficient evidence and initializes the first window. Weak labels for zk follow priority rules over timestamps, acoustic and semantic boundaries, and overlap labels (rules, thresholds, and tie-breaking in the Appendix). 
+
+B. Conditional action composition. A binary choice between direct response and external reasoning overlooks an intermedi-ate cognitive-consolidation operation. We therefore augment di-rect response (L0, an empty action sequence) with two inde-pendently selectable, non-blocking action families that may co-occur within a window. L1 emits <|memory |> to consolidate state through a memory backend; later Units see the update without stalling the current response. L2 manages up to four in-flight re-quests to a pluggable external LLM, tool, or agent via indexed 
+
+<|launch:N |>/<|cancel:N |>, N ∈ { 0, . . . , 3}, where N names a runtime slot rather than a request category: <|launch:N |> starts an asynchronous request in idle slot N , and <|cancel:N |> cancels the request in that slot and is valid only while one exists. Valid results and explicit backend failures re-enter the Thinker at Unit bound-aries as loss-masked, semantically complete Tool Blocks , letting the model distinguish failure from no return; cancelled, stale, or unre-turned requests inject nothing, and neither a failure nor a non-return blocks the current response. 
+
+2.3. Progressive Training Pipeline 
+
+To avoid the entanglement noted in §1, we structure SFT along two orthogonal axes: data difficulty for the Thinker, and trainable mod-ules across the Thinker–Talker stack. 
+
+A. Curriculum Thinker SFT. The Thinker is adapted in three stages of increasing duplex difficulty. Stage 1 isolates the canon-ical protocol on turn-based conversations under a fixed middle-window schedule, without window-token supervision; Stage 2 adds basic duplex events (backchannels, short pauses, and simple in-terruptions) and activates dynamic window prediction; Stage 3 introduces the full duplex data with <|memory |> and indexed 
+
+<|launch:N |>/<|cancel:N |>, requiring it to compose interaction and external-reasoning orchestration actions. An automated multi-agent pipeline generates training data (Appendix). 
+
+B. Talker and joint SFT. Talker-only SFT then freezes the Thinker and trains the Talker under FIFO text conditions with bounded Text-ahead; a final joint stage calibrates all components end to end on a smaller set of high-quality duplex conversations. C. Policy optimization. GRPO continues from the joint-SFT check-point as a further increment, refining the interaction policy with-out changing the architecture; its reward design is given in the Ap-pendix. 
+
+3. EXPERIMENTS 3.1. Experimental Setup Model. We compare AdaptDuplex with the native full-duplex base-lines DuplexOmni and MiniCPM-o 4.5 and with a cascaded ref-erence, Qwen3-Omni with VAD endpointing and barge-in cancel-lation. AdaptDuplex is initialized from Qwen3-Omni-30B-A3B-Instruct and trained on 8 NVIDIA H100 GPUs. Bounded Text-ahead uses three lead schedules: Aligned ( dk =0 , forced-alignment win-dows without look-ahead), Fixed Ahead (all internal leads at dmax ), and Random Ahead (a bounded random walk over dk ). Unless stated otherwise, all AdaptDuplex variants share one Talker from Talker-only SFT with the Random Ahead schedule; Table 3(b) separately adapts a Talker per schedule. Decoding follows the official Qwen3-Omni policy (greedy Thinker, sampled Talker). 
+
+Data. Curriculum SFT and its single-stage ablation, Mixed SFT, use an internally constructed synthetic full-duplex corpus of 765,424 di-alogues (17,259 h, of which 10,857 h are assistant speech); Mixed SFT matches Curriculum in instance count and per-instance expo-sure on this corpus. Joint SFT continues from the Curriculum check-point on a smaller high-quality subset of DuplexDrama [12]. 
+
+Evaluation. We use Full-Duplex-Bench (FDB) [13], its v1.5 extension (FDB-v1.5) [14] with genuine interruptions and other overlap scenarios, and the human-recorded, scripted Chinese and English HumDial-FDBench [15]. Both FDB evaluations follow their benchmark-specific scoring and transcription protocols. Se-rialization and window-policy replay share 24 streaming records; replay re-segments them under each fixed window duration and the dynamic policy. Text-ahead conditions share utterances, Thinker text, and window schedules; naturalness uses the official UT-MOSv2 [16]. L1/L2 action prediction is evaluated from gold prefixes, with positive-class F1 for the sparse L1 memory action and action EM, token-level launch/cancel F1, and invalid-action rate for L2. To isolate information utilization from action prediction and backend quality, memory instances and L2 scenarios from the same episodes use gold context. 
+
+3.2. Overall Full-Duplex Performance 
+
+Table 1 isolates scene judgment on the synthetic turn-taking and overlap cases: versus DuplexOmni, AdaptDuplex more often with-holds a full turn when only a backchannel is due (FDB-v1 takeover rate, TOR, 0.334 vs. 0.491) and resumes more reliably under backchannel and background-speech overlap (FDB-v1.5 behav-ior 0.55 vs. 0.28; 0.43 vs. 0.07). These gains do not cost speed: response latency is sub-second in all reported FDB scenarios and lowest in every FDB-v1.5 scenario, and on FDB-v1 interruptions AdaptDuplex is both more accurate (TOR 0.985 vs. 0.746) and faster (0.131 vs. 0.158 s); MiniCPM-o 4.5 matches that TOR at 1.408 s. On human-recorded interactions with the same operating point (Table 2), AdaptDuplex attains the highest Final score among the compared duplex dialogue models (72.9), with delays of 0.835 s (ZH) and 1.345 s (EN), faster than MiniCPM-o 4.5 and Duplex-Omni. The cascaded Qwen3-Omni+VAD remains more accurate at interruption (88.8 vs. 82.2 ALL) but delays over 8.5 s, whereas AdaptDuplex is more accurate at rejection (49.1 vs. 37.6 ALL). 
+
+Table 1 . Full-duplex interaction performance on (a) FDB-v1 turn-taking and (b) FDB-v1.5 overlap handling.                                                                                                                                            
+
+> Task Metric Moshi †Freeze-Omni †
+> Qwen3-Omni +VAD MiniCPM -o 4.5 Duplex Omni Adapt Duplex
+> (a) FDB-v1: turn-taking
+> Pause Syn. TOR ↓0.985 0.642 0.891 0.270 0.116 0.128 Can. TOR ↓0.980 0.481 0.935 0.463 0.097 0.299 Back-channel TOR ↓1.000 0.636 0.964 0.273 0.491 0.334 Freq. ↑0.001 0.001 0.026 0.020 0.034 0.040
+> JSD ↓0.957 0.997 0.871 0.902 0.847 0.821
+> Smooth turn TOR ↑0.941 0.336 0.992 0.882 0.193 0.982 Resp. lat. ↓0.265 0.953 8.454 1.222 0.000 ‡0.085
+> Inter-ruption TOR ↑1.000 0.867 0.995 0.985 0.746 0.985 GPT-4o ↑0.765 3.615 4.899 4.497 4.222 4.512 Resp. lat. ↓0.257 1.409 9.582 1.408 0.158 0.131 (b) FDB-v1.5: overlap handling
+> Inter-ruption Behavior ↑0.50 0.72 0.97 0.82 0.67 0.79 Stop lat. ↓1.16 1.42 0.49 2.49 2.01 1.32 Resp. lat. ↓1.47 1.35 10.28 1.86 0.36 0.34
+> Back-channel Behavior ↑0.06 0.80 0.00 0.46 0.28 0.55 Stop lat. ↑0.42 0.66 –0.76 0.80 0.84
+> Resp. lat. ↓3.00 2.16 4.37 2.34 0.82 0.43
+> Talking to others Behavior ↑0.20 0.25 0.00 0.21 0.37 0.35 Stop lat. ↑0.87 1.39 0.14 1.71 1.87 1.89
+> Resp. lat. ↓2.38 1.32 6.16 1.85 1.95 0.33
+> Back-ground speech Behavior ↑0.08 0.26 0.00 0.37 0.07 0.43
+> Stop lat. ↑0.54 0.98 0.20 1.46 1.50 1.51
+> Resp. lat. ↓1.62 1.60 6.56 1.61 0.74 0.36
+> (a): Freq. in events/s; GPT-4o scores (0–5) and latencies (s) conditional on takeover (TO=1). ‡Negative smooth-turn latencies clipped to 0 and excluded from highlighting. (b): Behavior is 1 for Respond (interruption) or Resume (other scenarios), 0.5 for Uncertain (talking-to-others, background-speech), 0 otherwise; –: no qualifying event. †Published results (FDB [13] Tab. III; FDB-v1.5 [14] Tab. 2); latencies not hardware-matched.
+
+Table 2 . HumDial-FDBench evaluation on Chinese (ZH) and En-glish (EN) human-recorded interactions.                                                                           
+
+> Metric Split Moshi †Freeze-Omni †
+> Qwen3-Omni +VAD MiniCPM -o 4.5 Duplex Omni Adapt Duplex Int. ↑(%) ZH NR NR 93.2 81.8 56.4 90.4 EN NR NR 84.6 63.0 55.2 74.4 ALL 35.4 29.6 88.8 72.4 55.8 82.2 Rej. ↑(%) ZH NR NR 36.5 44.4 40.0 51.8
+> EN NR NR 38.5 49.6 47.8 46.1 ALL 22.8 50.2 37.6 47.2 44.1 49.1 Delay ↓(s) ZH NR NR 8.514 2.074 4.266 0.835
+> EN NR NR 9.536 2.315 4.590 1.345
+> ALL 2.876 2.578 9.032 2.203 4.459 1.042
+> D-Sco. ↑ALL 56.3 59.5 79.5 94.1 86.8 101.8
+> Final ↑ALL 34.5 43.8 66.5 66.7 57.3 72.9
+> NR: not reported. ALL pools ZH and EN under official protocol. Int./Rej.: averaged subscenario scores; Delay: combined applicable latency types; Final: 0.4 Int. + 0.4 Rej. + 0.2 D-Sco. †From HumDial-FDBench [15] Tab. 2; normalized scores retain original reference.
+
+3.3. Protocol Efficiency, Alignment, and Control 
+
+Table 3(a) tests serialization, holding the semantic records, the fixed 0.48-s window, and the adapted Talker constant and replacing only the canonical sequence with a matched DuplexOmni-style JSON encoding of the same fields. Canonical serialization cuts tokens per window by 78% and the protocol’s share of output tokens from Table 3 . Protocol evaluation: serialization and alignment.                                       
+
+> (a) Thinker serialization (3,724 paired windows, fixed 0.48 s) Format Toks/ Win ↓
+> Overhead
+> ↓(%) Invalid
+> ↓(%) Dec. P50
+> ↓(ms) Dec. P90
+> ↓(ms) Dec. P99
+> ↓(ms) JSON-style 26.440 93.88 0.48 789.4 957.6 1,164.2 Canonical 5.867 68.70 0.00 418.5 491.2 672.2
+> (b) Talker Text-ahead (1,516 ZH + 1,514 EN paired utterances) Training UTMOS v2 ↑
+> CER/WER
+> ↓(%) ValidEnd
+> ↑(%) EarlyCut
+> ↓(%) Late5+
+> ↓(%) NoEOS
+> ↓(%) Aligned 2.90 10.74/19.10 50.00 0.00 8.02 0.36 Fixed Ahead 3.55 5.38/10.03 84.75 0.00 1.85 0.07 Random Ahead 3.65 4.83/8.93 86.37 0.00 1.49 0.03 Panel (a): JSON-style is DuplexOmni-style JSON on a matched AdaptDuplex variant. Overhead = protocol share of total output tokens. Invalid = structurally invalid window fraction; percentiles conditional on valid completion. Panel (b): Entries: ZH CER / EN WER (%). ValidEnd: complete by final-window boundary; EarlyCut: truncated; Late5+: offset
+> ∈[5 ,16) ; NoEOS: offset ∈[16 ,+∞).
+
+93.88% to 68.70%, removes structurally invalid outputs, and lowers decoding-time P50/P90/P99 by 47%/49%/42%. Table 3(b) tests dual-stream alignment, varying only the Text-ahead lead schedule. Any look-ahead helps sharply over Aligned training: Fixed Ahead and Random Ahead raise pooled UTMOSv2 from 2.90 to 3.55 and 3.65, roughly halve bilingual CER/WER, and lift ValidEnd from 50.00% to 84.75% and 86.37%. Random Ahead, the default Talker schedule, is best on naturalness, error, and Vali-dEnd. Per-language EOS distributions are in the Appendix. Table 4(b) tests runtime control by adding ln α to the speak logit (α ∈ { 0.5, 1, 2}; ×1 is the untuned policy) at the Curriculum check-point, with the Thinker, Talker, window policy, and test inputs fixed. Raising α from 0.5 to 2 moves the operating point monotonically: interruption behavior rises (0.76 →0.81) and response latency short-ens (0.42 →0.33 s), while backchannel and talking-to-others scores fall—an inference-time listen/speak trade-off without retraining. 
+
+3.4. Adaptive Interaction Dynamic window. Table 4(a) runs the Default checkpoint with each window duration fixed at inference via window-token bias and makes the fixed-window dilemma explicit: the short window is fastest but lowest on hold and backchannel, whereas the long window is best on hold, backchannel, and background speech but slowest. The dynamic policy stays within reach of each ex-treme at once—near-short latency (0.37 s, 1.32 s) with near-long backchannel (0.55)—and is the single best setting on talking-to-others (0.35). No fixed duration combines near-short-window latency with backchannel performance close to the long-window optimum. Controlled autoregressive replay shows the policy is not degenerate: at 43.920 GPU-s/min (GPU active time per in-put minute) it sits between always-short (48.321) and always-long (33.455), so it is not defaulting to the longest, cheapest window. The SPEAK/LISTEN cost decomposition, per-stage FDB-v1.5 results, and the window-policy matrices appear in the Appendix. 
+
+Tiered actions. From gold prefixes, the model predicts the sparse L1 <|memory |> action at F1 80.66% and L2 orchestration at action EM 76.84% (exact match of the executed action set) and launch F1 68.63%, with cancellation the weakest sub-decision (F1 54.06%). Concurrency is the main stressor: with at least two in-flight re-quests, EM falls to 65.17% and the invalid-action rate nearly doubles (3.80% →7.10%), marking the current limit of multi-flight control. Gold-context utilization separates using retrieved information from 
+
+Table 4 . Controlled variations of the default system (Curriculum SFT checkpoint, dynamic window, no logit bias) on FDB-v1.5. (a) and (b) change one inference-time setting of the same checkpoint; (c) changes the training recipe.                                                                                
+
+> Variant Behavior Timing (s) Int. ↑Back. ↑Talk. ↑Bg. ↑Yield ↓Hold ↑Resp. ↓
+> Default 0.79 0.55 0.35 0.43 1.32 1.41 0.37
+> (a) Window policy
+> Fixed 0.48 s 0.82 0.52 0.31 0.34 1.19 1.38 0.32 Fixed 0.64 s 0.78 0.54 0.33 0.43 1.81 1.40 0.45 Fixed 0.96 s 0.76 0.56 0.34 0.46 2.61 1.46 0.66
+> (b) Speak-logit scale α
+> ×0.5 0.76 0.58 0.38 0.46 1.28 1.34 0.42
+> ×2.0 0.81 0.49 0.32 0.37 1.36 1.48 0.33
+> (c) Training recipe
+> Mixed SFT 0.62 0.41 0.28 0.24 2.86 1.40 1.65 Default + Joint 0.83 0.55 0.37 0.46 1.20 1.44 0.32
+> +GRPO 0.85 0.57 0.44 0.45 1.08 1.45 0.30 Behavior uses the scenario mapping of Table 1(b). Yield = interruption stop latency; Hold = macro-averaged stop latency over the three non-interruption scenarios; Resp. = macro-averaged response latency over all four scenarios; both macro-averages use equal scenario weights. All rows: free-running end-to-end evaluation. (b): additive ln αbias on the speak logit ( ×1=
+> Default, no bias). (c): all recipes use the dynamic window policy; Mixed SFT is the matched-exposure single-stage control; +GRPO continues from Default + Joint.
+
+predicting the action. For L1, gold PROFILE and MEMORY con-text raises fact accuracy from 10.25% to 62.75% and preference accuracy from 16.75% to 59.25%, so the Thinker uses injected con-solidated state. For L2, behavior accuracy (1 iff all target canaries and no forbidden canaries appear in the Thinker text) follows task difficulty: 86.50% when only result A is visible and queried (Sin-gle), 73.50% when A and B are visible but only A is queried (Bind), and 68.50% when both are queried (Compose); it stays at 81.50% under injected failure and 80.50% under silent non-return. 
+
+3.5. Training Strategy 
+
+Table 4(c) compares training recipes, all with the dynamic window policy; Mixed SFT is the matched-exposure single-stage control. Curriculum accounts for most of the gain over Mixed SFT, most visibly on latency (response 1.65 →0.37 s), and improves behav-ior in all four scenarios. Joint SFT (from Curriculum) and GRPO (from Joint) add mostly monotonic changes, clearest for talking-to-others (0.35 →0.44), yield, and response; backchannel is unchanged after Joint SFT, and background-speech dips slightly after GRPO. Table 1 uses the Curriculum checkpoint; further protocol-cost and L1/L2 analyses are in the Appendix. 
+
+4. CONCLUSION 
+
+We presented AdaptDuplex, which upgrades Qwen3-Omni by co-designing a compact token-level protocol, adaptive window and ac-tion mechanisms, and a progressive training pipeline. Several limitations remain: evaluation currently covers Chinese and English only, the window controller selects among three discrete durations rather than a continuous horizon, and external reasoning is bounded to four concurrent requests. Future work will study contin-uous window prediction, broader multilingual evaluation, adaptive concurrency limits, visual inputs, and multi-party conversation. Acknowledgment 
+
+The authors used Claude (Anthropic, Claude Sonnet 5) to improve the language and grammar of the manuscript and to obtain sugges-tions on the organization of Sections 1 and 2. All technical content, experiments, and conclusions were produced by the authors, who reviewed and take full responsibility for the final text. 
+
+5. REFERENCES 
+
+[1] Alexandre D´ efossez, Laurent Mazar´ e, Manu Orsini, Am´ elie Royer, Patrick P´ erez, Herv´ e J´ egou, Edouard Grave, and Neil Zeghidour, “Moshi: a speech-text foundation model for real-time dialogue,” 2024. [2] Ziyang Ma, Yakun Song, Chenpeng Du, Jian Cong, Zhuo Chen, Yuping Wang, Yuxuan Wang, and Xie Chen, “Language model can listen while speaking,” 2024. [3] Qinglin Zhang, Luyao Cheng, Chong Deng, Qian Chen, Wen Wang, Siqi Zheng, Jiaqing Liu, Hai Yu, Chaohong Tan, Zhi-hao Du, and Shiliang Zhang, “Omniflatten: An end-to-end gpt model for seamless voice conversation,” 2025. [4] Wenyi Yu, Siyin Wang, Xiaoyu Yang, Xianzhao Chen, Xiaohai Tian, Jun Zhang, Guangzhi Sun, Lu Lu, Yuxuan Wang, and Chao Zhang, “Salmonn-omni: A codec-free llm for full-duplex speech understanding and generation,” 2024. [5] Qingkai Fang, Shoutao Guo, and Yang Feng, “Bayling-duplex: Native full-duplex speech dialogue with a single autoregressive llm,” 2026. [6] Muye Huang, Lingling Zhang, Xingyu Yu, Lei Shi, Zhanyu Ma, Jun Xu, Jiuchong Gao, Jinghua Hao, Renqing He, and Jun Liu, “Duplexomni: Real-time listening, seeing, thinking, and speaking for full-duplex interaction,” 2026. [7] Junbo Cui, Bokai Xu, Chongyi Wang, Tianyu Yu, Weiyue Sun, Yingjing Xu, Tianran Wang, Zhihui He, Wenshuo Ma, Tianchi Cai, Jiancheng Gui, Luoyuan Zhang, Xian Sun, Fuwei Huang, Moye Chen, Zhuo Lin, Hanyu Liu, Qingxin Gui, Qingzhe Han, Yuyang Wen, Huiping Liu, Rongkang Wang, Yaqi Zhang, Hongliang Wei, Chi Chen, You Li, Kechen Fang, Jie Zhou, Yuxuan Li, Guoyang Zeng, Chaojun Xiao, Yankai Lin, Xu Han, Maosong Sun, Zhiyuan Liu, and Yuan Yao, “Minicpm-o 4.5: Towards real-time full-duplex omni-modal interaction,” 2026. [8] Xiong Wang, Yangze Li, Chaoyou Fu, Yunhang Shen, Lei Xie, Ke Li, Xing Sun, and Long Ma, “Freeze-omni: A smart and low latency speech-to-speech dialogue model with frozen llm,” 2024. [9] Donghang Wu, Tianyu Zhang, Yuxin Li, Hexin Liu, Chen Chen, Eng Siong Chng, and Yoshua Bengio, “The silent thought: Modeling internal cognition in full-duplex spoken di-alogue models via latent reasoning,” 2026. [10] Yuxin Li, Donghang Wu, Guan-Ting Lin, Hung yi Lee, Cheng-wei Qin, Zhehuai Chen, and Chen Chen, “Decoupling conver-sational dynamics in full-duplex spoken models through rein-forcement learning,” 2026. [11] Jin Xu, Zhifang Guo, Hangrui Hu, Yunfei Chu, Xiong Wang, Jinzheng He, Yuxuan Wang, Xian Shi, Ting He, Xinfa Zhu, Yuanjun Lv, Yongqi Wang, Dake Guo, He Wang, Linhan Ma, Pei Zhang, Xinyu Zhang, Hongkun Hao, Zishan Guo, Baosong Yang, Bin Zhang, Ziyang Ma, Xipin Wei, Shuai Bai, Keqin Chen, Xuejing Liu, Peng Wang, Mingkun Yang, Dayiheng Liu, Xingzhang Ren, Bo Zheng, Rui Men, Fan Zhou, Bowen Yu, Jianxin Yang, Le Yu, Jingren Zhou, and Junyang Lin, “Qwen3-omni technical report,” 2025. [12] Qingxiang Guo, Wenke Fan, Shuofeng Zhao, Dawei Yang, Zhiyang Zhou, Yingxin Shang, Hongwei Cai, Zhou Wang, Weixu Wang, Lin Yang, Shuran Zhou, and Yang Song, “Du-plexdrama: A synthesized dialogue dataset with scenarios, full-duplex behaviors, expressive speech, and sound events,” 2026. [13] Guan-Ting Lin, Jiachen Lian, Tingle Li, Qirui Wang, Gopala Anumanchipalli, Alexander H. Liu, and Hung yi Lee, “Full-duplex-bench: A benchmark to evaluate full-duplex spoken di-alogue models on turn-taking capabilities,” 2025. [14] Guan-Ting Lin, Shih-Yun Shan Kuan, Qirui Wang, Jiachen Lian, Tingle Li, Shinji Watanabe, and Hung yi Lee, “Full-duplex-bench v1.5: Evaluating overlap handling for full-duplex speech models,” 2026. [15] Chengyou Wang, Hongfei Xue, Guojian Li, Zhixian Zhao, Shuiyuan Wang, Shuai Wang, Xin Xu, Hui Bu, and Lei Xie, “Full-duplex interaction in spoken dialogue systems: A com-prehensive study from the icassp 2026 humdial challenge,” 2026. [16] Kaito Baba, Wataru Nakata, Yuki Saito, and Hiroshi Saruwatari, “The t05 system for the voicemos challenge 2024: Transfer learning from deep image classifier to naturalness mos prediction of high-quality synthetic speech,” 2024.
