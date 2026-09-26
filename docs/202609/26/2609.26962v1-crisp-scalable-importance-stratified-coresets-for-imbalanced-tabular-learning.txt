@@ -1,0 +1,479 @@
+Title: CRISP: Scalable Importance-Stratified Coresets for Imbalanced Tabular Learning
+
+URL Source: https://arxiv.org/pdf/2609.26962v1
+
+Published Time: Thu, 24 Sep 2026 00:09:17 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# CRISP: Scalable Importance-Stratified Coresets for Imbalanced Tabular Learning ∗
+
+## Hardhik Mohanty 
+
+University of Southern California Los Angeles, California, USA hmohanty@usc.edu 
+
+## Indrayana Rustandi 
+
+Coinbase San Francisco, California, USA indrayana.rustandi@coinbase.com 
+
+## Mohamadreza Sheibani 
+
+Coinbase San Francisco, California, USA mohamadreza.sheibani@coinbase.com 
+
+## Abstract 
+
+Large imbalanced tabular datasets make repeated gradient-boosted tree training expensive. Existing coreset methods often lose ac-curacy when most majority examples are removed. We present 
+
+CRISP (Coreset Reduction via Importance-Stratified Pruning), a linear-time method that allocates a negative-class budget across quantile strata of a proxy-model score. Sample weights account for unequal inclusion probabilities. At 95% negative-class reduction on a production fraud dataset, CRISP trains on approximately 1 .70M of 25M rows and retains 99 .7% of full-data Average Precision. This is a 93 .2% reduction in total training rows. On public CriteoPrivateAds, CRISP has the highest mean Average Precision at each tested rate from 90% to 99 .4% majority reduction. Sparkov results are mixed at lower rates, but CRISP has the highest mean at 99 .2% and 99 .4%. Ab-lations identify budget allocation and inverse-propensity weighting as the main sources of the production-dataset gain. 
+
+## CCS Concepts 
+
+• Computing methodologies → Supervised learning by clas-sification ; • Mathematics of computing → Combinatorial opti-mization ; • Information systems → Data mining .
+
+## Keywords 
+
+coreset selection, class imbalance, fraud detection, gradient boost-ing, inverse propensity weighting 
+
+## 1 Introduction 
+
+Large tabular datasets create a recurring cost rather than a one-time training expense. A production model is retrained as labels mature, transaction patterns change, and new features become available. Each candidate model may also be trained many times during vali-dation, calibration, and hyperparameter search. U.S. ACH volume rose from 11 .6 billion transactions in 2014 to 21 .6 billion in 2025 [2], illustrating the growth faced by financial systems. Similar scale ap-pears in advertising and commerce. Gradient-boosted decision trees (GBDTs) such as XGBoost [4] and LightGBM [11] remain strong choices for these data, but repeated training on tens of millions of rows can dominate the development cycle. The cost is not distributed evenly across examples. In fraud and conversion prediction, most rows belong to the negative class and are easy to classify. Many occupy dense interior regions that add little new information once the model has seen enough similar examples. The rare positive class and the smaller set of boundary negatives carry much more of the signal needed to distinguish 
+
+> ∗The views expressed in this article are those of the authors alone and do not necessarily reflect the views of Coinbase or its affiliates.
+
+classes. Uniformly discarding rows ignores this difference. Uniform sampling is attractive because it is simple and preserves the popu-lation distribution in expectation, yet it removes informative and redundant negatives at the same rate. A coreset attempts to retain the information needed for train-ing in a smaller weighted subset [7]. We focus on one-shot selec-tion, where the subset is created before target-model training and reused across later runs. Reuse matters in practice. A selector that costs as much as the full hyperparameter sweep offers little benefit, while a selector that can be amortized across models may save substantial computation. This requirement favors methods with one lightweight proxy-model fit and a small number of passes over the data. Class imbalance places a strong constraint on subset selection for fraud and conversion data. Removing positives is risky when they represent less than 2% of the data [6, 16]. Our pipeline therefore retains all positive examples and applies the reduction budget to negatives only. This distinction affects how reduction is reported. A 95% negative-class reduction is not a 95% reduction in all rows because the positive class remains intact. We report both the se-lector’s negative-class rate and the corresponding target-training size. Existing selection strategies make different tradeoffs between coverage, model awareness, and cost. Geometry-based methods preserve feature-space coverage but can become expensive or unre-liable in high dimensions. Gradient-matching methods use a more direct learning objective, although pairwise similarities and itera-tive updates limit their use at production scale [12, 17]. Training-dynamics methods identify easy, ambiguous, and hard regions from predictions collected across checkpoints [8, 23]. They are infor-mative but require repeated inference. Coverage-Centric Coreset Selection (CCS) avoids concentrating the subset on only the hardest examples by sampling across score strata [29]. Its uniform alloca-tion, however, gives the same budget to strata whose estimated learning value may differ sharply. Direct importance sampling addresses allocation but can lose coverage. At high reduction rates, most of the selected rows may come from a narrow upper tail of the score distribution. Zheng et al. report that this behavior can perform worse than random sampling [29]. Unequal sampling also changes the effective training distribution unless the target learner receives appropriate weights. These two issues motivate the design of CRISP: preserve broad score coverage through quantile strata, then spend more of the budget on strata with larger proxy-model scores and correct unequal inclusion with inverse-propensity weights. CRISP trains a lightweight proxy GBDT whose sole role is to assign importance scores to negative rows before target-model arXiv:2609.26962v1 [cs.LG] 22 Sep 2026 Mohanty, Rustandi, and Sheibani 
+
+training. The proxy model is separate from the downstream model and is used only during coreset construction. Equal-count score quantiles prevent a skewed score distribution from collapsing into one dominant bin. The mean score of each stratum determines its share of the negative budget. Sampling then occurs within each stratum, and selected negatives receive clipped inverse inclusion weights. Only the fixed-size proxy training sample is collected centrally. Scoring, quantiles, aggregation, and sampling remain distributed, giving linear cost in the number of training rows. We evaluate this design on three datasets with different scales and domains. The proprietary production dataset contains about 25 million rows, of which 1 .9% are positive examples. This propor-tion describes the constructed experimental training dataset and is not an overall or population-level payment-reversal rate. CriteoPri-vateAds provides a public advertising benchmark with roughly 85 million training rows [20]. Sparkov [22] supplies a smaller synthetic fraud benchmark where additional baselines are feasible. On the production dataset, CRISP retains 99 .7% of full-data monthly AP after removing 95% of negatives, while using approximately 6 .8% of the original rows. On CriteoPrivateAds, CRISP has the highest mean AP at every tested rate. Sparkov is less uniform and exposes the sensitivity of five-run averages to outliers. The contributions are: (1) A linear-time, importance-allocated stratified sampling framework for highly imbalanced tabular data, with ex-plicit accounting for the positive-class retention floor. (2) An estimator analysis that separates the unbiased, un-clipped inverse-propensity estimator from the biased clipped estimator used for stable GBDT training. (3) Production-scale evidence at up to 95% negative-class reduc-tion, public cross-domain evidence from CriteoPrivateAds, and component ablations covering stratification, score con-struction, clipping, and proxy-model capacity. (4) Row-count tradeoff plots and public benchmark configura-tions that distinguish target-training size from end-to-end selection cost. CRISP is designed for high reduction rates, where a small neg-ative budget makes allocation and coverage especially important. The experiments emphasize this regime while retaining lower-rate results where available. Section 2 reviews coreset selection, training-dynamics methods, and unequal-probability sampling. Section 3 presents CRISP and its distributed implementation, followed by the estimator properties in Section 4. Section 5 describes the datasets, baselines, ablations, and cross-dataset results. Sections 6 and 7 dis-cuss reproducibility, limitations, and ethical considerations, and Section 8 concludes the paper. 
+
+## 2 Related Work 
+
+Imbalanced instance selection. Early instance-selection meth-ods remove majority examples with local geometric rules. Con-densed Nearest Neighbors retains a small set that preserves nearest-neighbor decisions, while Tomek Links removes overlapping pairs near a class boundary [9, 24]. NearMiss instead keeps majority points close to minority examples [14]. These methods are intuitive on small metric datasets, but distance computations become ex-pensive and less informative as dimension and sample count grow. LSH-based selection reduces this cost by replacing exact neighbor-hoods with hash-based approximations [15]. Its selection criterion is still independent of the model eventually trained on the subset. 
+
+Proxy and geometry-based coresets. Active-learning coresets use feature-space coverage to select points that are far from the cur-rent labeled set [21]. Selection via Proxy reduces the cost of repeated ranking by using a smaller proxy model to score examples [5]. FCTR combines gradient approximations with clustering and prod-uct quantization, reporting a three- to ten-fold selection speedup over gradient-based competitors [3]. More recent approaches re-construct a learned decision boundary [28] or optimize the smallest subset that satisfies a model-performance constraint [27]. These methods strengthen geometric or optimization objectives, but most were evaluated outside large-scale tabular settings and at moderate pruning rates. 
+
+Training dynamics and sample importance. Example forget-ting counts how often a model changes an example from correct to incorrect during training [25]. Dataset Cartography summa-rizes confidence and variability across checkpoints to identify easy, ambiguous, and hard regions [23]. GraNd and EL2N estimate im-portance from early loss gradients or prediction errors [18]. TracIn measures influence through gradients saved at several training checkpoints [19]. SAMIS uses the discrepancy between sharpness-aware and standard optimization as an estimate of memorization [1]. These scores can identify useful or atypical examples, although col-lecting trajectories or training multiple models can cost as much as the downstream training that pruning is meant to avoid. 
+
+Gradient and validation matching. CRAIG selects a subset whose aggregate gradient approximates the full-data gradient [17]. GradMatch directly minimizes gradient mismatch, and GLISTER optimizes a validation objective [12, 13]. These methods give a clearer optimization target than scalar difficulty scores. Their pair-wise similarities, repeated gradient evaluations, or iterative subset updates limit their use on tens of millions of rows. A comparison on a small downsample can still be informative, but it does not answer whether the selector can run on the production-scale dataset itself. 
+
+High reduction and tabular models. CCS addresses a failure that appears when a score-based selector keeps only the hardest examples. It divides examples into difficulty strata and allocates budget uniformly so that easy and moderate examples remain rep-resented [29]. Uniform allocation protects coverage, but it does not distinguish between strata when the final budget is very small. CoreTab adapts training-dynamics ideas to GBDTs by building datamaps from predictions at several boosting checkpoints [8]. This is one of the few coreset methods designed for modern tabular models, though its repeated prediction passes are costly on the largest datasets. 
+
+Connection to survey sampling. Unequal-probability sam-pling has long used inverse inclusion weights to estimate a finite-population total [10]. CRISP follows this principle after allocating a negative-class budget across proxy-score strata. It differs from CCS in the allocation rule and from direct importance sampling in its use of quantile coverage. It also differs from gradient-matching coresets because it never forms pairwise gradient similarities. The practical gap addressed here is narrower than general coreset construction: a reusable subset for imbalanced tabular GBDTs, selected with linear passes at negative-class reduction rates above 90%. Weight clipping CRISP: Scalable Importance-Stratified Coresets for Imbalanced Tabular Learning 
+
+Table 1: Training rows implied by the retain-all-positives rule.                 
+
+> Dataset Full 90% 95% 99.4%
+> Production 25 .0M 2.923M 1.697M 0.617M Sparkov 1.297M 136 ,423 71 ,964 15 ,241 CriteoPrivateAds 85 .0M 9.089M 4.872M 1.161M
+
+means the deployed estimator is not exactly unbiased, so Section 4 states the resulting bias rather than claiming a general variance guarantee. 
+
+## 3 Methodology: CRISP 3.1 Problem Formulation 
+
+Let V = {( 𝑥 𝑖 , 𝑦 𝑖 )} 𝑛 𝑖 =1 with 𝑦 𝑖 ∈ { 0, 1}. The positive and negative index sets are C+ and C− , with sizes 𝑛 + and 𝑛 − . CRISP retains every positive row and reduces only the negative class. For a negative-class reduction rate 𝑟 − , the target negative budget is 
+
+𝑘 − = ⌊( 1 − 𝑟 − )𝑛 − ⌋ . (1) The expected training size is therefore 𝑛 + +𝑘 − rather than (1 −𝑟 − )𝑛 .This distinction matters at high reduction rates because positives become a large share of the retained rows. 
+
+## 3.2 Budget Interpretation 
+
+Negative-class reduction and total-row reduction are related but not identical. If the negative budget is met exactly, the fraction of all rows removed is 
+
+𝑟 all = 𝑟 −
+
+𝑛 −
+
+𝑛 . (2) The retained positive fraction places a floor on target-training size. On the production dataset, 95% negative reduction removes about 93 .2% of all rows because positives account for roughly 1 .9% of the experimental training table. The difference is larger on Sparkov and Criteo at rates above 99%, where retained positives can outnumber retained negatives. We use 𝑟 − throughout the paper because it is the parameter passed to every selector. Figures that discuss training cost use the derived total rows instead. This keeps method comparisons at the same negative budget while making the actual target-model input size visible. 
+
+## 3.3 Proxy Model and Importance Scores 
+
+A lightweight proxy GBDT is trained on at most 𝑁 sub negatives and all positives. This model is used only to rank examples for selection and is not reused as the downstream classifier. Class weighting is used during its fit. Its output 𝑝 𝑖 is a ranking score for fraud risk, not a calibrated estimate of the population fraud rate. For a negative row, CRISP computes 
+
+𝑠 𝑖 = max {𝜖, 𝛼𝑝 𝑖 + 𝛽𝑝 𝑖 (1 − 𝑝 𝑖 )} , 𝑖 ∈ C −, (3) where 𝜖 > 0 prevents zero importance scores. A strictly positive inclusion probability also requires the rounded stratum allocation 
+
+𝑘 𝑞 to be positive. The experiments use 𝛼 = 𝛽 = 1. In that setting 
+
+Algorithm 1: CRISP : Coreset Selection                                                                                        
+
+> Input: Dataset V, negative reduction 𝑟 −, strata 𝑄 , score weights
+> 𝛼, 𝛽 , within-stratum exponent 𝛾
+> Output: Coreset Swith weights {𝑤 𝑖 }
+> 1C+,C−←Partition ( V ) ;
+> 2𝑘 −← ⌊ ( 1−𝑟 −) · | C −| ⌋
+> 3𝑓 proxy ←TrainProxy (subsample of V )
+> 4foreach 𝑖 ∈ C −do
+> 5𝑝 𝑖 ←𝑓 proxy (𝑥 𝑖 );
+> 6𝑠 𝑖 ←max {𝜖, 𝛼𝑝 𝑖 +𝛽𝑝 𝑖 (1−𝑝 𝑖 ) }
+> 7{𝐵 𝑞 } ← QuantilePartition ( { 𝑠 𝑖 }, 𝑄 )
+> 8foreach stratum 𝐵 𝑞 do
+> 9𝑘 𝑞 ←𝑘 −·¯𝑠 𝑞 /Í𝑞 ′¯𝑠 𝑞 ′
+> 10 foreach 𝑖 ∈𝐵 𝑞 do
+> 11 𝜋 𝑖 ←min (1, 𝑘 𝑞 𝑠 𝛾 𝑖 /Í𝑗 ∈𝐵 𝑞 𝑠 𝛾 𝑗 )
+> 12 Sample 𝑖 w.p. 𝜋 𝑖 ; set 𝑤 𝑖 ←min (1/𝜋 𝑖 , 𝑤 max )
+> 13 return C+∪SelectedNegatives ,{𝑤 𝑖 }
+
+𝑠 (𝑝 ) = 2𝑝 − 𝑝 2 is monotone for 𝑝 ∈ [ 0, 1]. The proxy-model rank-ing is therefore driven by 𝑝 𝑖 , while the nonlinear transformation changes the relative budget assigned to score strata. 
+
+## 3.4 Budget Allocation and Sampling 
+
+The negative rows are partitioned into 𝑄 equal-count quantile strata 
+
+𝐵 1, . . . , 𝐵 𝑄 . Let ¯ 𝑠 𝑞 be the mean score in stratum 𝑞 . CRISP assigns 
+
+𝑘 𝑞 ∝ ¯𝑠 𝑞 ,
+
+> 𝑄
+
+∑︁ 
+
+> 𝑞 =1
+
+𝑘 𝑞 = 𝑘 −, (4) with integer rounding and redistribution when 𝑘 𝑞 > |𝐵 𝑞 |. Within a stratum, define 𝑢 𝑖 = 𝑠 𝛾 𝑖 . The inclusion probability used by the evaluated Bernoulli sampler is 
+
+𝜋 𝑖 = min 1, 𝑘 𝑞 𝑢 𝑖 
+
+Í𝑗 ∈𝐵 𝑞 𝑢 𝑗 
+
+!
+
+. (5) The production implementation uses 𝛾 = 1, which favors larger scores inside each stratum. Sparkov and CriteoPrivateAds use 𝛾 = 0, which samples uniformly inside each stratum. All variants share the same quantile construction and importance-based allocation. Since sampling is Bernoulli, 𝑘 𝑞 is an expected budget before probability saturation and the realized coreset size varies by seed. Selected negatives receive a clipped inverse inclusion weight 
+
+e𝑤 𝑖 = min {1/𝜋 𝑖 , 𝑤 max }. (6) All positives receive weight one. The target GBDT consumes these values as sample weights. 
+
+## 3.5 Distributed Implementation 
+
+Figure 1 summarizes the selection pipeline. The selector keeps the full negative table in Spark. A fixed-size negative sample and all positives are transferred to the driver for proxy-model fitting. The fitted model is then broadcast to the workers, which score negative rows in vectorized batches. Approximate quantiles form the stratum boundaries. A grouped aggregation returns each stratum’s row count, mean score, and score sum. Since this summary contains Mohanty, Rustandi, and Sheibani 
+
+only 𝑄 rows, the allocation table can be broadcast back to the workers before sampling. This design avoids collecting the full score vector on one machine. It also makes the distinction between target and realized size explicit. The allocation routine produces the target 𝑘 𝑞 for each stratum, while Bernoulli sampling determines the count observed in a given run. The implementation records both the target and realized negative counts, along with the range of sample weights. These diagnostics are especially important when the positive class forms a substantial fraction of the final training set. 
+
+Complexity. Proxy-model training uses a sample capped inde-pendently of 𝑛 . Scoring, approximate quantiles, aggregation, and sampling require a small constant number of distributed passes. The overall selection cost is therefore O( 𝑛 ) in the number of training rows, with memory distributed across the Spark workers. 
+
+## 4 Design Rationale and Estimator Properties 4.1 Coverage Under a Small Budget 
+
+Proxy-model scores on imbalanced data are typically concentrated near zero with a much smaller upper tail. Equal-width bins can therefore place most negatives into one stratum and leave several bins nearly empty. Equal-count quantiles avoid that collapse. Every stratum starts with a comparable number of candidates, and the allocation step decides how many to retain from each part of the ranking. This construction also separates two decisions that direct im-portance sampling combines. The strata determine which score regions remain represented. The allocation determines how much resolution each region receives. A high-score stratum may receive most of the budget, but low and moderate strata retain nonzero inclusion probabilities. The 𝑄 = 1 ablation removes this separation and recovers the direct importance-sampling behavior discussed by Zheng et al. [29]. 
+
+## 4.2 Weighting and Estimator Scope 
+
+The weighting argument follows unequal-probability survey sam-pling [10]. Fix the dataset V and model parameter 𝜃 . For ℓ𝑖 (𝜃 ) =
+
+ℓ (𝑓 𝜃 (𝑥 𝑖 ), 𝑦 𝑖 ), define the full-data empirical risk 
+
+𝐿 V (𝜃 ) = 1
+
+𝑛 
+
+> 𝑛
+
+∑︁ 
+
+> 𝑖 =1
+
+ℓ𝑖 (𝜃 ). (7) Let D denote the realized sampling design, including the fitted proxy model, scores, strata, rounded allocations, and resulting in-clusion probabilities. Proposition 1 (Conditional unbiasedness of unclipped IPW). Let 𝐼 𝑖 indicate whether negative row 𝑖 is selected. Assume 
+
+𝜋 𝑖 ∈ ( 0, 1] almost surely and E[𝐼 𝑖 | D] = 𝜋 𝑖 for each 𝑖 ∈ C − . If selected negatives use 𝑤 𝑖 = 1/𝜋 𝑖 , then 
+
+b𝐿 (𝜃 ) = 1
+
+𝑛  ∑︁ 𝑖 ∈ C +
+
+ℓ𝑖 (𝜃 ) + ∑︁  
+
+> 𝑖 ∈ C −
+
+𝐼 𝑖 
+
+ℓ𝑖 (𝜃 )
+
+𝜋 𝑖 
+
+!
+
+(8) 
+
+satisfies 
+
+E[b𝐿 (𝜃 ) | D] = 𝐿 V (𝜃 ), (9) 
+
+and therefore E[b𝐿 (𝜃 )] = 𝐿 V (𝜃 ).
+
+Table 2: Training-set statistics. Criteo positives are conver-sions. Production and Criteo counts are approximate; produc-tion counts describe the constructed experimental training dataset rather than a population-level rate.                 
+
+> Dataset Rows Positive Feat. Source
+> Production ∼25M ∼470K 125 Proprietary Sparkov 1,296 ,675 7,506 14 Public, synthetic CriteoPrivateAds ∼85M ∼655K 51 Public
+
+The result uses only first-order inclusion probabilities and does not require independent selections. The deployed estimator clips each negative weight at 𝑤 max . For a nonnegative loss, its conditional downward bias is 
+
+𝐿 V (𝜃 ) − E[b𝐿 clip (𝜃 ) | D] = 1
+
+𝑛 ∑︁ 𝑖 :𝜋 𝑖 <1/𝑤 max 
+
+(1 − 𝜋 𝑖 𝑤 max ) ℓ𝑖 (𝜃 ). (10) Clipping is therefore a stability choice rather than an unbiased correction. The ablation in Section 5.3 measures its empirical effect. Proposition 1 concerns empirical loss at a fixed 𝜃 . It does not im-ply that training on the weighted sample produces the same model, nor does it guarantee AP retention after optimization. CRISP is therefore a task-aware subset selector rather than a strong coreset that approximates every parameter setting. The empirical evalu-ation tests whether the weaker estimator property is useful for downstream GBDT training. 
+
+## 4.3 Allocation as a Practical Heuristic 
+
+Classical stratified sampling allocates more rows to strata with larger within-stratum variation. The optimal allocation depends on quantities that are unavailable before target training. CRISP substitutes the mean proxy-model score for the unknown variation. This resembles Neyman allocation when score and loss variation are correlated, but it is not an estimate of the exact Neyman solution. The design makes a testable prediction. Importance-aware al-location should matter little when the budget is large and should separate from uniform allocation as 𝑘 − shrinks. The production dataset and Criteo follow that pattern. Sparkov is less consistent, which is evidence against treating the allocation rule as universally optimal. The uniform-allocation baseline, the 𝑄 = 1 ablation, and the no-weight ablation test different parts of this prediction. 
+
+## 5 Experiments 
+
+Table 2 lists the three evaluation datasets. The production dataset contains financial transactions. Sparkov is synthetic fraud data, and CriteoPrivateAds is a public advertising conversion dataset. 
+
+## 5.1 Datasets and Protocol 
+
+Production dataset. The production task predicts payment rever-sal fraud. Training covers April through September 2025, followed by temporal calibration and validation windows through January 2026. The reported metrics are Average Precision on monthly and weekly temporal holds, written AP month and AP week . Each selected dataset receives a FLAML zero-shot LightGBM configuration [26] and follows the same calibration procedure. Because the zero-shot CRISP: Scalable Importance-Stratified Coresets for Imbalanced Tabular Learning 
+
+Figure 1: CRISP selection pipeline. The input rate 𝑟 − reduces the negative class only. Quantile strata preserve score coverage, while their mean scores determine budget. The realized negative count is random under Bernoulli sampling. 
+
+suggestion is computed from the selected data, target hyperparam-eters can differ across methods. We state this source of variation rather than treating the comparison as fixed-hyperparameter isola-tion. 
+
+Sparkov. We use the dataset’s standard public training and test split [22]. Fourteen engineered numeric features cover amount, location, time, demographics, and merchant category. The bench-mark searches LightGBM and XGBoost with FLAML. The five seeds change both coreset selection and model search, which explains part of the observed dispersion. 
+
+CriteoPrivateAds. We process the full ∼100M-row corpus and follow the temporal protocol intended by the dataset authors [20]: days 1–24 form the training split and days 25–30 form the test split. The conversion label is nb_sales > 0, with a 0 .77% positive rate. Identifier fields, all-null fields, and high-cardinality hash identifiers are excluded, leaving 51 features. Every method uses the same zero-shot FLAML LightGBM procedure and five random seeds. The full-data baseline is one reference run. The CC-BY-SA 4.0 dataset is used under the applicable license, and no dataset rows are included in the paper. 
+
+Methods. Random retains all positives and samples negatives uniformly. CCS uses ten quantile strata, uniform allocation, and a 1% hard-example cutoff. CoreTab uses the shared datamap implemen-tation. The production CRISP runs use score-proportional sampling within each stratum ( 𝛾 = 1), while Sparkov and CriteoPrivateAds use uniform within-stratum sampling ( 𝛾 = 0). All CRISP runs use 
+
+𝑄 = 10, 𝛼 = 𝛽 = 1, 𝑤 max = 20, and a proxy model trained on up to one million negatives plus all positives. CriteoPrivateAds runs the same CCS, CoreTab, and importance-sampling implementations used by the other benchmarks. 
+
+Metric and repetition. Average Precision is the primary metric because each task is highly imbalanced. The production dataset uses three seeds. Sparkov and Criteo use five. We report means and sample standard deviations across runs. We do not interpret seed dispersion as a formal significance test. 
+
+## 5.2 Production Dataset Results 
+
+Table 4 focuses on rates where the methods separate. Figure 2 shows the corresponding results across all tested reduction rates. At 95% negative reduction, CRISP retains 99 .7% of full-data AP month .Random retains 94 .2%, and CCS retains 94 .1%. The expected CRISP training set contains about 1 .70M rows, or 6 .8% of the original data. At 80% negative reduction, Random and CCS use about 5 .38M rows. CRISP therefore trains on roughly one-third as many rows at the comparison point while retaining more AP. Table 5 summarizes retention at the two highest production reduction rates. 
+
+## 5.3 Ablation 
+
+Figure 3 summarizes the ablation suite, which used a separate set of jobs from Table 4, so its reference values should not be compared as if they were the same runs. At 95% negative reduction, the 𝑄 =
+
+10 setting retains 99 .0% of full-data monthly AP, while 𝑄 = 1retains 95 .2%. Constant scores retain 94 .6%. Removing IPW retains 97 .4%, compared with 99 .2% for the matched clipped-IPW setting. Mohanty, Rustandi, and Sheibani 
+
+Table 3: Experiment configurations used by the three evaluations. 
+
+Dataset Target training Proxy model Within stratum Coreset runs 
+
+Production FLAML zero-shot LightGBM, XGBoost transfer LightGBM, depth 6, 300 trees Score proportional ( 𝛾 = 1) 3Sparkov FLAML search over LightGBM and XGBoost LightGBM, depth 6, 300 trees Uniform ( 𝛾 = 0) 5CriteoPrivateAds FLAML zero-shot LightGBM LightGBM, depth 6, 300 trees Uniform ( 𝛾 = 0) 510 20 30 40 50 60 70 80 90 95 Negative-Class Reduction Rate (%) 90 92 94 96 98 100 102 Full-data AP retained (%) 
+
+Monthly holdout         
+
+> Full Dataset Random CCS CRISP (ours) 10 20 30 40 50 60 70 80 90 95 Negative-Class Reduction Rate (%) 90 92 94 96 98 100 102 Full-data AP retained (%)
+
+Weekly holdout 
+
+> Full Dataset Random CCS CRISP (ours)
+
+Figure 2: Production Dataset AP retained relative to full-data AP. Lines show means over three runs, and shaded bands show one sample standard deviation. Table 4: Production Dataset AP retained relative to the corre-sponding full-data model. Values are means over three runs.                                              
+
+> Negative-class reduction (%) Method 50 60 70 80 90 95 Random AP month 100.2% 99.7% 99.1% 98.3% 96.1% 94.2% AP week 99.4% 98.6% 98.4% 97.6% 95.5% 93.6% CCS AP month 99.5% 99.5% 98.7% 97.7% 95.8% 94.1% AP week 98.7% 98.8% 98.2% 97.0% 95.8% 93.6%
+> CRISP AP month 100.3% 100.5% 100.4% 100.3% 100.4% 99.7%
+> AP week 100.0% 100.1% 99.6% 99.6% 99.4% 99.2%
+
+Table 5: Percentage of full-data Production Dataset AP re-tained at high negative-class reduction. 
+
+90% 95% Method AP month AP week AP month AP week 
+
+Random 96.1% 95.5% 94.2% 93.6% CCS 95.8% 95.8% 94.1% 93.6% 
+
+CRISP 100.4% 99.4% 99.7% 99.2% 
+
+Gradient-only scoring matches the combined score in this suite. Hessian-only scoring is worse because 𝑝 (1−𝑝 ) falls when a negative receives a fraud score near one. Proxy-model depth and tree count change retained AP by at most 1 .1 percentage points in the collected runs. 
+
+Table 6: Sparkov AP mean and sample standard deviation over five runs. Full-data mean AP is 0.8629 . Bold marks the best mean.                          
+
+> Negative-class reduction (%) Method 90 95 99 99.2 99.4 Random .861 ±.014 .883 ±.046 .833 ±.013 .834 ±.013 .823 ±.018
+> CCS .860 ±.009 .852 ±.014 .835 ±.013 .816 ±.031 .803 ±.023
+> CoreTab .863 ±.006 .859 ±.015 .806 ±.068 .846 ±.007 .812 ±.078
+> CRISP .862 ±.013 .874 ±.004 .817 ±.089 .866 ±.009 .846 ±.021
+
+## 5.4 Sparkov 
+
+Sparkov is less conclusive than the production dataset. CRISP has the highest mean at 99 .2% and 99 .4% negative reduction, but it loses to Random and CCS at 99%. Its 99% standard deviation is also the largest in the table because one run falls to 0 .6647. Random has the highest mean at 95% because one run reaches 0 .9629. Appendix D reports medians and interquartile ranges so that these outliers remain visible without determining the entire interpretation. 
+
+## 5.5 CriteoPrivateAds 
+
+The Criteo training split contains about 85M rows with a 0 .77% positive rate. CRISP has the highest mean in each column of Table 7. At 90% negative reduction, it reaches 0 .1734 AP on about 9 .09M target-training rows, or 10 .7% of the full split, and retains 99 .8% of the full-data AP. At 99 .4%, about 1 .16M rows remain, or 1 .37% of the full split. CRISP retains 94 .2% of full-data AP, compared with approximately 90% for Random and CCS and 76 .7% for CoreTab. The lead over the strongest non-CRISP baseline grows from 0 .0034 CRISP: Scalable Importance-Stratified Coresets for Imbalanced Tabular Learning Q=1 Q=5 Q=10 Q=50           
+
+> Q
+> 90 92 94 96 98 100 102
+> Full-data AP retained (%) Number of strata
+> (0, 0) (0, 1) (1, 0) (1, 1)
+> (α,β)
+> Importance weights
+> no IPW
+> wmax = 20
+> IPW
+> wmax = 5
+> IPW
+> wmax = 20
+> IPW
+> wmax = 100
+> setting IPW clipping
+> d=3 n=100 d=6 n=300 d=8 n=500 d=10 n=1000
+> depth / estimators Proxy-model capacity
+> 90% negative reduction 95% negative reduction Full dataset
+
+Figure 3: Production Dataset ablation suite at 90% and 95% negative-class reduction. Error bars span the observed minimum and maximum because some settings have only one or two completed seeds. Table 7: CriteoPrivateAds AP mean and sample standard deviation over five runs. The single full-data reference has AP 0.1737 .                         
+
+> Negative-class reduction (%) Method 90 95 99 99.2 99.4 Random .1700 ±.0002 .1677 ±.0003 .1595 ±.0004 .1581 ±.0003 .1562 ±.0004
+> CCS .1698 ±.0001 .1677 ±.0002 .1597 ±.0003 .1584 ±.0004 .1563 ±.0009
+> CoreTab .1453 ±.0008 .1437 ±.0009 .1372 ±.0010 .1343 ±.0021 .1333 ±.0014
+> CRISP .1734 ±.0004 .1722 ±.0001 .1666 ±.0004 .1657 ±.0003 .1637 ±.0005
+
+AP at 90% reduction to 0 .0074 at 99 .4%. At every rate, this gap is at least eight times the larger reported run-to-run standard deviation, although this descriptive ratio is not a formal hypothesis test. 
+
+## 5.6 Target-Model Transfer 
+
+Figure 5 reports the existing Production Dataset XGBoost runs, which provide a second target model without new training. At 95% negative reduction, CRISP retains 98 .9% of monthly full-data AP and 98 .2% of weekly full-data AP. Random retains 96 .5% and 94 .7%, while CCS retains 96 .2% and 95 .6%. This result supports transfer across two tree implementations, although it remains one dataset. 
+
+## 5.7 Compute Interpretation 
+
+Figure 4 replots AP against derived target-training rows. The x-axis is not wall-clock time. CRISP adds a proxy-model fit and a distributed scoring pass before target training. Random does not. CCS also fits a proxy model, while CoreTab performs several predic-tion passes. The figure shows how target-model AP changes with training-set size. It does not establish end-to-end speedup. 
+
+## 5.8 Cross-Dataset Analysis 
+
+The clearest pattern is that allocation matters more as the negative budget shrinks. On the production dataset, Random and CCS re-main close to the full-data result through moderate reduction, then decline after 60%. CRISP retains at least 99 .7% of monthly full-data AP through 95% negative reduction. The value above 100% reten-tion at 90% should not be read as evidence that pruning improves the population optimum. It is small relative to run-to-run variation and may reflect regularization, a changed class ratio, or ordinary training noise. Criteo shows the same ordering with less seed variation. The CRISP margin over Random grows from 0 .0034 AP at 90% nega-tive reduction to 0 .0075 at 99 .4%. This pattern is consistent with the allocation argument: uniform negative sampling becomes less likely to retain rare high-score regions as the budget contracts. The result is useful because Criteo differs from the production dataset in domain, feature construction, and target label, while using the same coreset implementations and configuration family. Sparkov is a useful counterexample to a simple success narrative. Mean AP favors Random or CCS at 95% and 99%, while CRISP leads at 99 .2% and 99 .4%. The medians in Appendix D favor CRISP more consistently, which shows how strongly a single AutoML run can affect a five-seed mean. At 99 .4% negative reduction, the expected target-training set has only about 15 ,241 rows. Model search and coreset randomness are both visible at that scale. The ablation narrows the source of the production gain. Remov-ing strata reduces coverage, while removing inverse weighting changes the effective training distribution. Proxy-model depth and tree count have much smaller effects in the tested range. These ob-servations support the design choices, but they do not prove that the same allocation is optimal on every dataset. A fixed-hyperparameter study and end-to-end timing measurements remain necessary for a cleaner causal and systems comparison. 
+
+## 6 Reproducibility 
+
+Sparkov and CriteoPrivateAds provide public benchmark data for evaluating the method outside the proprietary setting. CriteoPri-vateAds is the primary public-data evaluation at scale. The paper documents the data splits, method and configuration family, re-duction rates, random seeds, evaluation metrics, aggregate results, and public-benchmark per-run values in the appendix. No external artifact release is pledged as part of this submission. The proprietary dataset cannot be released due to confidential-ity restrictions. The production implementation, configurations, feature definitions, logs, run metadata, and underlying records are likewise not released. Absolute production AP values are withheld, and all reported production results are normalized by the corre-sponding full-data model. The public datasets are cited and used under their applicable licenses; their rows are not redistributed. Hardware details were not preserved consistently across historical Mohanty, Rustandi, and Sheibani 2 × 10 6 5 × 10 6 10 7 2 × 10 7                          
+
+> Training examples ( ∝training compute) 94 96 98 100 Full-data AP retained (%)
+> (a) Production monthly
+> 2 × 10 65 × 10 610 72 × 10 7
+> Training examples ( ∝training compute) 94 96 98 100 Full-data AP retained (%)
+> (b) Production weekly
+> 2 × 10 45 × 10 410 52 × 10 55 × 10 510 6
+> Training examples ( ∝training compute) 0.65 0.70 0.75 0.80 0.85 0.90 0.95 Average Precision
+> (c) Sparkov
+> 10 62 × 10 65 × 10 610 72 × 10 75 × 10 710 8
+> Training examples ( ∝training compute) 0.13 0.14 0.15 0.16 0.17 Average Precision
+> (d) CriteoPrivateAds
+> Full data Random CCS CoreTab CRISP
+
+Figure 4: Target-training row tradeoffs. Row counts are derived from reported class counts and the keep-all-positives rule. They approximate target-model training cost and exclude selection overhead. 
+
+runs, which is another reason the paper reports target-training rows rather than wall-clock time. 
+
+## 7 Limitations and Ethics 
+
+Method limitations. Retaining every positive works only when the positive class is small enough to leave a useful negative budget. The production dataset uses score-proportional within-stratum sampling, while Sparkov and CriteoPrivateAds use uniform within-stratum sampling. Their shared evidence therefore concerns score strata, budget allocation, and weighting rather than one fixed within-stratum rule. Bernoulli sampling introduces small differ-ences between target and realized coreset sizes, and weight clipping introduces the bias in Equation 10. 
+
+Evaluation limitations. The row-count tradeoff is not an end-to-end timing result. It omits proxy-model fitting, distributed scor-ing, data movement, and calibration. Production target hyperparam-eters can vary because FLAML makes a new zero-shot suggestion for each selected dataset. This mirrors the existing training pipeline but weakens isolation of the selection method. The evaluation re-ports AP over three or five seeds and does not include a paired test, subgroup metrics, or a fixed-hyperparameter replication. The strongest claims are therefore about observed AP retention, not universal dominance or deployment cost. 
+
+Ethics. The production dataset is handled under institutional data-governance controls. The paper reports aggregate metrics and does not release transactions or user identifiers. The payment re-versal fraud label reflects an operational outcome and should not be interpreted as evidence of a customer’s intent. Direct identifiers are removed from the public datasets during preprocessing. Coreset selection can still alter subgroup representation and false-positive rates even when aggregate AP is stable. Before deployment, practi-tioners should compare subgroup recall, calibration, and manual-review burden against the full-data model. They should also check whether high-score strata overrepresent particular geographies, payment methods, or customer cohorts. 
+
+## 8 Conclusion 
+
+CRISP addresses a specific large-scale setting: binary tabular learn-ing with a small positive class and a highly redundant negative class. A proxy GBDT places negatives into score quantiles, the mean score determines each stratum’s budget, and inverse inclusion probabili-ties reduce the distribution shift introduced by unequal sampling. The procedure needs only a fixed-size proxy-model fit and dis-tributed passes over the training table. It does not require pairwise gradients or predictions from many training checkpoints. The strongest result comes from the production dataset. At 95% negative-class reduction, CRISP retains 99 .7% of full-data monthly AP while using about 1 .70M of 25M rows. CriteoPrivateAds shows the same mean ordering across five reduction rates and provides evidence outside fraud detection. Sparkov is less stable. Its outlier CRISP: Scalable Importance-Stratified Coresets for Imbalanced Tabular Learning 
+
+runs and changing method ranking show why a high mean at one rate is not enough to claim general superiority. The XGBoost experiment adds evidence that the selected production rows transfer across two tree implementations. These experiments support importance-aware allocation when the negative budget is scarce. They do not establish a universal vari-ance guarantee or an end-to-end wall-clock speedup. The next eval-uation should use one within-stratum rule across all datasets, fixed target hyperparameters, actual selection and training times, and enough repeated runs for paired uncertainty estimates. Subgroup checks are also needed before the empirical package is complete. 
+
+## References 
+
+[1] Andrea Agiollo, Young In Kim, and Rajiv Khanna. 2024. Approximating Memo-rization Using Loss Surface Geometry for Dataset Pruning and Summarization. In Proceedings of the 30th ACM SIGKDD Conference on Knowledge Discovery and Data Mining . Association for Computing Machinery, Barcelona, Spain, 17–28. doi:10.1145/3637528.3671985 [2] Board of Governors of the Federal Reserve System. 2025. Commercial ACH Volume. https://www.federalreserve.gov/paymentsystems/fedach_yearlycomm. htm. Accessed April 2026. [3] Chengliang Chai, Jiayi Wang, Nan Tang, Ye Yuan, Jiabin Liu, Yuhao Deng, and Guoren Wang. 2023. Efficient Coreset Selection with Cluster-Based Methods. In 
+
+Proceedings of the 29th ACM SIGKDD Conference on Knowledge Discovery and Data Mining . Association for Computing Machinery, Long Beach, CA, USA, 167–178. doi:10.1145/3580305.3599326 [4] Tianqi Chen and Carlos Guestrin. 2016. XGBoost: A Scalable Tree Boosting System. In Proceedings of the ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD) . Association for Computing Machinery, San Francisco, CA, USA, 785–794. doi:10.1145/2939672.2939785 [5] Cody Coleman, Christopher Yeh, Stephen Mussmann, Baharan Mirzasoleiman, Peter Bailis, Percy Liang, Jure Leskovec, and Matei Zaharia. 2020. Selection via Proxy: Efficient Data Selection for Deep Learning. International Conference on Learning Representations (ICLR). arXiv:1906.11829 [cs.LG] [6] Andrea Dal Pozzolo, Olivier Caelen, Reid A. Johnson, and Gianluca Bontempi. 2015. Calibrating Probability with Undersampling for Unbalanced Classification. In IEEE Symposium Series on Computational Intelligence (SSCI) . IEEE, Cape Town, South Africa, 159–166. doi:10.1109/SSCI.2015.33 [7] Dan Feldman. 2020. Introduction to Core-Sets: An Updated Survey. WIREs Data Mining and Knowledge Discovery 10, 1 (2020), e1335. doi:10.1002/widm.1335 [8] Aviv Hadar, Tova Milo, and Kathy Razmadze. 2024. Datamap-Driven Tabular Coreset Selection for Classifier Training. Proceedings of the VLDB Endowment 
+
+18, 3 (2024), 876–888. doi:10.14778/3712221.3712249 [9] Peter Hart. 1968. The Condensed Nearest Neighbor Rule. IEEE Transactions on Information Theory 14, 3 (1968), 515–516. doi:10.1109/TIT.1968.1054155 [10] Daniel G. Horvitz and Donovan J. Thompson. 1952. A Generalization of Sampling Without Replacement from a Finite Universe. J. Amer. Statist. Assoc. 47, 260 (1952), 663–685. doi:10.1080/01621459.1952.10483446 [11] Guolin Ke, Qi Meng, Thomas Finley, Taifeng Wang, Wei Chen, Weidong Ma, Qiwei Ye, and Tie-Yan Liu. 2017. LightGBM: A Highly Efficient Gradient Boosting Decision Tree. In Advances in Neural Information Processing Systems (NeurIPS) .Curran Associates, Inc., Long Beach, CA, USA, 3146–3154. [12] Krishnateja Killamsetty, Durga Sivasubramanian, Ganesh Ramakrishnan, Abir De, and Rishabh Iyer. 2021. GRAD-MATCH: Gradient Matching Based Data Subset Selection for Efficient Deep Model Training. In Proceedings of the In-ternational Conference on Machine Learning (ICML) . PMLR, Online, 5464–5474. arXiv:2103.00123 [cs.LG] [13] Krishnateja Killamsetty, Durga Sivasubramanian, Ganesh Ramakrishnan, and Rishabh Iyer. 2021. GLISTER: Generalization based Data Subset Selection for Efficient and Robust Learning. International Conference on Learning Represen-tations (ICLR). arXiv:2012.10630 [cs.LG] [14] Inderjeet Mani and I. Zhang. 2003. kNN Approach to Unbalanced Data Distribu-tions. ICML Workshop on Learning from Imbalanced Data Sets. [15] German E. Melo-Acosta, Freddy Duitama-Munoz, and Julian D. Arias-Londono. 2022. An Instance Selection Algorithm for Big Data in High Imbalanced Datasets Based on LSH. arXiv:2210.04310. arXiv:2210.04310 [cs.LG] [16] Ibomoiye Domor Mienye and Nobert Jere. 2024. Deep Learning for Credit Card Fraud Detection: A Review of Algorithms, Challenges, and Solutions. IEEE Access 
+
+12 (2024), 96893–96910. doi:10.1109/ACCESS.2024.3426955 [17] Baharan Mirzasoleiman, Jeff Bilmes, and Jure Leskovec. 2020. Coresets for Data-Efficient Training of Machine Learning Models. In Proceedings of the In-ternational Conference on Machine Learning (ICML) . PMLR, Online, 6950–6960. arXiv:1906.01827 [cs.LG] [18] Mansheej Paul, Surya Ganguli, and Gintare Karolina Dziugaite. 2021. Deep Learn-ing on a Data Diet: Finding Important Examples Early in Training. Advances in Neural Information Processing Systems (NeurIPS). arXiv:2107.07075 [cs.LG] [19] Garima Pruthi, Frederick Liu, Satyen Kale, and Mukund Sundararajan. 2020. Estimating Training Data Influence by Tracing Gradient Descent. In Advances in Neural Information Processing Systems (NeurIPS) . Curran Associates, Inc., Online, 19920–19930. arXiv:2002.08484 [cs.LG] [20] Mehdi Sebbar, Corentin Odic, Mathieu Léchine, Aloïs Bissuel, Nicolas Chrysan-thos, Anthony D’Amato, Alexandre Gilotte, Fabian Höring, Sarah Nogueira, and Maxime Vono. 2025. CriteoPrivateAds: A Real-World Bidding Dataset to Design Private Advertising Systems. arXiv:2502.12103. arXiv:2502.12103 [cs.LG] [21] Ozan Sener and Silvio Savarese. 2018. Active Learning for Convolutional Neu-ral Networks: A Core-Set Approach. International Conference on Learning Representations (ICLR). arXiv:1708.00489 [stat.ML] [22] Kartik Shenoy. 2020. Credit Card Transactions Fraud Detection Dataset. Kag-gle. https://www.kaggle.com/datasets/kartik2112/fraud-detection Accessed July 2026. [23] Swabha Swayamdipta, Roy Schwartz, Nicholas Lourie, Yizhong Wang, Hannaneh Hajishirzi, Noah A. Smith, and Yejin Choi. 2020. Dataset Cartography: Mapping and Diagnosing Datasets with Training Dynamics. In Proceedings of the Confer-ence on Empirical Methods in Natural Language Processing (EMNLP) . Association for Computational Linguistics, Online, 9275–9293. arXiv:2009.10795 [cs.CL] doi:10.18653/v1/2020.emnlp-main.746 [24] Ivan Tomek. 1976. Two Modifications of CNN. IEEE Transactions on Systems, Man, and Cybernetics 6, 11 (1976), 769–772. doi:10.1109/TSMC.1976.4309452 [25] Mariya Toneva, Alessandro Sordoni, Remi Tachet des Combes, Adam Trischler, Yoshua Bengio, and Geoffrey J. Gordon. 2019. An Empirical Study of Example Forgetting during Deep Neural Network Learning. International Conference on Learning Representations (ICLR). arXiv:1812.05159 [cs.LG] [26] Chi Wang, Qingyun Wu, Markus Weimer, and Erkang Zhu. 2021. FLAML: A Fast and Lightweight AutoML Library. In Proceedings of Machine Learning and Systems (MLSys) , Vol. 3. MLSys, Online, 434–447. arXiv:1911.04706 [cs.LG] [27] Xiaobo Xia, Jiale Liu, Shaokun Zhang, Qingyun Wu, Hongxin Wei, and Tongliang Liu. 2024. Refined Coreset Selection: Towards Minimal Coreset Size under Model Performance Constraints. In Proceedings of the 41st International Conference on Machine Learning (Proceedings of Machine Learning Research, Vol. 235) . PMLR, Vienna, Austria, 54082–54103. https://proceedings.mlr.press/v235/xia24b.html [28] Shuo Yang, Zhe Cao, Sheng Guo, Ruiheng Zhang, Ping Luo, Shengping Zhang, and Liqiang Nie. 2024. Mind the Boundary: Coreset Selection via Reconstructing the Decision Boundary. In Proceedings of the 41st International Conference on Machine Learning (Proceedings of Machine Learning Research, Vol. 235) . PMLR, Vienna, Austria, 55948–55960. https://proceedings.mlr.press/v235/yang24b.html [29] Haizhong Zheng, Rui Liu, Fan Lai, and Atul Prakash. 2023. Coverage-Centric Coreset Selection for High Pruning Rates. International Conference on Learning Representations (ICLR). arXiv:2210.15809 [cs.LG] 
+
+## A Estimator Derivation 
+
+Proof of Proposition 1. Condition on the realized design D.The positive rows are retained deterministically. For each negative row, 𝜋 𝑖 > 0 and 
+
+E
+
+
+
+𝐼 𝑖 
+
+ℓ𝑖 (𝜃 )
+
+𝜋 𝑖 
+
+D
+
+
+
+= ℓ𝑖 (𝜃 )
+
+𝜋 𝑖 
+
+E[𝐼 𝑖 | D] = ℓ𝑖 (𝜃 ). (11) Summing over the negative rows and adding the deterministic pos-itive sum gives E[b𝐿 (𝜃 ) | D] = 𝐿 V (𝜃 ). This step uses linearity of expectation and does not require the indicators to be indepen-dent. Unconditional unbiasedness follows from the law of total expectation. □
+
+Clipping. Conditional on D, E[𝐼 𝑖 e𝑤 𝑖 ℓ𝑖 | D] = min (1, 𝜋 𝑖 𝑤 max )ℓ𝑖 .If 𝜋 𝑖 ≥ 1/𝑤 max , the expected contribution remains ℓ𝑖 . Otherwise it is 𝜋 𝑖 𝑤 max ℓ𝑖 . Subtracting these terms from the full loss gives Equa-tion 10. 
+
+Evaluated variants. The production dataset samples within each stratum with probability proportional to score. Sparkov and CriteoPrivateAds use a constant Bernoulli fraction inside each stra-tum after the same importance-based allocation. Mohanty, Rustandi, and Sheibani 
+
+## B Full Per-Run Experimental Results 
+
+Table 8 reports relative per-run Production Dataset results at the two highest reduction rates. Per-run Sparkov and CriteoPrivateAds tables follow. 
+
+## C Full Per-Run Sparkov Results 
+
+Table 9 reports per-run AP on the Sparkov dataset. Full-data baselines are 0 .8510, 0 .8594, 0 .8736, 0 .8563, and 0 .8742 for seeds 1 through 5. 
+
+## D Sparkov Robust Summaries 
+
+Table 10 reports medians and interquartile ranges across the same five runs as Table 6. The mean and median rankings differ because Random, CoreTab, and CRISP each contain at least one large outlier. 
+
+## E Production Dataset XGBoost Transfer Results F Full Per-Run CriteoPrivateAds Results 
+
+Table 11 reports per-run AP on CriteoPrivateAds for seeds 42–46. The full-data baseline (AP = 0.1737) is a single reference run trained on all ∼85M training-split examples. CoreTab is reported only in aggregate in Table 7 because its per-seed values were not retained in the exported summary. CRISP: Scalable Importance-Stratified Coresets for Imbalanced Tabular Learning 
+
+Table 8: Per-run Production Dataset AP retained as a percentage of the corresponding full-data AP. 
+
+Monthly AP retained Weekly AP retained Run Method 90% 95% 90% 95% 1Random 96.6% 94.6% 96.2% 94.5% CCS 95.7% 94.2% 95.8% 93.6% 
+
+CRISP 100.4% 99.6% 99.6% 99.4% 
+
+2Random 96.1% 94.1% 95.6% 93.3% CCS 96.1% 93.2% 96.3% 92.7% 
+
+CRISP 100.8% 99.7% 99.3% 99.2% 
+
+3Random 95.7% 94.0% 94.7% 93.1% CCS 95.7% 94.8% 95.2% 94.6% 
+
+CRISP 100.1% 99.8% 99.3% 99.0% 
+
+Table 9: Sparkov per-run AP across negative-class reduction rates. 
+
+Negative-Class Reduction (%) Run Method 90 95 99 99.2 99.4 1Random .8815 .8720 .8195 .8358 .8213 CCS .8677 .8567 .8376 .7722 .7798 CoreTab .8614 .8485 .8368 .8499 .8458 
+
+CRISP .8691 .8786 .8659 .8763 .8561 2Random .8414 .9629 .8422 .8272 .8386 CCS .8501 .8612 .8506 .8073 .8063 CoreTab .8565 .8616 .8346 .8500 .6728 
+
+CRISP .8659 .8765 .6647 .8752 .8577 3Random .8614 .8648 .8501 .8387 .8402 CCS .8693 .8620 .8299 .8094 .7809 CoreTab .8618 .8668 .8325 .8511 .8443 
+
+CRISP .8496 .8726 .8722 .8582 .8399 4Random .8620 .8692 .8217 .8177 .8205 CCS .8508 .8533 .8395 .8503 .8351 CoreTab .8722 .8784 .6837 .8439 .8445 
+
+CRISP .8484 .8681 .8128 .8617 .8121 5Random .8601 .8476 .8333 .8511 .7945 CCS .8634 .8283 .8164 .8403 .8128 CoreTab .8633 .8400 .8400 .8337 .8531 
+
+CRISP .8776 .8718 .8711 .8591 .8659 
+
+Table 10: Sparkov AP median with interquartile range in brackets. 
+
+Negative-Class Reduction (%) Method 90 95 99 99.2 99.4 Random .861 [.860,.862] .869 [.865,.872] .833 [.822,.842] .836 [.827,.839] .821 [.821,.839] CCS .863 [.851,.868] .857 [.853,.861] .838 [.830,.840] .809 [.807,.840] .806 [.781,.813] CoreTab .862 [.861,.863] .862 [.849,.867] .835 [.833,.837] .850 [.844,.850] .845 [.844,.846] CRISP .866 [.850,.869] .873 [.872,.877] .866 [.813,.871] .862 [.859,.875] .856 [.840,.858] Mohanty, Rustandi, and Sheibani 10 20 30 40 50 60 70 80 90 95 Negative-Class Reduction Rate (%) 90 92 94 96 98 100 102 Full-data AP retained (%) 
+
+Monthly holdout         
+
+> Full Dataset Random CCS CRISP (ours) 10 20 30 40 50 60 70 80 90 95 Negative-Class Reduction Rate (%) 90 92 94 96 98 100 102 Full-data AP retained (%)
+
+Weekly holdout 
+
+> Full Dataset Random CCS CRISP (ours)
+
+Figure 5: Production Dataset XGBoost target results over three runs, reported relative to full-data AP. Table 11: CriteoPrivateAds per-run AP across negative-class reduction rates. 
+
+Negative-Class Reduction (%) Seed Method 90 95 99 99.2 99.4 42 Random .1701 .1680 .1600 .1584 .1564 CCS .1699 .1680 .1599 .1586 .1563 
+
+CRISP .1735 .1723 .1662 .1652 .1632 
+
+43 Random .1700 .1676 .1588 .1576 .1555 CCS .1699 .1676 .1597 .1582 .1561 
+
+CRISP .1731 .1720 .1667 .1657 .1641 
+
+44 Random .1702 .1682 .1595 .1581 .1563 CCS .1699 .1677 .1597 .1578 .1573 
+
+CRISP .1740 .1723 .1661 .1662 .1633 
+
+45 Random .1697 .1674 .1597 .1585 .1564 CCS .1698 .1675 .1592 .1590 .1548 
+
+CRISP .1737 .1722 .1668 .1659 .1646 
+
+46 Random .1698 .1675 .1595 .1580 .1565 CCS .1696 .1677 .1598 .1585 .1569 
+
+CRISP .1729 .1724 .1671 .1654 .1635
