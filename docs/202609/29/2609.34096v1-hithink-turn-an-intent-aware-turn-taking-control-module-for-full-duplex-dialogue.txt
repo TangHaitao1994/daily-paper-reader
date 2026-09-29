@@ -1,0 +1,179 @@
+Title: HiThink Turn: An Intent-Aware Turn-Taking Control Module for Full-Duplex Dialogue
+
+URL Source: https://arxiv.org/pdf/2609.34096v1
+
+Published Time: Tue, 29 Sep 2026 02:58:40 GMT
+
+Number of Pages: 5
+
+Markdown Content:
+## HITHINK TURN: AN INTENT-AWARE TURN-TAKING CONTROL MODULE FOR FULL-DUPLEX DIALOGUE 
+
+## Feiyang Chen ∗, Wenhan Yang ∗, Bohan Wang, Xinjian Gao, Rongjunchen Zhang, Jun Wang, and Xinhui Hu †
+
+## HiThink Research, Hangzhou, China 
+
+## {chenfeiyang2,yangwenhan,huxinhui }@myhexin.com 
+
+ABSTRACT 
+
+Full-duplex dialogue requires timely yet selective interruption handling, which end-of-turn prediction alone cannot achieve: complete utterances may need no response, while unfinished requests may warrant interruption. To address this challenge, we propose HiThink Turn, an intent-aware streaming turn-state predictor that separates response intent from semantic com-pleteness and conditions decisions on system playback state. A key contribution is minimal intent-sufficient prefix supervi-sion, constructed through LLM judgments and speech align-ment, while training on audio truncated at chunk boundaries improves robustness to partial speech. These components sup-port streaming inference with 240-ms audio chunks, enabling low-latency, accurate full-duplex turn control. Experiments show that HiThink Turn leads the compared methods in Easy Turn macro accuracy, Full-Duplex-Bench average interaction rate score (0.933), and non-target-speech average playback re-sume rate (0.735). Additionally, intent-prefix triggering raises interruption success from 89% to 98% and reduces mean stop latency by 60.9%. 
+
+Index Terms — turn-state prediction, response intent, min-imal intent-sufficient prefix, streaming prediction 
+
+1. INTRODUCTION 
+
+Conventional spoken dialogue systems are half-duplex and turn-based, limiting their ability to handle interruptions and overlapping speech [1]. Full-duplex spoken dialogue sys-tems (FD-SDSs) enable simultaneous listening and speaking through cascaded [2, 3] or end-to-end architectures [4, 5]. Cas-caded systems remain attractive for their modularity, reuse of mature components, and preservation of text-based LLM reasoning [6–8]. Their turn-state predictors determine whether to listen, respond, provide a backchannel, or stop playback, requiring both accuracy and low latency. Early turn-state predictors primarily determine whether the current utterance has reached a suitable completion point. For instance, Smart Turn [9] and TEN Turn Detection [10] infer  
+
+> ∗These authors contributed equally. †Corresponding author.
+
+utterance completion from speech and ASR text, respectively. FlexDuo [11] and Easy Turn [12] extend state modeling to irrelevant input, incomplete speech, and backchannels. Recent studies suggest that completion alone is insufficient for reli-able interaction control: a semantically complete statement or monologue does not necessarily warrant a response [13]. TurnFSM [14] and Joy-Duplex [15] therefore further separate utterance completion from subsequent acceptance or rejection decisions, enabling finer-grained dialogue control. Deciding whether to respond, however, does not by itself specify when sufficient evidence becomes available. During system playback, an unfinished request may already justify interruption, making utterance completion an unnecessarily late trigger. Streaming prediction from fixed-duration win-dows [16], audio chunks [7], or intermediate ASR outputs [6] enables earlier decisions, but partial inputs can also lead to pre-mature interruptions. The challenge is therefore to distinguish prefixes that already convey sufficient response intent from those requiring further listening. This motivates explicit intent-prefix supervision together with training on audio truncated at streaming boundaries. To address these limitations, we propose HiThink Turn, an intent-aware streaming turn-state predictor for cascaded FD-SDSs. Our main contributions are: • A state formulation that separates response intent from se-mantic completeness and conditions decisions on system playback state, distinguishing when to respond, preserve playback, or interrupt. • A streaming supervision pipeline that labels the minimal intent-sufficient prefixes using LLM judgments and speech alignment, and combines boundary-aware truncation with non-target speech augmentation for 240-ms chunk-wise in-ference. HiThink Turn is implemented by fine-tuning Qwen3-ASR-1.7B [17] using LoRA [18]. Results on Easy Turn and Full-Duplex-Bench show accurate prediction of utterance complete-ness, effective turn control, and robust rejection of non-target speech. Triggering on intent prefixes improves response suc-cess and reduces interruption latency compared with triggering on utterance completion. arXiv:2609.34096v1 [cs.HC] 28 Sep 2026 HiThink Turn    
+
+> Streaming turn-state prediction over 240 ms audio chunks
+> 240 ms 240 ms 240 ms
+> I read the<incomplete> I read the project plan.<complete> I read the project plan. Can you explain the timeline?<response> Could you pause and explain the budget first? <response> Could you pause<interruption> Mm-hmm<backchannel>
+> 240 ms
+> <noise>
+
+User System 
+
+> Could you<incomplete>
+
+Turn speaking Turn listening   
+
+> <listening> <speaking> <listening>
+
+Fig. 1 . Overview of streaming turn-state inference in HiThink Turn, a module designed for cascaded full-duplex spoken dialogue systems that predicts turn states based on the system playback state and user interaction intent. 
+
+2. HITHINK TURN 2.1. Overview 
+
+As shown in Fig. 1, eight state labels are defined along three dimensions—audio validity, user interaction intent, and sys-tem playback state—to enable fine-grained duplex control. To provide reliable supervision for these states, the annotation pipeline in Fig. 2 is developed to distinguish response from in-terruption , while boundary-aware samples are constructed to improve robustness to truncated streaming inputs. Under this formulation, turn-state prediction is conditioned on whether the system is speaking or listening, and the model is effi-ciently implemented by adapting Qwen3-ASR with LoRA. 
+
+2.2. Intent-Aware Turn-State Design 
+
+As summarized in Table 1, turn states span three dimensions: audio validity, user intent, and system playback state. Follow-ing VAD and turn-detection models [9, 11], the audio states identify extremely far-field or unintelligible input ( noise )and assess valid speech for semantic completeness ( incom-plete /complete ). Since completeness alone cannot determine duplex actions, response , backchannel , and interruption ex-plicitly model user intent for finer-grained turn control. Prediction is further conditioned on the system’s speak-ing or listening state to account for playback-dependent user intent. In particular, backchannel and interruption are valid only during system playback. 
+
+2.3. Turn-State Annotation Workflow 
+
+Full-duplex data are scarce, and most public datasets are syn-thetic. Fig. 2 illustrates the turn-state annotation pipeline used to construct the training data for HiThink Turn. 
+
+Table 1 . Definitions of turn-state labels and playback states.            
+
+> Dimension Label Definition
+> Audio
+> <noise> Noise, invalid or unintelligible speech
+> <incomplete> Valid speech with incomplete acoustic or semantic evidence
+> <complete> Complete speech without response intent User
+> <response> Complete speech requiring a system response or action
+> <backchannel> Brief listener feedback that preserves system playback
+> <interruption> Minimal intent-sufficient prefix warranting interruption System <speaking> System playback is in progress
+> <listening> System is awaiting user input
+
+Completeness annotation. EoT 1 assigns each transcript a completeness score by summing the next-token probabilities of an end marker and sentence-final punctuation. Samples scoring above 0.25 are labeled complete , while those be-low 0.01 are labeled incomplete . Cases in [0 .01 , 0.25] are reviewed by Qwen3.5-122B 2.
+
+Boundary-aware truncation. To improve robustness to partial streaming audio, additional incomplete samples are constructed at 240-ms chunk boundaries. For each audio– transcript pair (x, y), forced alignment provides the end time 
+
+τi of textual unit yi. With ∆ = 0 .24 s, a streaming step k is randomly selected before the final chunk. The corresponding incomplete pair is constructed as 
+
+(exk, eyk) = ( x[0 ,k ∆] , y1: mk ),mk = max {i | τi ≤ k∆}. (1)   
+
+> 1https: //blog.speechmatics.com/semantic-turn-detection
+> 2https://huggingface.co/Qwen/Qwen3.5-122B-A10B incomplete/complete /response
+> Qwen3 ForcedAligner EAST incomplete backchannel interruption LLM
+> incomplete complete audio text response interruption
+> Boundary-aware truncation Intent classification Minimal intent-prefix Completeness annotation
+> backchannel complete
+
+Fig. 2 . Annotation Workflow for State Labels Here, mk denotes the number of textual units completed before the sampled streaming boundary. All resulting partial audio–transcript pairs are assigned the incomplete state. 
+
+Intent classification. Semantically complete utterances may serve different interactional purposes. We therefore use an LLM to refine their labels from transcripts. Requests directed at the assistant for an answer or action are relabeled response ,while brief acknowledgments and listener feedback during system playback are labeled backchannel . The remaining ut-terances are complete but do not solicit a response or warrant interrupting playback; they retain the complete label. 
+
+Minimal intent-sufficient prefix. In barge-in scenarios, waiting for semantic completion delays interruption. Inspired by simultaneous machine translation (SiMT) [19], we iden-tify the minimal intent-sufficient prefix classified as requiring a response, enabling earlier interruption without waiting for utterance completion. This prefix is defined as 
+
+k = min {k | fLLM (y1: k) = response } , (2) where y1: k = ( y1, . . . , yk) denotes the accumulated prefix of complete semantic phrases obtained through EAST 3 segmen-tation, and fLLM is the LLM-based response-intent classifier. The earliest prefix classified as expressing response intent, 
+
+y1: k, is labeled interruption , with its aligned end time mark-ing the barge-in point. These partial pairs are initially labeled 
+
+incomplete and subsequently screened by an LLM, those ex-pressing response intent undergo minimal intent-sufficient prefix annotation. 
+
+Invalid speech and filtering. Unintelligible and far-field speech is collected and segmented into clips as noise samples to improve noise rejection in realistic conversations. Anno-tated samples with identical transcripts but conflicting state labels are removed, and the number of samples sharing the same transcript and state label is capped to limit repetition and improve data balance. 
+
+2.4. State-Conditioned Training 
+
+During training, the system playback state is provided as con-ditioning input and excluded from loss computation. Since backchannels and interruptions occur only during system playback, backchannel and interruption samples are condi-tioned exclusively on speaking , while all other samples are 
+
+> 3https://github.com/biaofuxmu/EAST
+
+Table 2 . Full-clip accuracy (%) on Easy Turn test sets.                             
+
+> Lang. Model Complete Incomplete Avg.
+> EN SenseVoice + TEN 95.6 76.6 86.1 SoulX-Duplug 77.7 89.0 83.4 X2-Turn 92.1 84.6 88.4
+> HiThink Turn 87.7 96.0 91.9
+> ZH Easy Turn 96.3 97.6 97.0 SoulX-Duplug 89.3 79.3 84.3 X2-Turn 91.0 93.0 92.0
+> HiThink Turn 99.0 99.7 99.4
+
+randomly conditioned on speaking or listening . The resulting prediction is formulated as 
+
+(ˆ y, ˆs) = arg max  
+
+> y,s
+
+pθ (y, s | x, s sys ), (3) where x denotes the input audio, ssys is the system playback state, and ˆy and ˆs are the predicted transcript and turn state, respectively. 
+
+3. EXPERIMENTS 3.1. Experiment Details 
+
+The training set comprises 7,633 h of English and Chinese audio from ASR corpora, real-world QA recordings, and syn-thesized user turns from Duplex-UltraChat [20]. Noise data come from WHAM [21], CHiME-5 [22], and far-field record-ings. The annotation pipeline in Fig. 2 yields 5.552 million samples: 16.0% noise , 29.9% incomplete , 17.8% complete ,20.8% response , 14.8% interruption , and 0.7% backchannel .The noise subset contains 888k samples totaling 1,003 h. HiThink Turn is initialized from Qwen3-ASR-1.7B and adapted using LoRA with rank r = 32 through the ms-swift toolkit 4. Training is conducted for two epochs on eight NVIDIA H100 GPUs using AdamW with a learning rate of 
+
+1 × 10 −5 and a 5% warmup ratio. A per-device batch size of 32 and four-step gradient accumulation yield an effective batch size of 1,024. The maximum sequence length is 4,096 tokens, and bfloat16 precision is used throughout training. 
+
+3.2. Easy Turn Results 
+
+We evaluate utterance-level completeness prediction on Easy Turn [12]. HiThink Turn achieves the highest macro accu-racy in both English (91.9%) and Chinese (99.4%), together with the best accuracy on incomplete utterances. Misclassi-fied complete English utterances often have little or no trailing silence. Appending 0.3 s of silence corrects 61.5% of these errors, suggesting that the model uses utterance-final acoustic cues in addition to transcript semantics. 
+
+> 4https://github.com/modelscope/ms-swift
+
+Table 3 . Results on Full-Duplex-Bench v1–v1.5. Rates are proportions and latencies are in seconds. Best and second-best results are shown in bold and underlined, ablations shown in gray.                                                                                                     
+
+> Model Pause Handling Turn Taking Backchannel Interruption v1 Interruption v1.5 Overall
+> TOR ↓TOR ↑RL ↓RsR ↑TOR ↑RL ↓RpR ↑SL ↓Avg. ↑
+> Moshi †0.983 0.941 0.265 0.060 1.000 0.257 0.500 1.160 0.504 Freeze-Omni †0.562 0.336 0.953 0.800 0.867 1.409 0.720 1.420 0.632 Gemini Live †0.283 0.655 1.301 0.930 0.891 1.183 0.330 2.200 0.705 SoulX-Duplug 0.352 0.933 0.511 0.740 0.970 0.773 0.770 0.450 0.812 DuplexCascade 0.140 0.832 1.724 0.782 0.955 1.225 0.879 1.503 0.862 X2-Turn 0.224 0.807 0.901 0.925 0.935 0.659 0.855 0.574 0.860
+> HiThink Turn 0.234 0.958 0.625 0.959 1.000 1.177 0.980 1.322 0.933
+> w/o boundary-aware data 0.262 0.842 0.605 0.935 0.990 1.142 0.980 1.293 0.897 w/o system state 0.336 0.782 0.636 1.000 1.000 1.324 0.970 1.410 0.883 TOR: take-over rate; RL: response latency; RsR: resume rate; RpR: response rate; SL: stop latency. Avg.: mean of five rate metrics, with Pause TOR replaced by 1−TOR , latencies excluded. †Results from corresponding papers.
+
+3.3. Full-Duplex-Bench Results 
+
+Following SoulX-Duplug [7], we construct a cascaded full-duplex system and evaluate it on Full-Duplex-Bench v1– v1.5 [23, 24]. As shown in Table 3, HiThink Turn achieves the highest aggregate interaction score of 0.933 among the compared systems, with strong performance in turn taking, backchannel handling, and user interruption. With 240-ms chunks, mean model and end-to-end response latencies are 0.160 s and 0.625 s, respectively, remaining competitive among evaluated systems. To evaluate minimal intent-sufficient pre-fixes, we hold the model and its predictions on Interruption v1.5 fixed and compare triggering on response alone with triggering on either interruption or response . As shown in Fig. 3, allowing interruption triggers increases the response success rate from 89% to 98% and reduces mean decision latency among successful cases from 3.380 s to 1.322 s, a 60.9% reduction. These results demonstrate that the additional trigger improves interruption success and timeliness without changing model predictions. Full utterance (response) 0.89 3.380 s Minimal prefix (interruption) 0.98 1.322 s −2.058 s (−60.9%) RpR (0–1) SL (0–4 s) 
+
+Fig. 3 . SL on Interruption v1.5. Minimal intent-sufficient prefix decisions vs full-utterance decisions 
+
+3.4. Non-Target Speech Rejection Evaluation 
+
+Non-target speech evaluation further assesses whether the sys-tem maintains ongoing interaction when no response is war-ranted. As shown in Table 4, HiThink Turn achieves the highest average RsR of 0.735 among the compared systems in FDB v1.5, demonstrating its ability to suppress unnecessary interactions. It performs best on Background but trails Gem-ini Live on Talk-to-Other, leaving room for improvement in identifying system-directed speech with context. 
+
+Table 4 . RsR for non-target-speech robustness on Full-Duplex-Bench ( ↑).                
+
+> Model Background Talk-to-Other Avg.
+> Moshi †0.070 0.190 0.130 Freeze-Omni †0.250 0.250 0.250 Gemini Live †0.300 0.990 0.645
+> HiThink Turn 0.600 0.870 0.735
+
+3.5. Ablation Study 
+
+We separately ablate boundary-aware data and system state context. Table 3 shows that removing the former lowers the aggregate score despite slightly shorter latency. Error analy-sis links the latency reduction mainly to premature decisions when audio boundaries split words, leading to inappropriate waiting or early responses. This augmentation thus stabilizes predictions on partial speech. Removing playback-state conditioning lowers turn-taking success, increases takeovers during pauses, and delays inter-ruption, despite improving backchannel resume rate. The same request may require a response during listening but an inter-ruption during playback. Since backchannel and interruption samples occur only under the speaking condition, removing this context merges speaking and listening samples, lowering the relative prevalence of interruption labels compared with the speaking condition and obscuring the distinction between responding and interrupting. 
+
+4. CONCLUSION 
+
+We presented HiThink Turn, an intent-aware streaming turn-state predictor separating response intent from semantic com-pleteness through playback context, minimal intent-sufficient prefix supervision, and boundary-aware training. Results on Full-Duplex-Bench and Easy Turn demonstrate strong turn control and completeness prediction, with interruption trig-gers reducing mean decision latency among successful cases by 60.9% over response-only triggering. Future work will incorporate dialogue context and speaker cues to distinguish response intent, turn yielding, and system-directed speech. 5. REFERENCES 
+
+[1] J. Lu et al., “A survey of full-duplex spoken dia-logue systems: Architectural hierarchy, interaction on-tology, and decision state machine,” arXiv preprint arXiv:2606.19453 , 2026. [2] J. Chen et al., “Fireredchat: A pluggable, full-duplex voice interaction system with cascaded and semi-cascaded implementations,” arXiv preprint arXiv:2509.06502 , 2025. [3] X. Wang et al., “Freeze-omni: A smart and low latency speech-to-speech dialogue model with frozen llm,” in 
+
+International Conference on Machine Learning . PMLR, 2025, pp. 63345–63354. [4] A. D´ efossez et al., “Moshi: A speech-text founda-tion model for real-time dialogue,” arXiv preprint arXiv:2410.00037 , 2024. [5] Q. Chen et al., “Minmo: A multimodal large language model for seamless voice interaction,” arXiv preprint arXiv:2501.06282 , 2025. [6] J. Yang, Y. Fujita, and Y. Sudo, “Duplexcascade: Full-duplex speech-to-speech dialogue with vad-free cas-caded asr–llm–tts pipeline and micro-turn optimiza-tion,” arXiv preprint arXiv:2603.09180 , 2026. [7] Soul-AI Lab, “Soulx-duplug: Plug-and-play streaming state prediction module for realtime full-duplex speech conversation,” arXiv preprint arXiv:2603.14877 , 2026. [8] K. Fu et al., “X2-Turn: Frame-synchronous dual-head modeling for joint streaming ASR and turn state predic-tion,” arXiv preprint arXiv:2608.10878 , 2026. [9] Pipecat AI, “Smart turn: Open source semantic voice activity detection model,” 
+
+https://huggingface.co/pipecat-ai/ smart-turn-v2 , 2025. [10] TEN Team, “Ten turn detection: Turn detec-tion for full-duplex dialogue communication,” 
+
+https://github.com/TEN-framework/ ten-turn-detection , 2025. [11] B. Liao et al., “Flexduo: A pluggable system for en-abling full-duplex capabilities in speech dialogue sys-tems,” arXiv preprint arXiv:2502.13472 , 2025. [12] G. Li et al., “Easy turn: Integrating acoustic and lin-guistic modalities for robust turn-taking in full-duplex spoken dialogue systems,” in Proc. IEEE Int. Conf. Acoust., Speech, Signal Process. (ICASSP) . IEEE, 2026, pp. 16957–16961. [13] Y. Li and C. Chu, “Decoupling turn-taking from se-mantics: A decoupled data approach for finite-state-machine-based full-duplex dialogue,” arXiv preprint arXiv:2609.03321 , 2026. [14] Z. Lin et al., “TurnFSM for full-duplex dialogue sys-tem: Internalizing state-machine logic for streaming se-mantic voice activity detection and utterance-level rejec-tion,” arXiv preprint arXiv:2609.04240 , 2026. [15] Y. Bai et al., “JoyAI-Talker: Full-duplex speech inter-active large model built for empathetic voice agents,” 
+
+arXiv preprint arXiv:2608.01119 , 2026. [16] W. Wu et al., “Phoenix-vad: Streaming semantic endpoint detection for full-duplex speech interaction,” 
+
+arXiv preprint arXiv:2509.20410 , 2025. [17] X. Shi et al., “Qwen3-asr technical report,” arXiv preprint arXiv:2601.21337 , 2026. [18] E. J. Hu et al., “LoRA: Low-rank adaptation of large lan-guage models,” in International Conference on Learn-ing Representations , 2022. [19] Biao Fu, Minpeng Liao, Kai Fan, Chengxi Li, Liang Zhang, Yidong Chen, and Xiaodong Shi, “LLMs can achieve high-quality simultaneous machine translation as efficiently as offline,” in Findings of the Association for Computational Linguistics: ACL 2025 . ACL, 2025. [20] X. Zhang et al., “Beyond the turn-based game: Enabling real-time conversations with duplex models,” Proc. Conf. Empirical Methods Natural Language Processing (EMNLP) , 2024. [21] G. Wichern et al., “Wham!: Extending speech separation to noisy environments,” arXiv preprint arXiv:1907.01160 , 2019. [22] J. Barker, S. Watanabe, E. Vincent, and J. Trmal, “The fifth CHiME speech separation and recognition chal-lenge: Dataset, task and baselines,” in Proc. Inter-speech , 2018, pp. 1561–1565. [23] G.-T. Lin et al., “Full-duplex-bench: A bench-mark to evaluate full-duplex spoken dialogue mod-els on turn-taking capabilities,” in Proc. IEEE Auto-matic Speech Recognition and Understanding Workshop (ASRU) . IEEE, 2025, pp. 1–8. [24] G.-T. Lin et al., “Full-duplex-bench v1.5: Evaluating overlap handling for full-duplex speech models,” in 
+
+Proc. IEEE Int. Conf. Acoust., Speech, Signal Process. (ICASSP) . IEEE, 2026, pp. 19447–19451.
