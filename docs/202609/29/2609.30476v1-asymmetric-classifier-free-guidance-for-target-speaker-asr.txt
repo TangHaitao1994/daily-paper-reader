@@ -1,0 +1,338 @@
+Title: Asymmetric Classifier-Free Guidance for Target-Speaker ASR
+
+URL Source: https://arxiv.org/pdf/2609.30476v1
+
+Published Time: Mon, 28 Sep 2026 00:10:12 GMT
+
+Number of Pages: 5
+
+Markdown Content:
+# ASYMMETRIC CLASSIFIER-FREE GUIDANCE FOR TARGET-SPEAKER ASR 
+
+# Yiwen Guan, Jacob Whitehill 
+
+# Worcester Polytechnic Institute, Massachusetts, USA 
+
+ABSTRACT 
+
+Target-speaker automatic speech recognition (TS-ASR) must iden-tify and transcribe a desired speaker under varying overlap and noise conditions. These changes alter the acoustic evidence for the target speaker in the speech mixture, motivating inference-time calibration of speaker conditioning. We introduce asymmetric classifier-free guidance (CFG) for TS-ASR using Whisper: the speaker-conditioned branch predicts the target transcript, while the speaker-unconditioned branch predicts serialized multi-speaker transcripts. CFG adjusts the contribution of speaker condition-ing during decoding through a single guidance scale. We select a global guidance scale on target-domain development data and train a lightweight encoder-based predictor to adjust it for each utterance, keeping the recognition model fixed. Under domain shifts, our full system achieves relative word error rate (WER) reductions of up to 21.8% over the condition-only baseline, and 5.6% over standard conditional decoding of the same CFG-trained model. Oracle anal-ysis shows that substantially larger WER reductions are possible through utterance-level scale selection and identifies how beneficial adjustments vary with domain shifts. 
+
+Index Terms — speech recognition, target-speaker ASR, classifier-free guidance, domain adaptation 
+
+1. INTRODUCTION 
+
+Target-speaker automatic speech recognition (TS-ASR) transcribes a specific speaker from a mixture of multiple speakers, typically using an enrollment recording to identify the target. It is useful in appli-cations such as voice assistants and meeting transcription, where a system needs to recognize one speaker in the presence of compet-ing speech or ambient noise. Large-scale pretrained attention-based encoder-decoder models including Whisper [1] and OWSM v4 [2] provide strong foundations for target-speaker recognition. By in-troducing a conditioning mechanism into Whisper, it is possible to harness its speech recognition capabilities for TS-ASR. Recent Whisper-based TS-ASR methods introduce speaker in-formation through prompts or additional conditioning modules [3, 4, 5]. Alternatively, self-speaker adaptation derives this informa-tion from speech-activity-masked mixture features [6]. While these methods are useful, a model trained on one set of mixtures may en-counter different overlap patterns or noise levels at inference time. The conditioning learned during training may then need adjustment to maintain high accuracy. We thus explore whether a trained TS-ASR model can adapt to domain shifts by adjusting the influence of speaker conditioning during decoding. In this work, we introduce asymmetric classifier-free guidance (CFG) [7] for Whisper-based TS-ASR. CFG is an inference-time procedure that combines predictions made with and without a condi-tioning signal through a guidance scale. In our model, the speaker-conditioned branch learns the target transcript, while the speaker-unconditioned branch learns serialized transcripts of all speakers, enabling both tasks within one shared backbone and giving a defined recognition task when the target identity is unavailable. At each de-coding step, the difference between their predicted logits (see “CFG decoding” box in Figure 1) favors tokens preferred by the target-speaker branch relative to the multi-speaker branch. Scaling this difference provides a way to adjust that preference when acoustic conditions change; w = 1 recovers ordinary speaker-conditioned decoding. To adapt to a new domain, we keep the trained backbone fixed and use a labeled target-domain development set to select a global guidance scale and train a lightweight predictor for utterance-level adjustment. To our knowledge, this is the first study to use CFG for inference-time calibration of TS-ASR under domain shift. Our research contributions are: (1) We enable a single Whisper-based model to perform both target- and multi-speaker recognition by using asymmetric CFG training. (2) We develop inference-time adaptation through development-set-selected global CFG calibration and a predictor for utterance-level adjustment. Global calibration improves test WER under domain shifts, and the predictor provides additional improvements. (3) We analyze how domain shifts affect which guidance scales improve recognition. Oracle selections reveal substantial headroom beyond global calibration. 
+
+2. RELATED WORK 
+
+Whisper-based TS-ASR systems use prompt tuning or speaker-querying modules to introduce target-speaker information [4, 5]. Joint target- and multi-speaker recognition has also been achieved by combining Sidecar separation [8] with target-stream identifica-tion [3]. In the related task of target speaker extraction (TSE), a Whisper-based generative TSE model trains TS-ASR as an auxiliary task and improves performance of both tasks [9]. Other condition-ing approaches use speaker activity through diarization-conditioned Whisper [10], or speaker-specific encoder kernels [6]. Beyond Whisper-based systems, recent work explores joint activity detec-tion [11], as well as LLM-based recognition with chain-of-thought reasoning and reinforcement learning [12, 13]. Optimizing speaker embeddings with ground-truth supervision reveals that the optimal embedding can depend on the mixture [14]. CFG [7] provides a feasible way to control conditioning at inference time. CFG has been used for domain adaptation during image generation [15] and to strengthen acoustic conditioning in ASR [16]. We use CFG to calibrate the contrast between target-speaker and multi-speaker pre-dictions under domain shifts, which addresses the complementary question of how to calibrate speaker conditioning at inference time. 
+
+3. METHOD 3.1. Speaker-Conditioned Whisper 
+
+We built our TS-ASR model on Whisper, an attention-based encoder-decoder model pretrained on large-scale speech data and widely arXiv:2609.30476v1 [eess.AS] 24 Sep 2026 Mixture x 
+
+target enrollment 
+
+no enrollment ∅ 
+
+## (a) Asymmetric training 
+
+## Target transcript yTS 
+
+“Good morning.” 
+
+> with target enrollment
+
+## Shared Whisper  
+
+> (shared params.)
+
+## SOT transcript ySOT 
+
+“Good morning. <sc> How are you?” 
+
+> without target enrollment
+
+Target domain DEV 
+
+Frozen asymmetric-CFG Whisper  
+
+> CFG decoding over grid
+> min corpus WER
+
+Global scale 
+
+## (b) Global calibration 
+
+Mixture x  Enrollment e 
+
+> shared CFG-generated prefix
+
+Frozen asymmetric-CFG Whisper  
+
+> update
+> cond./uncond. next-token logits
+> encoder-derived features CFG decoding
+> select guidance scale
+
+## (c) Utterance-level adaptation  
+
+> centered at
+
+Lightweight predictor Fig. 1 . Overview of the proposed framework. (a) A shared Whisper model is trained for TS-ASR with target enrollment and multi-speaker ASR without enrollment. (b) A global guidance scale wg is calibrated on target-domain development data (DEV) with the ASR model frozen. (c) A lightweight predictor performs utterance-level guidance adaptation around wg , and the selected scale is applied to CFG decoding. used for single-speaker tasks. To incorporate target-speaker in-formation, we insert zero-initialized cross-attention adapters into selected Whisper encoder layers. Each adapter allows the mixture representation to attend to an enrollment representation of the target speaker, where the mixture representations serve as queries, while the enrollment representations serve as keys and values. Let E(x, e ) denote the resulting speaker-conditioned Whisper encoder, where x is the speech mixture and e is the speaker enroll-ment. The conditional and speaker-unconditioned encoder represen-tations are Hc = E(x, e t) and Hu = E(x, ∅), where et denotes the target-speaker enrollment and ∅ means each cross-attention adapter receives a zero vector in place of the enrollment sequence. The speaker-conditioned and unconditioned branches share all model pa-rameters and are referred to hereafter as the conditional and uncondi-tional branches. Here, “unconditional” refers only to the absence of speaker enrollment; both branches remain conditioned on the speech mixture and generated prefixes. We also attach a linear CTC head [17] to the final encoder representation to provide frame-level align-ment supervision. Both branches use a hybrid CTC/attention loss, as described in the following section. 
+
+3.2. Asymmetric CFG Training 
+
+Classifier-free guidance (CFG) was originally developed for diffu-sion models to control the influence of a conditioning signal by com-bining conditional and unconditional predictions in image genera-tion. It has been successfully applied to speech recognition [16], and also to autoregressive (AR) generation [18, 19]. We apply CFG to Whisper to adjust the influence of target-speaker conditioning during decoding without training auxiliary speaker identifiers. During training, the conditional branch c is trained on the TS-ASR task with a hybrid loss: 
+
+LTS = αLCTC (Hc, y CTC  
+
+> TS
+
+) + (1 − α)LCE (Hc, y Attn  
+
+> TS
+
+), (1) where α is set to 0.5 throughout this work. With probability pu, the speaker enrollment is randomly removed, thus becoming the uncon-ditional branch. Unlike conventional CFG training, which uses the same pre-diction target with and without conditioning, our unconditional branch is trained on a different objective: the serialized transcripts of both speakers with a special speaker-change token ⟨sc ⟩, aka seri-alized output training (SOT) [20]. Following standard permutation-invariant training [21], the lower loss of the two speaker orders is selected, denoted as LSOT . Thus, the proposed asymmetric CFG training becomes: 
+
+Lasym = Eb∼Bernoulli( pu) [(1 − b)LTS + bLSOT ] , (2) where b ∼ Bernoulli( pu) indicates whether the unconditional branch is selected for the current training sample. 
+
+3.3. Inference-time CFG Calibration and Adaptation 
+
+After asymmetric training, the same model produces target-speaker predictions when conditioned on speaker enrollment and serialized multi-speaker predictions when the enrollment is dropped. At in-ference time, we combine the predictions using CFG at every AR decoding step t. Both branches share the same generated prefix ˆy<t 
+
+but attend to different encoder representations, Hc and Hu. Let ℓc,t 
+
+and ℓu,t denote the corresponding next-token logits, the guided next-token distribution is: 
+
+pw (yt | ˆy<t , x, e t) = softmax ℓu,t + w ℓc,t − ℓu,t 
+
+ , (3) where w is the guidance scale. Here w = 0 gives unconditional multi-speaker decoding, w = 1 recovers standard target-speaker de-coding, and w > 1 amplifies the difference between two predic-tions. This combination is applied at every decoding step, similar to context-aware AR decoding [22], while the guidance scale remains fixed within an utterance. The appropriate guidance strength can change when the test do-main differs from the training domain. We therefore first perform global calibration by selecting the CFG scale wg that minimizes cor-pus WER over a predefined grid on target-domain development data. 
+
+wg is fixed for test decoding, without updating the ASR model. Since the best w may also vary across utterances, we further perform utterance-level adaptation with an action set A = {wg −
+
+δ, w g , w g + δ}, where δ is the action spacing (step size). For each development example i and a non-center action a ∈ A \ { wg }, we define: 
+
+∆i,a = ri(a) − ri(wg ), bi,a = 1[∆ i,a < 0] , (4) where ri(w) is the utterance WER obtained with guidance scale w,and bi,a indicates whether action a improves WER over the global scale wg . A lightweight predictor takes encoder-derived features and produces two outputs for each non-center action: the predicted WER change b∆i,a and the benefit probability qi,a ∈ (0 , 1) . We train b∆i,a toward ∆i,a with smooth-L1 loss, and train qi,a toward Algorithm 1 Global-centered adaptive CFG decoding 
+
+Require: Mixture x, enrollment e, frozen ASR model M
+
+Require: Predictor fθ , action set A
+
+Require: DEV-selected center wg and thresholds (τ, m ) 
+
+> 1:
+
+z ← EncoderFeatures M (x, e ) 
+
+> 2:
+
+{( b∆a, q a)}a∈A\{ wg } ← fθ (z) 
+
+> 3:
+
+a∗ ← arg min a∈A\{ wg } b∆a 
+
+> 4:
+
+w ← wg 
+
+> 5:
+
+if qa∗ ≥ τ and b∆a∗ ≤ − m then  
+
+> 6:
+
+w ← a∗ 
+
+> 7:
+
+end if  
+
+> 8:
+
+return DecodeCFG M (x, e ; w)
+
+bi,a using binary cross-entropy. After each training epoch, we eval-uate pairs of thresholds (τ, m ) on the validation subset. Each pair determines which guidance scale is selected for each validation ut-terance, and we compute the resulting corpus WER. The predictor adjusts the global scale only when both the confidence and predicted WER reduction exceed the thresholds. The final decoding procedure is detailed in Algorithm 1. All predictor parameters, thresholds, and guidance scales remain fixed for evaluation. 
+
+4. EXPERIMENTAL SETUP 4.1. Datasets and Evaluation Metrics 
+
+Our experiments are conducted on Libri2Mix [23], using the noise-free mix clean setting. The mixtures contain two speakers from LibriSpeech [24], with both recordings starting at the beginning of the mixture. Training uses the LibriSpeech train-clean-100 
+
+subset, matching the training-data setting in [3, 4]. To evaluate adaptation under controlled domain shifts, we con-struct development and test mixtures following the LibriSpeechMix setup [20], referred to as LSM-controlled. The development and test sets contain 5,406 and 5,240 examples, respectively. We vary the overlap ratio across {30%, 50%, 70% } (denoted OV30/50/70 for simplicity). Here we define the overlap ratio as the overlap of the two source recordings divided by the duration of the shortest record-ing. At OV50, we also add WHAM! noise [25] at signal-to-noise ratios (SNR) of 10 and 0 dB. Global and adaptive CFG are evaluated on the three clean overlap settings, and OV50 at 10 and 0 dB. Following [3], we use a randomly cropped 3-sec LibriSpeech recording as speaker enrollment for each speaker. We report target-speaker word error rate (WER) for TS-ASR, and concatenated minimum-permutation WER (cpWER) [26] for multi-speaker ASR. All WERs are computed at the corpus level. 
+
+4.2. Model and Calibration Settings 
+
+We use the pretrained Whisper-small model as the backbone throughout the experiments, with enrollment cross-attention adapters inserted after Whisper encoder layers 3, 6, and 9. During training, the enrollment is dropped with a probability of pu = 0 .1, and the hybrid-loss weight is α = 0 .5. All ASR models are trained for 60 epochs on one NVIDIA L40S GPU with a batch size of 8, using the AdamW optimizer [27]. The learning rates are 1e-5 for the pre-trained Whisper parameters and 1e-4 for newly added parameters. For each target-domain setting, we select the global guidance scale wg by minimizing development-set corpus WER over a grid from 0.2 to 3.0 in increments of 0.2. The ASR backbone is fixed 
+
+Table 1 . Libri2Mix-clean test WER (%) with Whisper-small. For condition-only and CFG systems, we report mean ± sample standard deviation over four runs. Our CFG systems use w = 1 for TS-ASR; asymmetric CFG uses w = 0 for multi-speaker ASR. Our best run achieves 15.66% TS-WER. Each ‘+’ denotes a separate fine-tuning setup starting from pretrained Whisper. System TS-WER cpWER 
+
+Published Whisper-small TS-ASR 
+
+TS-Whisper LoRA [4] 19.06 –Whisper-SS-TTI-limited [3] 15.75 –Whisper-SS-TTI [3] † 11.81 † 9.39 †
+
+Whisper (pretrained) 69.26 –+ SOT-only – 14.10 + Condition-only 18.04 ±1.85 –+ TS-CFG-sym, pu=0.1 17.61 ±1.98 –+ TS-CFG-asym, pu=0.3 18.65 ±1.80 21.97 ±8.56 + TS-CFG-asym, pu=0.1 (ours) 17.59 ±1.96 23.51 ±4.97  
+
+> †
+
+Uses additional training data beyond our limited-data set-ting; not directly comparable. throughout the calibration and predictor training stage. The adaptive CFG predictor is a multilayer perceptron with two 256-unit hidden layers and a dropout 0.1, trained for 10 epochs with a learning rate of 1e-3. The predictor uses encoder features from the speech mix-ture and speaker enrollment, which summarize the conditional and unconditional representations and their differences. Predictor train-ing and validation use disjoint development set groups: 85% of the development examples for training the predictor and the remaining 15% for validation. The predictor checkpoint and decision thresh-olds are selected jointly by the corpus WER on the validation subset (as described in Sec. 3.3) and stay fixed for evaluation. All compar-isons among backbone models are over 4 runs, while the global and adaptive CFG experiments use a fixed backbone and predictor seed. 
+
+5. RESULTS 5.1. Target- and Multi-Speaker Recognition 
+
+Table 1 compares our trained backbone with published Whisper-small-based systems and our training variants on Libri2Mix-clean, before inference-time calibration. We evaluate our system with w =1 for TS-ASR, corresponding to standard conditional decoding, and 
+
+w = 0 for multi-speaker recognition. Across four independent train-ing runs with different random seeds, our model achieves 17 .59 ±
+
+1.96% TS-WER, compared with 18 .04 ± 1.85% for condition-only training and 17 .61 ± 1.98% for symmetric CFG training, where 
+
+± denotes the sample standard deviation. Our best run achieves 
+
+15 .66% TS-WER, comparable to the 15.75% of Whisper-small-SS-TTI-limited with the same backbone and training-data setting in [3]. Our model also supports multi-speaker recognition, achieving 
+
+23 .51 ±4.97% cpWER. Although this remains higher than our SOT-only baseline’s 14 .10% , the model supports both recognition tasks while retaining TS-ASR performance close to the symmetric train-ing baseline. Increasing the unconditional training probability from 
+
+pu=0.1 to 0.3 improves mean cpWER from 23.51% to 21.97%, but also increases mean TS-WER. This indicates a trade-off between target-speaker and multi-speaker recognition with respect to the choice of pu. The benefit of asymmetric training lies in the joint capability and the basis it provides for inference-time calibration. Table 2 . Test WER (%) on LSM-controlled. Development-set-calibrated global scale ( wg ) is selected and frozen for test set eval-uation. Utterance-level adaptive CFG selects among three scales around the same global center ( {wg − δ,wg ,wg + δ}). Backbone Cond. only TS-CFG-asym Setting w=1 wg Adaptive OV / SNR δ=0.4 δ=0.6 OV30 41.28 36.22 34.78 34.34 34.18 
+
+OV50 32.23 31.47 30.94 30.69 30.65 
+
+OV70 30.14 25.79 25.69 25.50 25.34 
+
+OV50 / 10 dB 43.87 35.75 34.74 34.39 34.30 
+
+OV50 / 0 dB 87.77 74.16 71.28 70.50 71.06 
+
+Table 3 . Post-hoc oracle results on LSM-controlled-OV50. Both global and utterance-level oracle scales are selected using test refer-ences over the full guidance grid. Parentheses show the correspond-ing wg or woracle  
+
+> g
+
+for each setting. Switch rate is the percentage of examples for which some scale in the grid has better WER than w=1. Test set full-grid oracle results SNR 
+
+w=1 WER 
+
+wg
+
+WER ( w)Test woracle 
+
+> g
+
+WER ( w)Utt. oracle WER Switch rate +∞ 31.47 30.94 (1.4) 30.78 (1.6) 21.60 17.2% 10 dB 35.75 34.74 (1.8) 34.59 (1.6) 25.46 24.2% 0 dB 74.16 71.28 (2.4) 70.90 (2.2) 59.64 38.4% 
+
+5.2. Global and Utterance-Level CFG Adaptation 
+
+Table 2 evaluates global and utterance-level CFG adaptation under overlap (OV30/50/70) and noise shifts (OV50 with SNR=10 and 0 dB). As mentioned in Sec.3.3, for each setting, the development-set-selected global scale ( wg ) is frozen for test set evaluation, and con-sidered as the global center. Utterance-level adaptive CFG further selects among three actions based on the global center. Even without inference-time guidance adjustment ( w=1), asym-metric TS-CFG outperforms the condition-only baseline across all five settings, indicating improved robustness with asymmetric CFG training. With the backbone fixed, applying wg further re-duces test WER by 0.1–2.88%. The largest WER reduction occurs at OV50/0 dB, from 74.16% down to 71.28%. Among the clean overlap settings, OV30 benefits most, with WER decreasing from 36.22% to 34.78%. We speculate that this is because OV30 entails the largest domain shift among all controlled overlap settings from the left-aligned training mixtures, whose overlap ratio is 100% under our definition. The same holds for SNR=0 dB since the training set is clean. These results suggest that adjusting the condition guidance strength on target domains rather than maintaining a fixed scale can improve recognition without updating the ASR model. Further, utterance-level adaptation improves upon the global cal-ibration in all five settings. With action spacing δ=0.4, WER de-creases by 0.19–0.78%, and with δ=0.6, WER decreases by 0.22– 0.60%. This also outperforms the best fixed scale selected using test reference (oracle) over the global search grid (70.9% in Table 3) by 0.4%. Together, global calibration and utterance-level adaptation reduce WER from 36.22% to 34.18% on OV30 with δ=0.6, reduc-ing over standard conditional decoding ( w=1) by 5.6% relatively. Thus, a lightweight predictor can use utterance-specific information to further improve on a shared global scale, while the effect of action spacing δ varies across conditions. REF
+ ... there would be stew for dinner ... and carrots ...
+... there would be stoo for dinner ... and carrets ...
+... there would be stew for dinner ... and carrets ...
+
+
+
+
+... there would be stew for dinner ... and carrots ...  
+
+> Cond
+> Unc
+> CFG
+> t=8
+> STE
+> ST
+> ST
+> 13.1
+> 14.7
+> 13.1
+> STE
+> ST
+> S
+> 10.7
+> 11.5
+> 9.5 STE
+> S
+> S
+> 7.5
+> 8.3
+> 5.4
+> Cond
+> Unc
+> CFG
+> Cond
+> Unc
+> CFG
+> t=19
+> t=19
+> CAR
+> CAR
+> CAR
+> CAR
+> CAR
+> C
+> 14.9
+> 14.0
+> 15.9
+> 14.9
+> 14.0
+> 16.3
+> C
+> C
+> C
+> C
+> C
+> CAR
+> 14.2
+> 14.2
+> 12.6
+> 15.7
+> 12.6
+> 16.3
+> t=20
+> t=20
+> ARR
+> ARR
+> ARR
+> RE
+> RE
+> RE
+> 5.7
+> 6.6
+> 5.4 4.9
+> 19.1
+> 19.9
+> 5.4 18.0
+
+Fig. 2 . An example of CFG global calibration and utterance-level adaptation improving upon standard conditional decoding ( w=1). The wrong words are marked red, and the correct words/tokens are marked green. The tables under global wg =2.0 and adaptive 
+
+wad =2.4 display the top logits predicted by the conditional (Cond), unconditional (Unc), and the computed CFG = Unc + w · (Cond −
+
+Unc ) at a specific decoding time step t.
+
+5.3. Oracle Headroom Analysis 
+
+Table 3 uses test references to select either one fixed guidance scale 
+
+woracle  
+
+> g
+
+for the entire test set or a separate scale for each utterance over the full grid (from 0.2 to 3.0 in increments of 0.2). At OV50, the development-set-selected global scales wg yield WERs only 0.15– 0.38% above the test global woracle  
+
+> g
+
+results. Both development and test set selections favor stronger guidance at 0 dB, supporting the use of development data to calibrate guidance under noise shifts. Utterance-level oracle selection provides a further 9.13–11.26% re-duction over the best fixed scale woracle  
+
+> g
+
+, revealing substantial head-room beyond global calibration, which stems from the variation in the guidance strength preferred by individual utterances. As noise increases, the oracle switch rate rises from 17.2% in clean mixtures to 24.2% at 10 dB and 38.4% at 0 dB. The best fixed test-set scale woracle  
+
+> g
+
+also increases from 1.6 to 2.2 at 0 dB. Together, these observations suggest that noise changes both the pre-ferred global guidance scale and how often utterances benefit from adjusting the guidance strength from w = 1 . The lightweight CFG predictor already improves on global calibration, while the oracle results show substantial room for further improvement. 
+
+6. CONCLUSION 
+
+In this work, we introduce asymmetric CFG for Whisper-based TS-ASR, supporting target-speaker and multi-speaker recognition within a shared model while maintaining competitive TS-ASR per-formance. Even before inference-time calibration, our model out-performs condition-only baselines under domain shifts, indicating improved robustness. With the recognition model fixed, selecting a global guidance scale on target-domain development data improves test WER under changes in overlap and noise. A lightweight CFG predictor provides further gains through utterance-level guidance adjustment. Our analysis shows how beneficial adjustments vary with acoustic conditions, while oracle selection reveals substantial headroom beyond global calibration. These results demonstrate the effectiveness of CFG for inference-time adaptation in TS-ASR. Our approach on inference-time control is complementary to ad-vances in speaker conditioning and backbone design, and could extend to other TS-ASR architectures. Future work will explore better utterance-level predictors to close the oracle gap, as well as token-level guidance for finer control during decoding. 
+
+Compliance with Ethical Standards. This research study was conducted retrospectively using human subject data made available in open access by the LibriSpeech corpus (CC BY 4.0). Ethical ap-proval was not required as confirmed by the license attached with the open access data. 
+
+7. REFERENCES 
+
+[1] Alec Radford, Jong Wook Kim, Tao Xu, et al., “Robust speech recognition via large-scale weak supervision,” in International conference on machine learning , 2023, pp. 28492–28518. [2] Yifan Peng, Muhammad Shakeel, Yui Sudo, et al., “OWSM v4: Improving Open Whisper-Style Speech Models via Data Scaling and Cleaning,” in Interspeech 2025 , 2025, pp. 2225– 2229. [3] Lingwei Meng, Jiawen Kang, Yuejiao Wang, et al., “Empower-ing Whisper as a Joint Multi-Talker and Target-Talker Speech Recognition System,” in Interspeech 2024 , 2024, pp. 4653– 4657. [4] Hao Ma, Zhiyuan Peng, Mingjie Shao, et al., “Extending whis-per with prompt tuning to target-speaker asr,” in ICASSP 2024-2024 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) . IEEE, 2024, pp. 12516–12520. [5] Pengcheng Guo, Xuankai Chang, Hang Lv, et al., “Sq-whisper: Speaker-querying based whisper model for target-speaker asr,” 
+
+IEEE Transactions on Audio, Speech and Language Process-ing , vol. 33, pp. 175–185, 2024. [6] Weiqing Wang, Taejin Park, Ivan Medennikov, et al., “Speaker Targeting via Self-Speaker Adaptation for Multi-talker ASR,” in Interspeech 2025 , 2025, pp. 5498–5502. [7] Jonathan Ho and Tim Salimans, “Classifier-free diffusion guid-ance,” in NeurIPS 2021 Workshop on Deep Generative Models and Downstream Applications , 2021. [8] Lingwei Meng, Jiawen Kang, Mingyu Cui, et al., “A sidecar separator can convert a single-talker speech recognition system to a multi-talker one,” in ICASSP 2023-2023 IEEE Interna-tional Conference on Acoustics, Speech and Signal Processing (ICASSP) . IEEE, 2023, pp. 1–5. [9] Hao Ma, Rujin Chen, Xiao-Lei Zhang, Ju Liu, and Xuelong Li, “Enhancing intelligibility for generative target speech ex-traction via joint optimization with target speaker asr,” IEEE Signal Processing Letters , vol. 32, pp. 2309–2313, 2025. [10] Alexander Polok, Dominik Klement, Martin Kocour, et al., “Dicow: Diarization-conditioned whisper for target speaker automatic speech recognition,” Computer speech & language ,vol. 95, pp. 101841, 2026. [11] Chikara Maeda, Muhammad Shakeel, and Yui Sudo, “Joint Target-Speaker ASR and Activity Detection,” in Interspeech 2025 , 2025, pp. 1683–1687. [12] Yiru Zhang, Hang Su, Lichun Fan, et al., “Thinking in cock-tail party: Chain-of-thought and reinforcement learning for target speaker automatic speech recognition,” arXiv preprint arXiv:2509.15612 , 2025. [13] Yiru Zhang, Hang Su, Lichun Fan, et al., “Xiaomi-cocktailasr-1 technical report,” arXiv preprint arXiv:2609.11274 , 2026. [14] Takanori Ashihara, Takafumi Moriya, Shota Horiguchi, et al., “Investigation of speaker representation for target-speaker speech processing,” in 2024 IEEE Spoken Language Technol-ogy Workshop (SLT) . IEEE, 2024, pp. 423–430. [15] Benito Buchheim, Max Reimann, and J¨ urgen D¨ ollner, “Con-trolling human shape and pose in text-to-image diffusion mod-els via domain adaptation,” in 2025 IEEE/CVF Winter Confer-ence on Applications of Computer Vision (WACV) . IEEE, 2025, pp. 3688–3697. [16] Wanting Huang and Weiran Wang, “Ctc-seeded token edit refinement for non-autoregressive speech recognition,” arXiv preprint arXiv:2606.28732 , 2026. [17] Alex Graves, Santiago Fern´ andez, Faustino Gomez, and J¨ urgen Schmidhuber, “Connectionist temporal classification: la-belling unsegmented sequence data with recurrent neural net-works,” in Proceedings of the 23rd International Conference on Machine Learning , 2006, p. 369–376. [18] Pingyu Wu, Kai Zhu, Yu Liu, et al., “Towards sequence modeling alignment between tokenizer and autoregressive model,” in International Conference on Learning Representa-tions , C. Vondrick, B. Hariharan, C. Raffel, L. Pinto, D. Yang, and A. Faust, Eds., 2026, vol. 2026, pp. 132194–132217. [19] Dongli Xu, Aleksei Tiulpin, and Matthew Blaschko, “Softcfg: Uncertainty-guided stable guidance for visual autoregressive model,” in International Conference on Learning Representa-tions , C. Vondrick, B. Hariharan, C. Raffel, L. Pinto, D. Yang, and A. Faust, Eds., 2026, vol. 2026, pp. 13869–13887. [20] Naoyuki Kanda, Yashesh Gaur, Xiaofei Wang, et al., “Se-rialized Output Training for End-to-End Overlapped Speech Recognition,” in Interspeech 2020 , 2020, pp. 2797–2801. [21] Dong Yu, Morten Kolbæk, Zheng-Hua Tan, and Jesper Jensen, “Permutation invariant training of deep models for speaker-independent multi-talker speech separation,” in 2017 IEEE international conference on acoustics, speech and signal pro-cessing (ICASSP) . IEEE, 2017, pp. 241–245. [22] Weijia Shi, Xiaochuang Han, Mike Lewis, et al., “Trusting your evidence: Hallucinate less with context-aware decoding,” in Proceedings of the 2024 Conference of the North American Chapter of the Association for Computational Linguistics: Hu-man Language Technologies (Volume 2: Short Papers) , 2024, pp. 783–791. [23] Joris Cosentino, Manuel Pariente, Samuele Cornell, et al., “Librimix: An open-source dataset for generalizable speech separation,” arXiv preprint arXiv:2005.11262 , 2020. [24] Vassil Panayotov, Guoguo Chen, Daniel Povey, and Sanjeev Khudanpur, “Librispeech: An asr corpus based on public do-main audio books,” in 2015 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , 2015, pp. 5206–5210. [25] Gordon Wichern, Joe Antognini, Michael Flynn, et al., “WHAM!: Extending Speech Separation to Noisy Environ-ments,” in Interspeech 2019 , 2019, pp. 1368–1372. [26] Shinji Watanabe, Michael Mandel, Jon Barker, et al., “CHiME-6 Challenge: Tackling Multispeaker Speech Recognition for Unsegmented Recordings,” in 6th International Workshop on Speech Processing in Everyday Environments (CHiME 2020) ,2020, pp. 1–7. [27] Ilya Loshchilov and Frank Hutter, “Decoupled weight decay regularization,” in International Conference on Learning Rep-resentations , 2019.

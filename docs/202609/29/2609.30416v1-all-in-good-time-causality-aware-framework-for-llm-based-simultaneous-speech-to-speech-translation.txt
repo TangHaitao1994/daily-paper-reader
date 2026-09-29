@@ -1,0 +1,414 @@
+Title: All In Good Time: Causality-Aware Framework for LLM-Based Simultaneous Speech-to-Speech Translation
+
+URL Source: https://arxiv.org/pdf/2609.30416v1
+
+Published Time: Mon, 28 Sep 2026 00:06:35 GMT
+
+Number of Pages: 7
+
+Markdown Content:
+# All In Good Time: Causality-Aware Framework for LLM-Based Simultaneous Speech-to-Speech Translation 
+
+Amir Hussein ∗† , Enas Albasiri †, Travis M. Bartley †, Nourchene Ferchichi †, Ke Hu †, Harishchandra Dubey †,Myungjong Kim †, Zhehuai Chen †, Oluwatobi Olabiyi †, Sanjeev Khudanpur ∗∗Johns Hopkins University, †NVIDIA 
+
+amhussein@nvidia.com 
+
+> © 2026 IEEE. Personal use of this material is permitted. Permission from IEEE must be obtained for all other uses, in any current or future media, including reprinting/republishing this material for advertising or promotional purposes, creating new collective works, for resale or redistribution to servers or lists, or reuse of any copyrighted component of this work in other works.
+
+Abstract —Large Language Models (LLMs) have shown strong performance in low-resource offline translation; however, extend-ing them to simultaneous speech-to-speech translation (Simul-S2ST) remains challenging due to the scarcity of causally aligned training data with high cross-lingual speaker fidelity. In addition, existing approaches rely on fixed translation policy or confidence heuristics, leading to suboptimal quality and higher latency. We propose a causality-aware Simul-S2ST framework with a novel data pipeline that generates high-fidelity, causally aligned segments with improved voice transfer. The framework introduces (i) a factorized S2ST architecture (FAST), (ii) a causality-aware adaptive policy (CAP), and (iii) causality-aware latency metric. Experiments on CVSS Spanish, German, and French show that FAST-CAP consistently improves the quality–latency trade-off, achieving up to +1.2 BLEU and a 26% relative latency reduction over a fixed policy. Despite using substantially less training data than existing systems, FAST-CAP achieves state-of-the-art results in speech translation quality and speaker fidelity while yielding up to a 38.8% relative reduction in latency. 
+
+Index Terms —simultaneous speech-to-speech translation, large language models, causal alignment, adaptive translation. 
+
+I. I NTRODUCTION 
+
+Simultaneous speech-to-speech translation (Simul-S2ST) aims to translate speech from one language into another in real time, allowing natural cross-lingual interactions. Beyond low latency, human-like dialogue requires cross-lingual voice transfer that preserves speaker identity while appropriately transferring paralinguistic cues across languages [1]. It must also handle conversational phenomena such as overlapping speech and interruptions, making Simul-S2ST particularly challenging [2]. Another major challenge is the scarcity of paired S2ST training data [3, 4], especially compared to the abundance of transcribed speech and translated text. This disparity motivates a key question: How can Simul-S2ST systems leverage large pretrained models trained on abundant speech and text data? 
+
+Recently, there has been growing interest in leveraging pre-trained large language models (LLMs) as translation backbones, motivated by their strong contextual reasoning, long-context modeling capabilities, and improved translation quality in low-resource and zero-shot settings [5–8]. These advances have led to increased interest in LLM-based simultaneous translation to exploit sequence modeling capacity of LLMs for low-latency translation. However, existing LLM-based simultaneous translation approaches largely rely on fixed or heuristic read/write policies, such as wait-k, which may generate output before sufficient source context is available and degrade translation quality [9–12]. Moreover, most speech translation systems focus on lexical content and overlook rich paralinguistic cues such as prosody, emotion, attitude, and speaker intent [13, 14]. To jointly optimize speech perception and generation, recent work has explored direct Simul-S2ST models that translate source speech into target speech while preserving expressive speech cues [14]. Hibiki [15] extends this direction with an LLM-based multi-stream architecture and a dynamic translation policy driven by offline MT perplexity. However, offline MT perplexity tends to favor longer source contexts, leading to high latency. Moreover, using a single neural codec representation for both speech perception and generation introduces competing objectives and can result in suboptimal performance [16]. To address the aforementioned limitations, we introduce a causality-aware framework 1 for LLM-based Simul-S2ST. LLM-based Simul-S2ST requires aligned speech-to-speech data to learn when to wait and when to speak, but such data is unavail-able. To bridge this gap, we develop a unified data pipeline that constructs causally aligned training examples and synthesizes natural target speech with high-fidelity cross-lingual voice transfer. Inspired by cognitive studies on chunking strategies used by professional interpreters [17, 18], we introduce a causality-aware adaptive policy in which read/write decisions are guided by the availability of sufficient source information to generate the corresponding translation, resulting in optimal waiting strategy. To mitigate the limitations of a shared codec representation, we propose a factorized architecture (FAST) that decouples lexical and acoustic modeling: lexical information is extracted by an ASR encoder, while acoustic information is modeled using neural audio codec. FAST adopts a multi-stream full-duplex design [19] that enables effective handling of multimodal inputs, overlapping speech, and conversational interruptions. Finally, we propose CAAL, an alignment-aware 
+
+> 1
+
+Code: https://github.com/AmirHussein96/FAST-CAP/tree/main. arXiv:2609.30416v1 [cs.CL] 24 Sep 2026 TABLE I COMPARISON OF SPEAKER SIMILARITY AND AUDIO QUALITY ON THE                 
+
+> CVSS-T D ATASET ,WITH AUDIO QUALITY MEASURED BY UTMOS-V2.
+> Es-En De-En Fr-En UTMOS Spk-Sim UTMOS Spk-Sim UTMOS Spk-Sim
+> CVSS-T (public) 2.4 0.22 2.5 0.26 2.5 0.25 CVSS-T (ours) 2.4 0.64 2.5 0.61 2.5 0.57
+
+latency metric that measures only avoidable delay beyond the ideal causal policy. Our key contributions are:  
+
+> •
+
+A data generation pipeline with causality-aware adaptive policy (CAP).  
+
+> •
+
+A factorized architecture (FAST) that decouples lexical and acoustic representations while preserving speaker identity and vocal characteristics.  
+
+> •
+
+A causality-aware latency metric (CAAL) that distin-guishes necessary linguistic delays from avoidable system delays. II. P ROPOSED APPROACH 
+
+Our proposed factorized simultaneous speech-to-speech translation (FAST) model uses an LLM as the backbone for translation and adopts a multi-stream full-duplex design [19]. The multi-stream design enables real-time processing different modalities and overlapping speech as separate but temporally aligned streams. 
+
+A. Data Generation Pipeline 
+
+To enable simultaneous processing, the generated translations must be causal emitting outputs as soon as sufficient source information becomes available with minimal latency. Figure 1 illustrates the proposed data generation pipeline with causality-aware adaptive chunking. 
+
+Improving cross-lingual speaker fidelity: Speech-to-speech translation models are commonly trained on paired data with target speech synthesized using cross-lingual TTS, as in CVSS-T [20]. However, CVSS-T exhibits low source–target speaker similarity, with an average ECAPA-TDNN cosine similarity of 0.24 as shown in Table I. We therefore resynthesize CVSS-T using the zero-shot TTS model A2Flow 2, which increases the average speaker similarity to 0.61. 
+
+Alignment generation: Training an LLM-based Simul-S2ST system requires causally aligned source–target pairs so the model can learn when to wait and when to generate translation. We first align the source speech ssrc  
+
+> 1: T
+
+with its transcript 
+
+f = ( f1, . . . , f J ) using Montreal Forced Aligner (MFA) [21]. We then use Awesome-align [22] with multilingual BERT to obtain word alignments between f and the target translation 
+
+e = ( e1, . . . , e I ). Following the IBM alignment formulation, we define the raw alignment set as A = {(j, i ) | j ∈{1, . . . , J }, i ∈ { 1, . . . , I }} , where (j, i ) indicates that source word fj is aligned to target word ei; see Figure 1. 
+
+Causality-Aware Adaptive Policy: We remove crossing                        
+
+> 2https://catalog.ngc.nvidia.com/orgs/nvidia/teams/nvigisdk/models/ riva-tts-a2flow muy poco Duró misterio el ayer
+> Source
+> Speech
+> Target
+> Speech
+> The mystery lasted briefly yesterday
+> Generate
+> Alignments
+> muy poco Duró misterio el ayer
+> The mystery lasted briefly yesterday
+> Unique Mapping
+> &Causal Pivots
+> Pivot Ends
+> muy poco Duró misterio el ayer
+> The mystery lasted briefly yesterday
+> Causal Pairs
+> <silence>
+> <silence>
+> Pivot Starts
+> Fig. 1. Overview of the data generation pipeline. The process includes (1) alignments generation, (2) unique mapping and causal pivot extraction, and (3) causality-aware adaptive chunks construction.
+
+dependencies by converting the raw text-to-text alignment into a monotonic alignment Π. This is non-trivial due to word-order differences, many-to-one alignments and omitted words in translation. To address these challenges, Algorithm 1 introduces M ONOTONIC ALIGN (·), which builds a monotonic target-to-source alignment by sorting alignments by target index, retaining the highest source index for each target word, and enforcing non-decreasing source indices with a running maxi-mum. Missing target alignments are then filled with a backward pass. The resulting pivot alignments P serve as anchors for causal segmentation, as shown in Figure 1. We optionally apply M ERGE CHUNKS (·) to merge adjacent short chunks into longer causal segments. The M ONOTONIC ALIGN (·) function returns a set of pivot alignments with unique indices, denoted by P, which serve as anchors for causal segmentation. The behavior of M ONOTONIC ALIGN (·) is illustrated in the Unique Mapping & Causal Pivots step of Figure 1. We then optionally apply C OMBINE (·) to merge adjacent causal chunks into longer causal segments, analogous to phrase-based translation from statistical machine translation. Finally, the causal emission policy is implemented through C AUSAL PAIRED CHUNKS (·),which constructs causal source-target chunks around these pivots. On the source side, each chunk spans from the end of the previous pivot to the end of the current pivot (left aggregation). On the target side, each chunk spans from the current pivot’s target start to the next pivot’s target start (right aggregation). This construction ensures each target token is emitted only after the necessary source evidence has been observed, forming a Causality-Aware Adaptive Policy (CAP) for Simul-S2ST training. Formally, for each target token ei, let Algorithm 1 Causality-Aware Adaptive Policy                       
+
+> Require: Source words f= ( f1, . . . , f J),tsrc ={(tst
+> j, t en
+> j)}Jj=1
+> Require: Target words e= ( e1, . . . , e I),ttgt ={(tst
+> i, t en
+> i)}Ii=1
+> Require: Text alignments A ⊆ { 1..J } × { 1..I }
+> Require: Minimum source chunk duration dmin
+
+1: function MONOTONIC ALIGN (A, f , e)
+
+2: Π ← SORT (A, by target index i, then source index j )
+
+3: Retain highest source index for each target index 
+
+4: for k = 2 to |Π| do 
+
+5: πk [src ] ← max( πk [src ], π k−1[src ]) ▷ enforce monotonicity 
+
+6: for i = I − 1 to 1 do ▷ loop over target indices 
+
+7: if ∄ π ∈ Π : π[tgt ] = i then 
+
+8: Π ← Π ∪ { (πi+1 [src ], i )} ▷ add missing targets 
+
+9: P ← GetPivots(Π) ▷ extract pivots for causal chunks 
+
+10: return P
+
+11: function CAUSAL PAIRED CHUNKS (P∗, tsrc , ttgt , f , e)
+
+12: Csrc , C tgt = {∅} |P ∗|   
+
+> k=1 ;▷initialize source and target chunks dict
+
+13: τ en src ←PIVOT SRC EN(P∗[src ], tsrc ) ▷ get pivot src end time 
+
+14: τ st tgt ←PIVOT TGT ST(P∗[tgt ], ttgt ) ▷ get pivot tgt start time 
+
+15: for r = 1 to |P ∗| do ▷ iterate over pivot indices 
+
+16: Csrc r ← [fr−1: r , (τ en src [r − 1] , τ en src [r]) ] ▷ src left aggregation 
+
+17: Ctgt r ← [er:r+1 , (τ st tgt [r], τ st tgt [r + 1]) ] ▷ tgt right aggregation 
+
+18: return Csrc ,Ctgt 
+
+19: P ← MONOTONIC ALIGN (A, f , e)
+
+20: P∗ ← MERGE CHUNKS (P, d min )
+
+21: Csrc , C tgt ← CAUSAL PAIRED CHUNKS (P∗, tsrc , ttgt , f , e)
+
+22: return Csrc , C tgt 
+
+R(i) := {j | (j, i ) ∈ Π} denote the source indices required to generate ei and and let ten src [j] denote the end time of source word fj . We define the source-side pivot end time τ en src [i]
+
+recursively as: 
+
+τ en src [i] = max 
+
+
+
+τ en src [i − 1] , max  
+
+> j∈R(i)
+
+ten src [j]
+
+
+
+. (1) Generation is therefore restricted to the observed speech prefix, such that P (ei | s1: T ) = P (ei | s1: τ en src [i]). This ensures causal generation with minimal latency. When a target speech chunk (e.g., “The”) is shorter than the next aligned source segment (e.g., “misterio”), we append silence to preserve causal timing. To reduce boundary artifacts, silence gaps are smoothed using mirrored edges from neighboring chunks with a Hamming window. Alignment processing and causal chunk construction are implemented with Lhotse [23]. 
+
+B. Model Architecture 
+
+The FAST architecture adopts a multi-stream design [19], as illustrated in Figure 2. Unlike prior work [15], which uses a single neural codec representation for both perception and generation, FAST decouples lexical and acoustic representations inspired by [24]. Lexical information is provided to the LLM through an ASR encoder, while acoustic information is modeled by an autoregressive TTS module using codec tokens. This design improves translation accuracy while preserving high-quality speech synthesis. To enable cross-lingual voice transfer, we extract source-speaker embeddings using TitaNet 3 and add them to the codec-token representations. Speech is tokenized with streaming NanoCodec [25], which uses Finite Scalar Quantization (FSQ). Unlike RVQ-based codecs [15], FSQ uses independent codebooks, enabling parallel codebook prediction at each timestep. Given a causally aligned segment from 
+
+> 3
+
+https://huggingface.co/nvidia/speakerverification en titanet large Duró  muy  poco  el             
+
+> Source Speech
+> Streaming
+> Speech Encoder
+> Source Speech
+> Embeddings
+> Target Text
+> Embeddings
+> LLM
+> Text Head
+> misterio ayer
+> S2T
+> Translation
+> Multi-stream
+> <silence>
+> Multimodal
+> Representation
+> T2S
+> Synthesis
+> AR Speech
+> Decoder
+> Codec
+> Decoder
+> Speaker
+> Encoder
+> <silence> lasted The mystery briefly yesterday
+> <BOS> The mystery lasted briefly yesterday
+> The mystery lasted briefly yesterday <EOS>
+
+Fig. 2. Overview of the proposed FAST architecture with multistream joint sequence modeling. 
+
+Section II-A, let Q = ( q1, . . . , qK ) denote the target speech codec sequence, where each frame contains Nq discrete code indices, qk ∈ { 1, . . . , |V (q)|} Nq . The target text sequence 
+
+e = ( e1, . . . , e i, ⟨pad ⟩) is padded to match the codec length, such that |Q| = |e|. FAST processes source speech prefix 
+
+si := s1: τ en src [i] incrementally and generates both text tokens e
+
+and codec tokens Q in a streaming fashion. We factorize the joint conditional distribution P (Q, e | s) as 
+
+P (Q, e | s) = P (e | s) P (Q | e, s) (2) where P (e | s) is the speech to text translation module (Simul-S2T), and P (Q | e, s) is the text-to-speech synthesis module (Simul-T2S). FAST parameterizes P (e | s) with an ASR-pretrained streaming speech encoder, followed by a pretrained LLM. The speech encoder maps s to subsampled speech representations H ∈ RK×d, matching the codec frame rate. The causally aligned target text embeddings E ∈ RK×d derived from e are fused with the speech embeddings H by element-wise addition, G = E + H. The fused representation is then passed to the LLM, which produces logits ztxt  
+
+> k
+
+for the next token, yielding P (ek | e<k , G1: κ(k)) = Softmax( ztxt  
+
+> k
+
+). The Simul-S2T objective is the autoregressive negative log-likelihood: 
+
+Ls2t = −
+
+> |Q|
+
+X
+
+> k=1
+
+log P (ek | e<k , G1: κ(k)), (3) where κ(k) denotes the frame index up to which the source speech has been consumed when predicting the k-th target token. For the Simul-T2S module, the translation speech waveform is first converted into discrete tokens using streaming NanoCodec. The speech decoder is a decoder-only architecture that autoregressively predicts next codec token qk conditioned The                                                                                          
+
+> Source end time: [ 130, 260, 340, 460, 640, 994]
+> mystery
+> Source: Duró muy poco el misterio ayer
+> lasted briefly yesterday
+> It lasted little the mystery yesterday very
+> Ref
+> Sys 1
+> 0142 284 568 710
+> 240
+> 240
+> 240 360 360 480 720 1080
+> 98 76 -208 -230 10 370 LAAL: 50.8 ms
+> The mystery to last briefly yesterday seemed Sys 2 480
+> 480
+> 640 640 640 640 640 1000
+> 498 356 72 -70 -70 290 LAAL: 222.3 ms
+> The mystery lasted briefly yesterday
+> It lasted little the mystery yesterday very
+> Ref
+> Sys 1
+> 460 640 640 640 994
+> 240
+> 0
+> 240 360 360 480 720 1080
+> 00020 80 86 CAAL: 37.2 ms
+> The mystery to last briefly yesterday seemed Sys 2 480
+> 20
+> 640 640 640 640 640 1000
+> 000006CAAL: 5.2 ms
+> LAAL
+> CAAL
+> The mystery lasted briefly yesterday Ref
+> 460 640 640 640 994
+
+Fig. 3. Illustration of LAAL and CAAL computation. Oracle delays (green) and system delays (blue) are paired according to the alignment mapping (arrows), and lagging values (red) are computed as the difference between each system delay and its aligned oracle delay. 
+
+on previous codec tokens q<k , previous text translation e≤k,and fixed-dimensional speaker embedding u ∈ Rd extracted from si. The Simul-T2S training objective is the autoregressive negative log-likelihood: 
+
+Lt2s = −
+
+> |Q|
+
+X
+
+> k=1
+
+log P (qk | q<k , e ≤k, u). (4) The overall multitask objective Ltot is the weighted sum of the two objectives: 
+
+Ltot = αs2tLs2t + αt2sLt2s, (5) where αs2t and αt2s are hyperparameters balance the contri-butions of the two tasks. During training, we employ teacher forcing. At inference time, the decoder conditions on the autoregressive LLM predictions obtained via greedy decoding. Finally, the streaming codec decoder reconstructs the target waveform from the predicted discrete speech tokens. 
+
+C. Causality-Aware Average Lagging (CAAL) 
+
+In this paper, we highlight key limitations of existing translation latency metrics, which do not incorporate translation alignments [26–29]. These metrics assume uniform word timing and penalize all delays equally, regardless of whether they are linguistically necessary. This leads to inconsistent and misleading latency estimates. We primarily compare against LAAL, a recent and widely used latency metric. Figure 3 illustrates this issue using an example from Spanish–English CVSS-T. System 1 follows a fixed wait-k policy with k = 120 
+
+ms, emitting translations word by word without modeling re-ordering. System 2, adopts a causality-aware dynamic chunking while consuming speech frames of 40 ms, emitting each target token only after sufficient source evidence has been observed. LAAL computes the ideal delay under a uniform timing assumption as d∗ 
+
+> i
+
+= ( i − 1) |ssrc    
+
+> 1: T|
+> max( |eref |,|ehyp |)
+
+= 994 7 ≈ 142 
+
+ms. Because LAAL ignores alignments, it matches oracle and system emission times incorrectly. As a result, insertions may produce negative lagging values (e.g., “little” assigned −208 
+
+and “the” assigned −230 ), which artificially lower the overall latency score. Consequently, LAAL incorrectly reports System 1 as nearly four times faster than System 2. Consequently, LAAL incorrectly reports System 1 as nearly four times faster than System 2. In contrast, System 2 closely follows the true source end times: it incurs only 20 ms delay for “The” , 0 ms for “misterio” 
+
+and “Dur´ o muy poco” , and 6 ms for “ayer” . Its initial 480 ms wait only slightly exceeds the 460 ms required to reorder “Dur´ o muy poco el” before emitting “the” . The first 460 ms waiting is linguistically justified and should not be counted as system-induced delay. CAAL addresses this by using causal alignments to account for reordering: it neither rewards premature emissions nor penalizes necessary waiting. Instead, it isolates excess delay beyond the ideal causal policy and correctly identifies System 2 as substantially faster than System 1. Formally, CAAL measures the difference between the system emission time t′ 
+
+> i
+
+for target word ei and its ideal causal delay 
+
+τ en src [i], derived from the alignment procedure in Section II-A. It uses two alignment types:  
+
+> •
+
+Causal alignment P from Section II-A  
+
+> •
+
+Hypothesis alignment B ⊆ { 1, . . . , I hyp } × { 1, . . . , I },from hypothesis translation to reference translation. Let R be the set of reference word indices, and let M ⊆ R
+
+denote the subset aligned to hypothesis words through B. For aligned words, the effective delay is 
+
+di = max ( t′ 
+
+> i
+
+− τ en src [i], 0) . (6) The maximum prevents systems from artificially lowering latency by emitting reordered words before the ideal causal policy permits them. For deletions, ei ∈ R\M , we approximate the delay using the ρ-quantile of the sentence-level aligned empirical delay distribution: 
+
+ddel i = Qρ ({dj | j ∈ M }) , (7) which penalizes omissions while remaining robust to outliers. If deletions should be ignored, one may instead set ddel i = 0 .The CAAL metric is finally computed as 
+
+CAAL = 1
+
+|R|
+
+ X
+
+> i∈M
+
+di + X
+
+> i∈R\M
+
+ddel i
+
+ . (8) Intuitively, CAAL measures the average additional waiting introduced by the system beyond an ideal causal policy that emits each target word as soon as all aligned source evidence has been observed. III. E XPERIMENTAL SETUP 
+
+Data & pre-processing: We evaluate Spanish, German, and French speech-to-speech translation into English. Using the pipeline in Section II-A, we construct causally aligned S2ST training data from CVSS-T and additional internal datasets, totaling approximately 2.7K hours per language pair. We extract TABLE II ABLATION STUDY ON THE CVSS-T DEVELOPMENT SET COMPARING ALIGNMENT METHODS (NFA VS . MFA), MULTIMODAL REPRESENTATIONS 
+
+(INTERLEAVED , IL, VS . MULTISTREAM , MS), AND TTS CONDITIONING 
+
+(TEXT VS . LLM LATENT REPRESENTATIONS , L AT ). T RANSLATION QUALITY IS EVALUATED WITH BLEU, CHR F++, AND COMET, WITH SPEECH METRICS COMPUTED ON ASR TRANSCRIPTIONS .                                                       
+
+> Text Translation ASR Transcript #System LLM Align. BLEU chrF COMET BLEU chrF COMET
+> 1FAST (IL) Qwen NFA 18.7 49.0 68.6 12.5 39.5 61.1 2FAST (IL) Qwen MFA 23.1 49.7 70.0 13.5 40.2 62.5
+> 3FAST-Lat (MS) Qwen MFA 26.6 54.8 75.4 4.5 23.3 56.0 4FAST (MS) Qwen MFA 26.7 54.6 75.5 20.8 48.6 68.2
+> 5FAST (MS) Llama MFA 25.1 54.3 75.4 19.9 48.0 67.5
+
+80-dimensional mel-spectrograms with a 25 ms window and 10 ms frame shift. During training, we apply SpecAugment with two frequency masks of width up to 27 bins and ten time masks capped at 5% of the sequence length. 
+
+Architecture details: The speech encoder is initialized from a multilingual streaming FastConformer ASR model [30], with 17 layers, 8 attention heads, 1024 attention dimension, and 2048 feed-forward dimension. The LLM backbone is initial-ized from Qwen2.5-1.5B-Instruct 4. The TTS component is initialized from MagpieTTS model [31], which uses streaming NanoCodec [32] with Nq = 13 codebooks. The TTS decoder has 12 attention layers with dimension 768, 12 attention heads per layer, and 3072 feed-forward dimension. Both the speech encoder and the codec operate at a frame rate of 12.5 frames per second. FAST model has a total of 2B parameters. 
+
+Training: Experiments are implemented in PyTorch with NeMo framework [33] and trained on 32 NVIDIA A100 (80GB) GPUs. During FAST training, all parameters are optimized except the frozen codec and speaker encoder. We use AdamW with learning rate 10 −4, inverse square-root annealing with 4K warmup steps, and train for 25 epochs. The multitask weights in Eq. (5) are αs2t = 3 and αt2s = 2 .
+
+Evaluation: We evaluate FAST on the CVSS-T development and test sets. To ensure a comprehensive translation evaluation, we report BLEU [34], chrF++, and COMET [35] 5. For speech translation evaluation, we transcribe the generated speech using a pretrained ASR 6 and compute the same translation metrics on the resulting transcripts. All translation evaluations are case-insensitive and punctuation-free. Latency is measured with LAAL and our proposed CAAL, both implemented using the SimulEval framework [36]. For CAAL deletion penalties, we set ρ = 0 .9 in Eq. (7), a robust high-quantile that mitigates the influence of outliers. Perceptual speech quality is evaluated with UTMOS-V2 [37], while speaker similarity is computed as the cosine similarity between ECAPA-TDNN embeddings [38] extracted from reference and generated speech. 
+
+Inference: During inference, the LLM decodes incrementally from speech encoder outputs arriving every 80 ms. Text 
+
+> 4
+
+https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct 
+
+> 5
+
+We use the Unbabel/wmt22-comet-da model. 
+
+> 6
+
+https://huggingface.co/nvidia/stt en fastconformer transducer large TABLE III COMPARISON OF FAST ON CVSS-T DEVELOPMENT SET USING THE CAUSALITY -AWARE ADAPTIVE POLICY (CAP) AND A FIXED POLICY .TRANSLATION QUALITY IS REPORTED USING BLEU, CHR F++, AND 
+
+COMET WHILE LATENCY IS MEASURED USING LAAL AND CAAL.                                                              
+
+> Avg. Latency (s) Translation Quality System input (s) CAAL ↓LAAL ↓BLEU ↑chrF ↑COMET ↑
+> FAST-CAP (Sp-En) 0.4 0.33 0.57 12.1 47.0 67.1 FAST-CAP (Sp-En) 0.9 0.52 0.88 24.0 55.3 75.0 FAST-CAP (Sp-En) 1.5 0.80 1.15 27.8 57.6 78.0
+> FAST-Fixed (Sp-En) 2.0 0.87 1.17 26.7 54.6 75.5 FAST-CAP (De-En) 1.5 0.68 1.20 34.6 62.0 78.1
+> FAST-Fixed (De-En) 2.0 0.81 1.26 33.4 59.2 77.5 FAST-CAP (Fr-En) 1.5 0.67 1.00 32.8 60.8 78.3
+> FAST-Fixed (Fr-En) 2.0 0.91 1.20 32.7 60.7 78.0
+
+predictions are generated with greedy decoding, converted to text embeddings, and passed to the TTS decoder. IV. R ESULTS 
+
+A. Ablation analysis 
+
+In this section, we assess the impact of key components of the proposed FAST approach, including alignment quality, the multimodal representation modeling, and TTS conditioning, as shown in Table II. All experiments are conducted on the Spanish–English language pair using a fixed 2 s chunking policy. The baseline (Row 1) represents a common class of prior LLM-based Simul-S2T approaches that rely on interleaved speech–text multimodal representations [11, 12, 39]. In this baseline, TTS is conditioned on the text predicted by the LLM. We first assess speech-to-text alignment quality by comparing CTC-based alignments from NeMo Forced Aligner (NFA) with HMM-based alignments from Montreal Forced Aligner (MFA). Replacing NFA with MFA improves performance by +4.4 BLEU on text and +1.0 BLEU on speech, which we attribute to MFA’s more precise word-boundary estimates. Next, we compare aligned interleaving (Row 2) and aligned multistream joint modeling (Row 4). Multistream modeling consistently outperforms interleaving, yielding gains of +3.6 BLEU, +4.9 chrF++, and +5.5 COMET on text translation, and +7.3 BLEU, +7.5 chrF++, and +5.7 COMET on speech translation. We then evaluate two TTS conditioning strategies: LLM latent representations (FAST-Lat, Row 3) and argmax-decoded text predictions (Row 4). Under our limited-data setting, latent conditioning substantially degrades speech translation quality, resulting in drops of 16.3 BLEU, 25.3 chrF++, and 12.2 COMET. Finally, to assess modularity, we replace the Qwen2-1.5B multilingual multimodal LLM with TinyLLaMA-1.2B, a text-only multilingual model. Despite the lack of multimodal pretraining, TinyLLaMA achieves comparable performance, indicating that the proposed approach is largely backbone-agnostic and does not require large-scale speech–text translation pretraining. 
+
+B. Causality-Aware Adaptive Policy 
+
+In this section, we evaluate whether the proposed causality-aware adaptive policy (CAP) improves the quality–latency trade-off over the commonly used fixed chunking policy adopted by TABLE IV COMPARISON OF TRANSLATION PERFORMANCE ON THE CVSS-T TEST SET . T RANSLATION QUALITY IS EVALUATED WITH BLEU, CHR F++, AND COMET,                                                                 
+
+> WITH SPEECH METRICS COMPUTED ON ASR TRANSCRIPTIONS . A UDIO QUALITY IS MEASURED USING UTMOS-V2, AND SPEAKER SIMILARITY IS MEASURED USING COSINE SIMILARITY .
+> Text Translation ASR Transcript Latency Speech Quality System BLEU ↑chrF ↑COMET ↑BLEU ↑chrF ↑COMET ↑CAAL ↓LAAL ↓UTMOS-V2 ↑SpkSim ↑
+> Hibiki-Zero 32.9 59.9 75.8 31.4 58.2 74.9 1.39 2.11 2.1 0.47 SeamlessM4T 36.0 63.1 79.6 32.2 58.2 74.7 1.23 1.89 1.9 0.31 FAST-CAP 35.2 61.2 79.0 27.6 54.3 70.5 0.85 1.25 1.8 0.44 FAST-CAP-L 35.8 62.1 80.6 32.8 58.6 77.0 0.85 1.25 2.0 0.53
+
+several prior LLM-based Simul-S2T approaches [9–12]. In all experiments, we use the best-performing FAST configuration from Table II. Without chunk merging (0.4 s average input), performance degrades substantially despite sufficient source information being theoretically available to the LLM. Increasing the average input chunk duration to 0.9 s through chunk merging improves text translation quality to near-baseline levels, suggesting that the LLM benefits from additional contextual grounding. At an average input duration of 1.5 s, FAST-CAP surpasses the fixed 2 s policy, improving text translation by +1.1 BLEU, +3.0 chrF++, and +2.5 COMET. Next, we analyze latency using both LAAL and the proposed CAAL metric. As expected, latency increases with larger input chunks; however, LAAL becomes less discriminative at longer chunk durations. For example, on Spanish–English, FAST-CAP (1.5 s) and FAST-Fixed (2 s) differ by only 1.7% in LAAL, whereas CAAL captures a more substantial 8% relative reduction. This suggests that CAAL provides a more discrim-inative measure of latency. To evaluate the generalization of FAST-CAP beyond Spanish, we extend the comparison to German and French. On German, FAST-CAP improves text translation by +1.2 BLEU, +2.8 chrF++, and +0.6 COMET, while reducing CAAL by 16% relative, compared to only 4.7% under LAAL. On French, translation performance remains comparable to the fixed baseline, while FAST-CAP achieves a 26% relative reduction in CAAL, compared to 16.6% under LAAL. These results demonstrate that FAST-CAP consistently improves the quality–latency trade-off across language pairs. Moreover, CAAL provides a more discriminative assessment of latency than LAAL. 
+
+C. Comparison with state-of-the-art models 
+
+In this section, we compare FAST-CAP with Hibiki-Zero [40] and streaming SeamlessM4T [14], as shown in Table IV. To better match their scale, we replace the 0.1B multilingual ASR encoder with a 0.6B encoder 7, yielding a 2.5B-parameter model, and increase the average input chunk size from 1.5 s to 2 s. FAST-CAP is trained on total of 8K hours of multilingual data across French, Spanish, and German, compared with 160K hours for Hibiki-Zero and 145K/245K hours of speech-to-speech/speech-to-text data for SeamlessM4T. Despite this data gap, FAST-CAP outperforms Hibiki-Zero in text translation quality, improving by +2.3 BLEU, +1.3 chrF++, and +3.2 
+
+> 7https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b
+
+COMET, while achieving comparable speaker similarity and reducing latency by 38.8% in CAAL and 40.8% in LAAL. Compared with SeamlessM4T, FAST-CAP achieves comparable text translation and audio quality, higher speaker similarity (0.44 vs. 0.31), and relative latency reductions of 30.9% in CAAL and 33.9% in LAAL. In both comparisons, the main remaining gap for FAST-CAP lies in generated speech translation quality. To improve generated speech quality, FAST-CAP-L adopts the TTS model from Audio Flamingo 3-Chat [41], which clones the speaker’s voice using an audio prompt. FAST-CAP-L also uses a larger translation-focused LLM 8 to broaden language coverage, bringing the total model size to 5B parameters. FAST-CAP-L retains FAST-CAP’s latency while achieving the best speech translation scores across BLEU, chrF++, and COMET, with the largest gain in COMET: +2.1 points above Hibiki-Zero. It also achieves the highest speaker similarity (0.53 versus 0.47 for Hibiki-Zero) while maintaining competitive audio quality. V. C ONCLUSION 
+
+In this work, we introduced a causality-aware framework for LLM-based simultaneous speech-to-speech translation that integrates causal constraints across data generation, source– target alignment, translation policy, and latency evaluation. Our novel data pipeline derives a target-driven adaptive policy that generates each target segment once sufficient source context is available. The factorized S2ST architecture (FAST) decouples perception and generation representations, improving translation accuracy without compromising synthesis fidelity. We also proposed an alignment-aware latency metric (CAAL) that separates linguistically necessary reordering from avoidable system-induced delay. Experiments on multilingual benchmarks show that FAST combined with the causality-aware adaptive policy (CAP) provides better quality–latency trade-offs than fixed-policy baselines. Despite using limited training data, FAST-CAP achieves state-of-the-art speech translation quality while providing lower latency and higher speaker fidelity. CAAL also offers a more accurate and discriminative latency assessment than existing latency metrics. Future work will focus on further improving cross-lingual voice transfer, extending the framework to longer conversational contexts, and supporting multi-party and multimodal interactions. 
+
+> 8https://huggingface.co/nvidia/Riva-Translate-4B-Instruct-v1.1
+
+REFERENCES [1] H. Xie, I. R. Ulgen, S. Son, B. Sisman, and P. Koehn, “Is prosody lost in translation? fine-grained cross-lingual prosody similarity across languages,” arXiv preprint arXiv:2608.27848 , 2026. [2] I. S. Ahmad et al., “Findings of the IWSLT 2024 evaluation campaign,” in Proceedings of the 21st International Conference on Spoken Language Translation (IWSLT 2024) , E. Salesky, M. Federico, and M. Carpuat, Eds., 2024, pp. 1–11. [3] M. Agarwal et al., “FINDINGS OF THE IWSLT 2023 EVALUATION CAMPAIGN,” in Proceedings of the 20th International Conference on Spoken Language Translation (IWSLT 2023) , E. Salesky, M. Federico, and M. Carpuat, Eds., 2023, pp. 1–61. [4] A. Hussein et al., “JHU IWSLT 2023 dialect speech translation system description,” in Proceedings of the 20th International Conference on Spoken Language Translation (IWSLT 2023) , E. Salesky, M. Federico, and M. Carpuat, Eds., 2023, pp. 283–290. [5] Z. Huang et al., “Speech translation with large language models: An industrial practice,” in Proc. EMNLP , 2023. [6] B. Gain, D. Bandyopadhyay, A. Ekbal, and T. N. Singh, “Bridging the linguistic divide: A survey on leveraging large language models for machine translation,” arXiv preprint arXiv:2504.01919 , 2025. [7] C. Lyu et al., “A paradigm shift: The future of machine translation lies with large language models,” in Proc. COLING , N. Calzolari et al., Eds., 2024, pp. 1339–1352. [8] R. Koshkin, K. Sudoh, and S. Nakamura, “TransLLaMa: LLM-based simultaneous translation system,” in Proc. ACL , Y. Al-Onaizan, M. Bansal, and Y.-N. Chen, Eds., 2024, pp. 461–476. [9] V. Agostinelli, M. Wild, M. Raffel, K. Fuad, and L. Chen, “Simul-LLM: A framework for exploring high-quality simultaneous translation with large language models,” in Proc. ACL , L.-W. Ku, A. Martins, and V. Srikumar, Eds., 2024, pp. 10 530–10 541. [10] R. Koshkin, K. Sudoh, and S. Nakamura, “Llms are zero-shot context-aware simultaneous translators,” in Proc. EMNLP , 2024, pp. 1192–1207. [11] H. Futami et al., “Scheduled Interleaved Speech-Text Training for Speech-to-Speech Translation with LLMs,” in Proc. Interspeech , 2025, pp. 36–40. [12] S. Ouyang, X. Xu, and L. Li, “Infinisst: Simultaneous translation of unbounded speech with large language model,” in Proc. ACL , W. Che, J. Nabende, E. Shutova, and M. T. Pilehvar, Eds., 2025, pp. 3032–3046. [13] Y. Jia, M. T. Ramanovich, T. Remez, and R. Pomerantz, “Translatotron 2: High-quality direct speech-to-speech translation with voice preservation,” in International conference on machine learning , 2022, pp. 10 120– 10 134. [14] L. Barrault et al., “Seamless: Multilingual expressive and streaming speech translation,” arXiv preprint arXiv:2312.05187 , 2023. [15] T. Labiausse, L. Mazar´ e, E. Grave, A. D´ efossez, and N. Zeghidour, “High-fidelity simultaneous speech-to-speech translation,” in Proc. ICML , A. Singh et al., Eds., ser. Proceedings of Machine Learning Research, vol. 267, 2025, pp. 32 116–32 129. [16] A. Hussein, S. Khurana, G. Wichern, F. G. Germain, and J. Le Roux, “Hasrd: Hierarchical acoustic and semantic representation disentangle-ment,” in Proc. Interspeech , 2025, pp. 5393–5397. [17] D. F. Huang, F. Li, and H. Guo, “Chunking in simultaneous interpreting: The impact of task complexity and translation directionality on lexical bundles,” Frontiers in Psychology , vol. 14, pp. 01–14, 2023. [18] S. Song and D. Li, “Aptitude for interpreting: The predictive value of cognitive fluency,” The Interpreter and Translator Trainer , vol. 17, no. 1, pp. 155–172, 2023. [19] K. Hu et al., “Efficient and direct duplex modeling for speech-to-speech language model,” in Proc. Interspeech , 2025, pp. 2715–2719. [20] Y. Jia, M. T. Ramanovich, Q. Wang, and H. Zen, “Cvss corpus and massively multilingual speech-to-speech translation,” in Proceedings of the Thirteenth Language Resources and Evaluation Conference (LREC 2022) , 2022, pp. 6691–6703. [21] M. McAuliffe, M. Socolof, S. Mihuc, M. Wagner, and M. Sonderegger, “Montreal forced aligner: Trainable text-speech alignment using kaldi,” in Proc. Interspeech , 2017, pp. 498–502. [22] Z.-Y. Dou and G. Neubig, “Word alignment by fine-tuning embeddings on parallel corpora,” in Proc. ACL , 2021. [23] P. ˙ Zelasko, D. Povey, J. Trmal, S. Khudanpur, et al., “Lhotse: A speech data representation library for the modern deep learning ecosystem,” in NeurIPS Data-Centric AI Workshop , 2021. [24] A. Hussein, S. Khurana, G. Wichern, F. G. Germain, and J. Le Roux, “HASRD: Hierarchical Acoustic and Semantic Representation Disentanglement,” in Proc. Interspeech , 2025, pp. 5393–5397. [25] E. Casanova et al., “NanoCodec: Towards High-Quality Ultra Fast Speech LLM Inference,” in Proc. Interspeech , 2025, pp. 5028–5032. [26] K. Cho and M. Esipova, “Can neural machine translation do simulta-neous translation?” arXiv preprint arXiv:1606.02012 , 2016. [27] M. Ma et al., “STACL: Simultaneous translation with implicit antici-pation and controllable latency using prefix-to-prefix framework,” in 
+
+Proc. ACL , A. Korhonen, D. Traum, and L. M` arquez, Eds., 2019, pp. 3025–3036. [28] S. Papi, M. Gaido, M. Negri, and M. Turchi, “Over-generation cannot be rewarded: Length-adaptive average lagging for simultaneous speech translation,” in Proceedings of the Third Workshop on Automatic Simultaneous Translation , 2022, pp. 12–17. [29] C. Cherry and G. Foster, “Thinking slow about latency evaluation for simultaneous machine translation,” arXiv preprint arXiv:1906.00048 ,2019. [30] V. Noroozi, S. Majumdar, A. Kumar, J. Balam, and B. Ginsburg, “Stateful conformer with cache-based inference for streaming automatic speech recognition,” in Proc. ICASSP , 2024, pp. 12 041–12 045. [31] S. S. Hussain et al., “Koel-TTS: Enhancing LLM based speech generation with preference alignment and classifier free guidance,” in Proc. EMNLP , C. Christodoulopoulos, T. Chakraborty, C. Rose, and V. Peng, Eds., 2025, pp. 21 219–21 234. [32] E. Casanova et al., “Nanocodec: Towards high-quality ultra fast speech llm inference,” in Proc. Interspeech , 2025, pp. 5028–5032. [33] O. Kuchaiev et al., “Nemo: A toolkit for building ai applications using neural modules,” arXiv preprint arXiv:1909.09577 , 2019. [34] K. Papineni, S. Roukos, T. Ward, and W.-J. Zhu, “Bleu: A method for automatic evaluation of machine translation,” in Proc. ACL , 2002, pp. 311–318. [35] R. Rei, C. Stewart, A. C. Farinha, and A. Lavie, “Comet: A neural framework for mt evaluation,” in Proc. EMNLP , 2020, pp. 2685–2702. [36] X. Ma, M. J. Dousti, C. Wang, J. Gu, and J. Pino, “Simuleval: An evaluation toolkit for simultaneous translation,” in Proc. EMNLP , 2020, pp. 144–150. [37] K. Baba, W. Nakata, Y. Saito, and H. Saruwatari, “The t05 system for the voicemos challenge 2024: Transfer learning from deep image classifier to naturalness mos prediction of high-quality synthetic speech,” in Proc. SLT , 2024, pp. 818–824. [38] B. Desplanques, J. Thienpondt, and K. Demuynck, “ECAPA-TDNN: Emphasized channel attention, propagation and aggregation in TDNN based speaker verification,” 2020, pp. 3830–3834. [39] B. Fu et al., “Efficient and adaptive simultaneous speech translation with fully unidirectional architecture,” arXiv preprint arXiv:2504.11809 ,2025. [40] T. Labiausse, R. Fabre, Y. Est` eve, A. D´ efossez, and N. Zeghidour, “Simultaneous speech-to-speech translation without aligned data,” arXiv preprint arXiv:2602.11072 , 2026. [41] S. Ghosh et al., “Audio flamingo 3: Advancing audio intelligence with fully open large audio language models,” Advances in Neural Information Processing Systems , vol. 38, pp. 41 819–41 886, 2026.

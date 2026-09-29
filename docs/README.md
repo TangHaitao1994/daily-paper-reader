@@ -48,17 +48,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-27</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-29</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 3 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 17 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>1</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>2</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>7</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>10</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-27 21:44:50 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-29 00:22:58 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -69,10 +69,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共生成 3 篇推荐（精读 1 篇，速读 2 篇）</p>
-<p>精读：《BanglaKontho: Closing the Long-Form Gap in Bangla Text-to-Speech》（8.0/10）</p>
-<p>速读：《VietPrism: A large-scale Vietnamese speech and deepfake corpus with diverse dialects and code-switching》（7.0/10）, 《MuLA-Bench: A Multilingual Long-Form Audio Understanding Benchmark via Multi-Tier Auditing》（6.0/10）</p>
-<p>这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。</p>
+<p>今日精读7篇、速读10篇，主攻具身3D导航与语音对话自然化两大赛道。</p>
+<p>最值得看：NavGen用视觉生成模型规模化产出3D导航训练数据，Tandem模型靠随机引导让语音对话节奏更自然。</p>
+<p>建议继续跟进生成式数据引擎与语音交互“更自然”的落地路径，尤其是同声传译和智能助手唤醒场景。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -81,12 +80,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">1 篇</strong>
+    <strong class="dpr-home-dashboard-count">7 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="BanglaKontho: Closing the Long-Form Gap in Bangla Text-to-Speech">BanglaKontho: Closing the Long-Form Gap in Bangla Text-to-Speech</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="NavGen: Visual Generative Models as a Scalable Data Engine for Embodied 3D Navigation">NavGen: Visual Generative Models as a Scalable Data Engine for Embodied 3D Navigation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Learning Natural Conversational Behavior in Tandem Speech-to-Speech Models with Randomized Guidance">Learning Natural Conversational Behavior in Tandem Speech-to-Speech Models with Randomized Guidance</span></li><li><span class="dpr-home-dashboard-paper-title" title="Evaluating Real-Time Voice Agents: From Component Quality to Grounded Outcomes">Evaluating Real-Time Voice Agents: From Component Quality to Grounded Outcomes</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">data-agent <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">duplex-agent <strong>5</strong></span><span class="dpr-home-dashboard-tag">data-agent <strong>2</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -94,12 +93,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">2 篇</strong>
+    <strong class="dpr-home-dashboard-count">10 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="VietPrism: A large-scale Vietnamese speech and deepfake corpus with diverse dialects and code-switching">VietPrism: A large-scale Vietnamese speech and deepfake corpus with diverse dialects and code-switching</span></li><li><span class="dpr-home-dashboard-paper-title" title="MuLA-Bench: A Multilingual Long-Form Audio Understanding Benchmark via Multi-Tier Auditing">MuLA-Bench: A Multilingual Long-Form Audio Understanding Benchmark via Multi-Tier Auditing</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Interactive TTS: Dynamic Speaking Style Adaptation for Expressive Speech Synthesis">Interactive TTS: Dynamic Speaking Style Adaptation for Expressive Speech Synthesis</span></li><li><span class="dpr-home-dashboard-paper-title" title="Training Intelligent Voice Assistant Wakeup with Controllable Synthetic Conversations">Training Intelligent Voice Assistant Wakeup with Controllable Synthetic Conversations</span></li><li><span class="dpr-home-dashboard-paper-title" title="All In Good Time: Causality-Aware Framework for LLM-Based Simultaneous Speech-to-Speech Translation">All In Good Time: Causality-Aware Framework for LLM-Based Simultaneous Speech-to-Speech Translation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">data-agent <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">duplex-agent <strong>7</strong></span><span class="dpr-home-dashboard-tag">data-agent <strong>3</strong></span></div>
 </section>
 </div>
 

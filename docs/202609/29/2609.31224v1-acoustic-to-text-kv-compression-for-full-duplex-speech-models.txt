@@ -1,0 +1,181 @@
+Title: Acoustic-to-Text KV Compression for Full-Duplex Speech Models
+
+URL Source: https://arxiv.org/pdf/2609.31224v1
+
+Published Time: Mon, 28 Sep 2026 01:03:57 GMT
+
+Number of Pages: 5
+
+Markdown Content:
+# ACOUSTIC-TO-TEXT KV COMPRESSION FOR FULL-DUPLEX SPEECH MODELS 
+
+# Yejin Lee, Seungbeom Kim, Yongha Lee, Kyuhong Shim 
+
+# Sungkyunkwan University, Republic of Korea 
+
+yj.lee@skku.edu, khshim@skku.edu 
+
+ABSTRACT 
+
+Full-duplex speech language models continuously accumulate acoustic key–value (KV) states, making long-running interactions memory-intensive. During listening, the model can finish processing an audio unit before the next arrives; we term the remaining interval listening-time slack. We propose acoustic-to-text KV compression, which introduces a transcription side channel to convert incoming speech into compact textual memory within this interval. When the cache exceeds a target budget during inference, older acoustic states are evicted while transcripts and recent acoustic context remain. We train the side channel with LoRA using cross-entropy on tran-scription segments. To preserve listening and speaking behavior, we apply knowledge distillation to the original model’s token-level output distributions at native prediction positions. On ten-minute LongSpeech sessions, our MiniCPM-o 4.5 implementation reduces peak streaming KV-cache size by 64.6% compared with the same model without eviction. The proposed method also improves tran-scription, temporal question answering, and summarization over the baseline. Full-Duplex-Bench evaluations further show comparable pause-handling, turn-taking, and interruption performance. 
+
+Index Terms — full-duplex speech model, KV cache compres-sion, spoken dialogue, long-context speech understanding, resource-efficient inference 
+
+1. INTRODUCTION 
+
+Full-duplex speech language models process incoming speech while generating responses, supporting continuous spoken interaction [1, 2, 3, 4]. As interaction progresses, earlier speech provides context for subsequent responses, and the relevance of past content may become apparent later. However, retaining this history in acoustic form con-tinuously expands the key–value (KV) cache because speech repre-sentations occupy substantially more sequence positions than text [5, 6]. Compression applied only after input completion cannot reduce the peak memory already incurred during input processing. Further-more, long-running spoken interactions require control of peak KV cache usage throughout streaming [7]. Such memory control must retain information from past speech while preserving real-time lis-tening and speaking behavior. To retain past speech in a compact form while meeting real-time deadlines, we exploit the computation time available between in-coming audio units. MiniCPM-o 4.5 [8] processes one-second audio units and decides whether to continue listening or start speaking af-ter each unit. During listening, processing can finish before the next unit arrives; we term the remaining interval listening-time slack . In our setup, this interval is approximately 900 ms, providing sufficient time for incremental automatic speech recognition (ASR). The re-sulting transcript occupies approximately three sequence positions per second of speech, compared with 17 for the acoustic history. We propose acoustic-to-text KV compression , which introduces a transcription side channel to record incoming speech during listening-time slack. Special ASR tokens delimit each transcrip-tion segment, which remains in the language-model context and is excluded from spoken output. When the resident KV cache ex-ceeds a target budget, we evict older acoustic states while retaining transcript tokens. We maintain a recent acoustic window to accom-modate transcription delay before eviction. The retained transcript stores the linguistic content of earlier speech, while recent acoustic context remains available for ongoing interaction. The side chan-nel reuses the existing language-model backbone and requires no separate ASR model at inference. Adapting the model for transcription must also preserve na-tive full-duplex listening and speaking behavior. We train the side channel with low-rank adaptation (LoRA) and word-level forced-alignment supervision. However, transcription-only training can disrupt native conversational behavior. We therefore use the original model as a frozen teacher that processes the same audio without transcription segments. Cross-entropy supervises transcription seg-ments, while token-level knowledge distillation aligns the student’s output distributions with the teacher’s at corresponding native pre-diction positions. This adaptation uses only short transcribed utter-ances, avoiding the need for long-form speech training or full-duplex interaction data collection. Experiments on MiniCPM-o 4.5 evaluate peak KV cache usage, long-form speech understanding, and real-time interaction. On ten-minute LongSpeech sessions [9], peak streaming KV cache size de-creases by 64.6% compared with the same adapted model without eviction. The proposed method also improves transcription, tempo-ral question answering, and summarization performance over native streaming. At a 4K KV cache budget, processing, including tran-scription and cache eviction, averages 461 ms per one-second audio unit on an H100 GPU with batch size 1. No deadline misses are ob-served among the 10,039 measured units. Full-Duplex-Bench [10] evaluations further show comparable pause-handling, turn-taking, and interruption performance. Our contributions are threefold: • We propose acoustic-to-text KV compression for full-duplex speech language models. A newly introduced transcription side channel uses listening-time slack to construct textual memory before acoustic states are evicted during streaming. • We combine transcription supervision with token-level knowl-edge distillation at native prediction positions to train the side channel with LoRA while constraining changes to listening and speaking behavior. • We demonstrate lower peak KV cache usage and improved long-form speech understanding, with real-time processing and comparable pause-handling, turn-taking, and interruption performance. arXiv:2609.31224v1 [cs.SD] 25 Sep 2026 listen                                                                                  
+
+> listen asr start Ilike asr end
+> Audio Embedding (A) Text Token Listen Token ASR Token Speak Token Cache Eviction Key-Value Cache
+> Unit. 1 (1000ms) Unit. 2 (1000ms) Unit. 3 (1000ms)
+> ORIGINAL
+> START
+> After 1 sec
+> After 2 sec
+> Full-Duplex Omnimodal Large Language Model
+> Full-Duplex Omnimodal Large Language Model
+> Full-Duplex Omnimodal Large Language Model
+> Full-Duplex Omnimodal Large Language Model
+> AAAA
+> “ I like ”
+> AAAA
+> “ this ”
+> AAAA
+> “ movie ”
+> AAAA
+> “ I like ”
+> AAAA
+> “ I like ” “ this ”
+> listen asr start Ilike asr end listen asr start this asr end speak asr start movie asr end me too
+> AAAA
+> “ I like ” “ this ” “ movie ”
+> 0.0 1.0 2.0 3.0
+> listen asr start Ilike asr end listen asr start this asr end
+> AAAAAAAA
+> AAAA
+> listen speak
+> AAAAAAAAAAAA
+> me too
+
+Fig. 1 . Overview of acoustic-to-text KV compression: native streaming (top) and the proposed method (lower rows). The added transcription side channel uses listening-time slack to generate transcript tokens that remain in context but are excluded from spoken output. When the KV cache exceeds a target budget, older acoustic states are evicted while transcripts and recent acoustic context are retained. 
+
+2. RELATED WORK 2.1. Full-Duplex Speech Models 
+
+Full-duplex speech models process incoming speech while gen-erating responses, supporting continuous spoken interaction. Syn-cLLM [1] predicts time-synchronized chunks of user and agent speech in one decoder, LSLM [11] adds a streaming listening chan-nel to a speaking model so that it can be interrupted, and Wang et al. [2] switch between speaking and listening with control tokens predicted by the language model. Moshi [3] models user and agent speech as parallel streams, OmniFlatten [4] adapts a text language model to full-duplex interaction, and MiniCPM-o 4.5 [8] aligns mul-timodal inputs and outputs along a shared temporal axis and decides between listening and speaking once per second. Benchmarks such as Full-Duplex-Bench [10] evaluate turn-taking, backchannel, and interruption behavior in full-duplex speech models. 
+
+2.2. KV Cache Compression 
+
+KV cache compression has been widely studied in text-based large language models to reduce the memory cost of long-context infer-ence. StreamingLLM [12] keeps attention-sink tokens and a recent window, while H 2O [13] and SnapKV [14] select states using at-tention scores. InfiniPot [7] repeatedly compresses the cache during input processing to operate within a fixed memory budget. Compression for speech language models has also attracted growing interest. FastAdaSP [15] reduces the number of speech to-kens, while Lu et al. [6] compress the KV cache instead of the speech embeddings. AudioKV [16] allocates the acoustic KV budget across attention heads. Speech-XL [5] processes speech in intervals and retains learned summary-token KV states after discarding the corre-sponding acoustic states. These speech compression methods retain compressed speech representations rather than explicit transcripts. Our method constructs textual memory during listening and evicts older acoustic states during full-duplex streaming. 
+
+2.3. Computation During Listening 
+
+Recent speech language models, including full-duplex ones [17, 18], also compute while the speech input is still arriving, instead of wait-ing for it to end. Shih et al. [19] initiate text-space reasoning from partial speech, while SHANKS [20] generates unspoken chain-of-thought reasoning after each incoming speech chunk. Song et al. [21] train a wait–think–answer controller to schedule intermediate rea-soning from partial audio, whereas FLAIR [18] maintains a recur-rent latent reasoning state during speech perception in a full-duplex model. These methods use computation during listening to improve reasoning and response quality. Our method adds a transcription side channel to an existing full-duplex model through lightweight LoRA fine-tuning. The side channel uses listening-time slack to construct textual memory that remains available after acoustic KV eviction. 
+
+3. ACOUSTIC-TO-TEXT KV COMPRESSION 3.1. Transcription Side Channel 
+
+We introduce a transcription side channel that represents incom-ing speech as textual memory for subsequent acoustic KV eviction. MiniCPM-o 4.5 processes speech in duplex units of duration ∆=1 second, each containing a <unit> marker, approximately ten audio tokens, and a native <|listen|> or <|speak|> decision that ei-ther closes the unit or starts a response. We refer to the corresponding decoding paths as LISTEN and SPEAK units. Table 1 . LongSpeech results on 100 ten-minute sessions per task. Listening and Query denote resident KV positions after streaming and during temporal QA. †Native streaming. ‡StreamingLLM (sink + 2,000 recent positions). ¶External ASR (offline Whisper on 30-s chunks, or the NeMo streaming FastConformer with a 1.04-s lookahead).                                                                
+
+> Added params ASR Temporal QA Summary KV Cache
+> Method WER ↓Accuracy ↑BLEU ↑R-1 ↑Listening ↓Query ↓
+> MiniCPM-o 4.5 †–96.9 30.0 2.7 27.3 12.3K 10.4K MiniCPM-o 4.5 ‡–109.5 4.0 2.1 28.3 4.5K 2.0K Whisper-tiny cascade ¶39M 15.9 45.0 10.5 48.9 12.3K 2.1K FastConformer streaming cascade ¶115M 10.3 40.0 11.6 49.5 12.3K 1.9K Whisper-large-v3 cascade ¶1.55B 9.35 47.0 10.8 49.6 12.3K 2.1K
+> Ours 43.7M 12.9 42.0 11.0 49.0 4.0K 1.8K
+
+Table 2 . Full-Duplex-Bench v1.0 results under identical decoding settings. TOR denotes takeover rate, including the pause columns. Ours w/o distillation uses transcription cross-entropy alone.                                             
+
+> Backchannel Pause Turn-taking Interruption
+> Model TOR ↓Candor ↓Synthetic ↓TOR ↑Latency (s) ↓Score ↑TOR ↑Latency (s) ↓
+> MiniCPM-o 4.5 0.000 0.088 0.146 0.664 1.944 4.65 0.975 1.795
+> Ours w/o distillation 0.982 0.981 0.978 1.000 0.000 0.19 0.946 0.452
+> Ours 0.218 0.102 0.117 0.706 1.965 4.54 0.940 1.820
+
+For each unit k, we place a transcription segment yk , delimited by the newly introduced <|asr start|> and <|asr end|> to-kens, immediately after the first native decision. In both LISTEN and SPEAK units, transcription uses the listening-time slack before the next audio unit arrives. In SPEAK units, native response generation continues after the transcription segment. The segment remains in the language-model context but is excluded from the speech decoder input and the spoken response. At inference, the model predicts whether to open the side chan-nel. If the <|asr start|> token is predicted, we decode greedily up to 64 text tokens until <|asr end|> . If the limit is reached or a control token appears, we close the segment with a forced 
+
+<|asr end|> . If <|asr start|> is not predicted, the unit con-tains no transcription and native decoding continues. Errors caused by skipped or truncated segments are included in the reported WER. 
+
+3.2. Transcription Supervision and Behavior Distillation 
+
+We supervise transcription with cross-entropy and constrain changes to native listening and speaking behavior through token-level knowl-edge distillation from the frozen original model (i.e., the teacher). We first construct transcription targets from word-level forced align-ments. For a reference word wi with acoustic endpoint ei, we assign the word to unit ki =
+
+l ei+δ
+
+> ∆
+
+m
+
+, where δ is an additional emission delay. Each word appears in exactly one target segment. For each training utterance, the teacher processes the same au-dio without transcription segments. We collect its full-vocabulary output distributions at native prediction positions, extending them to the student vocabulary by assigning zero probability to the two added ASR tokens. The student is teacher-forced on the native token sequence, with the supervised transcription segments inserted after the native decisions. Teacher and student predictions are aligned by native prediction events rather than sequence indices, since the in-serted segments shift the student’s prediction positions. The training objective is a sum of four loss terms: 
+
+L = LASR + Lnative + Ldec + Lturn , (1) where LASR is masked cross-entropy over the transcription tokens and their delimiters. At each aligned native prediction position, we compute the forward divergence T 2DKL 
+
+
+
+P (T ) 
+
+> T
+
+∥ P (T )
+
+> S
+
+
+
+, where 
+
+P (T ) 
+
+> T
+
+and P (T ) 
+
+> S
+
+denote the teacher and student distributions at tem-perature T =1, respectively. The loss Lnative averages this divergence over all valid native prediction positions. Averaging over all native prediction positions can underweight infrequent decision types and turn boundaries. We therefore intro-duce group-balanced auxiliary losses that reweight the same per-position KL divergences to emphasize these events. For Ldec , the first decision in each unit is grouped as listen, speak, or other ac-cording to the token actually fed. For Lturn , non-decision positions are grouped as turn-end or turn-continuation according to whether the fed token is <|turn eos|> . Each auxiliary loss first averages within each group and then averages across the groups present. We train rank-16 LoRA adapters in the language model together with the embedding and output rows of the two new ASR tokens; the audio encoder, vision modules, speech decoder, and teacher stay frozen. Adaptation uses only short transcribed utterances, without requiring long-form speech or full-duplex interaction training data. 
+
+3.3. Online KV Eviction 
+
+After each duplex unit, we compare the number of resident KV po-sitions, including the system prefix and text entries, with a budget B
+
+(4K in our main experiments). When the cache exceeds B, we evict acoustic and structural KV states from the oldest unit outside the five most recent units, called the retention window . Eviction repeats un-til the cache fits within B or no eligible units remain. The protected window accommodates transcription delay: the duration of five sec-onds covers the measured emission latency of the side channel on LibriSpeech test-clean. Table 3 . KV-budget ablation of the same adapted model. End and Peak report final and peak streaming KV positions. Unbounded disables eviction; 0 (floor) evicts all eligible states. Unit time is the wall-clock time per one-second unit including side-channel decoding and eviction (one H100 80GB, batch size 1, 15 sessions per budget); >1 s reports deadline misses. Bold marks the selected 4K budget.                                                                           
+
+> KV Cache ASR Temporal QA Summary Unit time (ms)
+> Ours (budget) End ↓Peak ↓WER ↓Accuracy ↑BLEU ↑R-1 ↑R-L ↑Mean ↓p99 ↓>1 s ↓
+> Unbounded 11.35K 11.35K 14.4 42.0 11.73 48.5 28.6 458 683 0.32% 8K 7.99K 8.02K 13.6 45.0 11.18 49.2 28.5 440 636 0.03% 6K 5.99K 6.02K 12.9 46.0 11.53 49.2 28.7 451 669 0.05%
+> 4K 3.99K 4.02K 12.9 42.0 11.01 49.0 28.1 461 675 0.00%
+> 0 (floor) 1.92K 1.94K 19.7 41.0 11.28 49.2 28.6 501 1337 4.07%
+
+Eviction removes the KV states associated with the unit marker, audio tokens, native decision, ASR delimiters, and terminators, while retaining transcript tokens, model-generated response text, and the system prefix. Position IDs advance with every token fed to the model, regardless of eviction, so the remaining keys keep their original rotary positions without re-encoding. 
+
+4. EXPERIMENTAL RESULTS 4.1. Training 
+
+We fine-tune the model on 132K short utterances from the 460-hour LibriSpeech [22] train-clean subset, using word align-ments from the Montreal Forced Aligner (MFA) with an emission delay of δ = 0 .5 s. LoRA (rank 16, α = 32 ) on the attention and feed-forward projections adds 43.7M parameters (0.53% of the lan-guage model). Training runs for three epochs with a learning rate of 
+
+10 −4 and a batch size of 16, with unit weight on all four loss terms. 
+
+4.2. Evaluation 
+
+We evaluate long-running inference on LongSpeech [9], a bench-mark of ten-minute audio sessions with three tasks: long-form transcription (WER), temporal question answering about the order of events (accuracy), and summarization (BLEU and ROUGE). We use the first 100 English sessions of each task, with QA accuracy judged by GPT-4o. External-ASR cascades answer from re-encoded transcripts while retaining the native acoustic cache during stream-ing. For our method, task queries use only the incoming-speech transcript, re-encoded after discarding the streaming cache. We also measure conversational behavior on Full-Duplex-Bench [10] v1.0 using the official protocol and scoring scripts on all 727 samples of its five tasks. 
+
+4.3. Long-form Speech Understanding 
+
+Table 1 shows lower WER (12.9 versus 96.9) and higher temporal QA accuracy (42% versus 30%) than native streaming, together with improved summarization. In particular, the StreamingLLM compar-ison supports preserving an explicit linguistic record before eviction, allowing subsequent queries to access content beyond the recent acoustic window. Our method achieves comparable QA and summa-rization performance to external-ASR cascades, although FastCon-former and Whisper-large-v3 achieve lower WER with more added parameters. Constructing this record within the duplex backbone in-tegrates transcription with streaming cache management without re-quiring a separate ASR model. The results demonstrate that adapta-tion on short utterances supports ten-minute speech processing with-out long-form training. 
+
+4.4. Full-Duplex Interaction 
+
+Table 2 shows comparable pause-handling, turn-taking, and interrup-tion performance, with a higher backchannel takeover rate (0.218 versus 0.000). Without distillation, the model takes over nearly all pauses and backchannels and starts speaking from the first unit in al-most every sample. The resulting turn-taking TOR of 1.0 and zero la-tency reflect premature speech. Distillation constrains this tendency and helps retain native conversational behavior. The ablation shows that updating only a small fraction of param-eters can still disrupt the pretrained interaction policy, motivating explicit behavioral constraints during transcription adaptation. The frozen teacher supplies this supervision on ordinary transcribed ut-terances, allowing the side channel to be trained without additional full-duplex interaction data. 
+
+4.5. Streaming Memory and Latency 
+
+At a 4K budget, peak streaming KV size decreases from 11.35K to 4.02K positions, a 64.6% reduction relative to the same adapted model without eviction (Table 3). QA and summarization scores re-main close to the unbounded setting, while WER improves from 14.4 to 12.9. More aggressive eviction at the floor raises WER to 19.7, supporting 4K as the operating point. On 2,620 LibriSpeech test-clean utterances, mean word-emission delay is 1.01 s, compared with 9.5 s for native prompted transcrip-tion. The measured maximum of 2.59 s for our method fits within the five-second retention window. At 4K, unit processing averages 461 ms, with a 99th percentile of 675 ms and no deadline misses across 10,039 one-second units. This operating point controls streaming KV memory without a separate ASR model while accommodating transcription and eviction within the real-time processing budget. 
+
+5. CONCLUSION 
+
+We proposed acoustic-to-text KV compression for full-duplex speech language models. We introduced a transcription side channel that uses listening-time slack to construct textual memory before on-line acoustic eviction, without a separate ASR model. We combined transcription supervision with token-level distillation to train LoRA adapters on short transcribed utterances while constraining changes to native listening and speaking behavior. Experiments demonstrated a 64.6% reduction in peak streaming KV usage on MiniCPM-o 4.5 relative to the same adapted model without eviction, alongside improved long-form speech understanding over native streaming. We further showed real-time processing and comparable pause-handling, turn-taking, and interruption performance through timing and Full-Duplex-Bench evaluations. 6. COMPLIANCE WITH ETHICAL STANDARDS 
+
+This study used existing publicly available datasets and models, and no new data were collected. No ethical approval was required. 
+
+7. REFERENCES 
+
+[1] Bandhav Veluri, Benjamin N Peloquin, Bokai Yu, Hongyu Gong, and Shyamnath Gollakota, “Beyond turn-based inter-faces: Synchronous llms as full-duplex dialogue agents,” in 
+
+Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing , 2024, pp. 21390–21402. [2] Peng Wang, Songshuo Lu, Yaohua Tang, Sijie Yan, Wei Xia, and Yuanjun Xiong, “A full-duplex speech dialogue scheme based on large language model,” Advances in Neural Informa-tion Processing Systems , vol. 37, pp. 13372–13403, 2024. [3] Alexandre D´ efossez, Laurent Mazar´ e, Manu Orsini, Am´ elie Royer, Patrick P´ erez, Herv´ e J´ egou, Edouard Grave, and Neil Zeghidour, “Moshi: a speech-text foundation model for real-time dialogue,” arXiv:2410.00037 , 2024. [4] Qinglin Zhang, Luyao Cheng, Chong Deng, Qian Chen, Wen Wang, Siqi Zheng, Jiaqing Liu, Hai Yu, Chao-Hong Tan, Zhi-hao Du, et al., “Omniflatten: An end-to-end gpt model for seamless voice conversation,” in Proceedings of the 63rd An-nual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , 2025, pp. 14570–14580. [5] Haoqin Sun, Chenyang Lyu, Shiwan Zhao, Xuanfan Ni, Xi-angyu Kong, Longyue Wang, Weihua Luo, and Yong Qin, “Speech-xl: Towards long-form speech understanding in large speech language models,” arXiv:2602.05373 , 2026. [6] Ke-Han Lu, Keqi Deng, Ruchao Fan, Rui Zhao, and Jinyu Li, “Compress the cache, not the speech embedding: Kv compres-sion for efficient speech llms,” arXiv:2607.06827 , 2026. [7] Minsoo Kim, Kyuhong Shim, Jungwook Choi, and Simyung Chang, “Infinipot: Infinite context processing on memory-constrained llms,” in Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing , 2024, pp. 16046–16060. [8] Junbo Cui, Bokai Xu, Chongyi Wang, Tianyu Yu, Weiyue Sun, Yingjing Xu, Tianran Wang, Zhihui He, Wenshuo Ma, Tianchi Cai, et al., “Minicpm-o 4.5: Towards real-time full-duplex omni-modal interaction,” arXiv:2604.27393 , 2026. [9] Fei Yang, Xuanfan Ni, Renyi Yang, Jiahui Geng, Qing Li, Chenyang Lyu, Yichao Du, Longyue Wang, Weihua Luo, and Kaifu Zhang, “Longspeech: A scalable benchmark for tran-scription, translation and understanding in long speech,” in 
+
+ICASSP 2026-2026 IEEE International Conference on Acous-tics, Speech and Signal Processing (ICASSP) . IEEE, 2026, pp. 15547–15551. [10] Guan-Ting Lin, Jiachen Lian, Tingle Li, Qirui Wang, Gopala Anumanchipalli, Alexander H Liu, and Hung-yi Lee, “Full-duplex-bench: A benchmark to evaluate full-duplex spoken dialogue models on turn-taking capabilities,” in 2025 IEEE Automatic Speech Recognition and Understanding Workshop (ASRU) . IEEE, 2025, pp. 1–8. [11] Ziyang Ma, Yakun Song, Chenpeng Du, Jian Cong, Zhuo Chen, Yuping Wang, Yuxuan Wang, and Xie Chen, “Language model can listen while speaking,” in Proceedings of the AAAI Conference on Artificial Intelligence , 2025, pp. 24831–24839. [12] Guangxuan Xiao, Yuandong Tian, Beidi Chen, Song Han, and Mike Lewis, “Efficient streaming language models with atten-tion sinks,” in International Conference on Learning Repre-sentations , 2024, vol. 2024, pp. 21875–21895. [13] Zhenyu Zhang, Ying Sheng, Tianyi Zhou, Tianlong Chen, Lianmin Zheng, Ruisi Cai, Zhao Song, Yuandong Tian, Christopher R´ e, Clark Barrett, et al., “H2o: Heavy-hitter or-acle for efficient generative inference of large language mod-els,” Advances in neural information processing systems , vol. 36, pp. 34661–34710, 2023. [14] Yuhong Li, Yingbing Huang, Bowen Yang, Bharat Venkitesh, Acyr Locatelli, Hanchen Ye, Tianle Cai, Patrick Lewis, and Deming Chen, “Snapkv: Llm knows what you are looking for before generation,” Advances in Neural Information Process-ing Systems , vol. 37, pp. 22947–22970, 2024. [15] Yichen Lu, Jiaqi Song, Chao-Han Huck Yang, and Shinji Watanabe, “Fastadasp: Multitask-adapted efficient inference for large speech language model,” in Proceedings of the 2024 Conference on Empirical Methods in Natural Language Pro-cessing: Industry Track , 2024, pp. 440–451. [16] Yuxuan Wang, Peize He, Xiyan Gui, Xiaoqian Liu, Junhao He, Xuyang Liu, Zichen Wen, Xuming Hu, and Linfeng Zhang, “Audiokv: Kv cache eviction in efficient large audio language models,” arXiv:2604.06694 , 2026. [17] Donghang Wu, Haoyang Zhang, Chen Chen, Tianyu Zhang, Fei Tian, Xuerui Yang, Gang Yu, Hexin Liu, Nana Hou, Yuchen Hu, et al., “Chronological thinking in full-duplex spo-ken dialogue language models,” in Proceedings of the 27th An-nual Meeting of the Special Interest Group on Discourse and Dialogue , 2026, pp. 473–485. [18] Donghang Wu, Tianyu Zhang, Yuxin Li, Hexin Liu, Chen Chen, Eng Siong Chng, and Yoshua Bengio, “The silent thought: Modeling internal cognition in full-duplex spoken di-alogue models via latent reasoning,” in Forty-third Interna-tional Conference on Machine Learning , 2026. [19] Yi-Jen Shih, Desh Raj, Chunyang Wu, Wei Zhou, SK Bong, Yashesh Gaur, Jay Mahadeokar, Ozlem Kalinli, and Mike Seltzer, “Can speech llms think while listening?,” in Inter-national Conference on Learning Representations , 2026, vol. 2026, pp. 72392–72414. [20] Cheng-Han Chiang, Xiaofei Wang, Linjie Li, Chung-Ching Lin, Kevin Lin, Shujie Liu, Zhendong Wang, Zhengyuan Yang, Hung-yi Lee, and Lijuan Wang, “Shanks: Simultaneous hear-ing and thinking for spoken language models,” in Proceedings of the 64th Annual Meeting of the Association for Computa-tional Linguistics (Volume 1: Long Papers) , 2026, pp. 8951– 8972. [21] Zhiyuan Song, Weici Zhao, Yang Xiao, Suhao Yu, Cheng Zhu, and Jiatao Gu, “Learning when to think while listening in large audio-language models,” arXiv:2605.27190 , 2026. [22] Vassil Panayotov, Guoguo Chen, Daniel Povey, and Sanjeev Khudanpur, “Librispeech: an asr corpus based on public do-main audio books,” in 2015 IEEE international conference on acoustics, speech and signal processing (ICASSP) . IEEE, 2015, pp. 5206–5210.
