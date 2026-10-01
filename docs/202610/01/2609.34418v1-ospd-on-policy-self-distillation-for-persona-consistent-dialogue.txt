@@ -1,0 +1,779 @@
+Title: OSPD: On-Policy Self-Distillation for Persona-Consistent Dialogue
+
+URL Source: https://arxiv.org/pdf/2609.34418v1
+
+Published Time: Tue, 29 Sep 2026 03:26:06 GMT
+
+Number of Pages: 22
+
+Markdown Content:
+# OSPD: On-Policy Self-Distillation for Persona-Consistent Dialogue 
+
+Rui Xu 1,2 Yikai Zhang 1 Aili Chen 1
+
+Zicheng Zhao 1 Xu Yinghui 1 Libo Wu 1,21Fudan University 
+
+> 2
+
+Shanghai Innovation Institute 
+
+24110240097@m.fudan.edu.cn 
+
+Abstract 
+
+Maintaining persona consistency across multi-turn dialogues remains a core challenge for role-playing language models. Off-policy dis-tillation from external teachers incurs distribu-tion mismatch that compounds across dialogue turns, while reinforcement learning struggles with reward ambiguity inherent in subjective persona fidelity. We propose OSPD, an on-policy self-distillation framework where the same model serves as both teacher and student under asymmetric information: the teacher re-ceives a complete character profile while the student sees only a brief summary, and the stu-dent generates trajectories from its own policy. We find that teacher confidence in role-playing dialogue exhibits a bimodal structure—sharply peaked at character-critical tokens yet diffuse at generic utterances—and introduce role-aware divergence switching to match this structure. A progressive trait masking curriculum fur-ther forces staged internalization of character knowledge along semantic dimensions. Ex-periments on CharacterBench, CharacterEval, and SocialBench show that OSPD substantially improves persona consistency over supervised fine-tuning and multi-turn RL baselines, with-out requiring any external teacher or reward model. 
+
+1 Introduction 
+
+Maintaining a coherent persona across extended dialogue is a central challenge for role-playing conversational agents, with applications in inter-active entertainment, educational simulation, and social companionship (Wang et al., 2025; Yu et al., 2025; Abdulhai et al., 2025). A well-functioning agent must faithfully reflect a character’s personal-ity, knowledge, and behavioral patterns throughout a conversation (Wang et al., 2024)—yet current systems suffer from persona drift : the model grad-ually abandons its assigned character and reverts 
+
+Figure 1: Privileged information gap in role-playing dialogue. The same model conditioned on a com-plete character profile ( cfull ) produces substantially more persona-consistent responses than when conditioned on a brief summary ( cbrief ). This gap provides a natural self-distillation signal without any external teacher. 
+
+to generic behavior as the dialogue progresses (Ab-dulhai et al., 2025). From an imitation-learning perspective, this is a manifestation of exposure bias (Ross et al., 2011)—errors compound across turns because the model generates from its own policy at inference but trains on external data, and a single out-of-character reply corrupts the entire subsequent context. Existing methods attack this problem through arXiv:2609.34418v1 [cs.AI] 28 Sep 2026 contrastive learning (Ji et al., 2025), reinforcement learning (Abdulhai et al., 2025; Wang et al., 2026; Ye et al., 2025), and reasoning augmentation (Tang et al., 2025; Qin et al., 2025), but each carries fundamental limitations. Off-policy distillation in-curs distribution mismatch whose cumulative er-ror grows quadratically with dialogue length (Ross et al., 2011). RL methods require carefully engi-neered rewards for the inherently subjective notion of persona fidelity. Contrastive approaches struggle with fine-grained trait distinctions. No prior work addresses persona consistency through on-policy self-distillation, despite its theoretical advantages for reducing exposure bias. We propose OSPD, an on-policy self-distillation framework that exploits two properties of role-playing dialogue (Figure 2). First , the same model shows a large persona-consistency gap under dif-ferent information budgets (Figure 1): responses conditioned on a complete character profile ( cfull ,
+
+∼2 000 tokens) are substantially more consistent than those conditioned on a brief summary ( cbrief ,
+
+∼100 tokens). This gap yields a natural self-distillation signal—the model’s own privileged-information mode serves as the teacher, eliminating the need for any external model. Second , teacher confidence follows a bimodal distribution: sharply peaked at character-critical tokens ( e.g. catch-phrases, value judgments) yet diffuse at generic utterances. This structure motivates role-aware divergence switching —reverse KL at low-entropy positions for precise character imitation, forward KL elsewhere to preserve diversity. OSPD further introduces a progressive trait masking curriculum that incrementally withholds character knowledge from the student across training, forcing the model to internalize persona information into its parame-ters rather than relying on the input prompt. Experiments on CharacterBench (Zhou et al., 2025), CharacterEval (Tu et al., 2024), and Social-Bench (Chen et al., 2024a) demonstrate that OSPD substantially outperforms supervised fine-tuning and is competitive with or superior to multi-turn RL baselines, while requiring neither an external teacher nor a reward model. Multi-turn analysis shows markedly slower persona drift as dialogue length increases to 60 turns. Ablations confirm the contribution of each component, and an analysis of the learned divergence gate validates the bimodal structure across diverse characters and topics. Code and configurations are available at https:// github.com/airaer1998/OSPD .Our contributions are threefold. 1) We intro-duce on-policy self-distillation with privileged in-formation to role-playing dialogue, eliminating the need for external teachers or reward models. 2) We identify a bimodal confidence structure specific to role-playing dialogue and design a role-aware divergence switching mechanism that exploits it. 
+
+3) We propose progressive trait masking, a cur-riculum that forces staged internalization of char-acter knowledge along semantic dimensions, and validate it with systematic experiments including ablations, multi-turn robustness analysis, and diver-gence-gate interpretability studies. 
+
+2 Related Work 
+
+Knowledge Distillation for Language Models. 
+
+On-policy distillation lets the student generate its own training trajectories, eliminating off-policy dis-tribution mismatch. GKD (Agarwal et al., 2024), MiniLLM (Gu et al., 2024), and DistiLLM (Ko et al., 2024) can be viewed as instances of a unified 
+
+f -divergence objective (Song and Zheng, 2026). Recent work introduces per-token adaptive diver-gences: ToDi (Jung et al., 2025) mixes forward and reverse KL by teacher–student logit ratios, and Entropy-Aware OPD (Jin et al., 2026) gates selection by teacher entropy. Orthogonally, self-distillation removes external teacher dependencies: SPIN (Chen et al., 2024b) distinguishes model-generated from human text via self-play, while OPSD (Zhao et al., 2026), OPCD (Ye et al., 2026), and GATES (Stein et al., 2026) use privileged con-text as the supervision signal. Penaloza et al. (2026) formalize conditions for privileged information dis-tillation. Existing applications focus on reasoning and instruction following, where the privileged sig-nal is a single correct answer; our work targets role-playing dialogue, where the privileged information is a multi-dimensional character profile whose in-formativeness varies across positions—motivating both our adaptive divergence and trait masking cur-riculum. 
+
+Persona-Consistent Role-Playing. Methods for persona consistency include contrastive learning (Ji et al., 2025), multi-turn RL (Abdulhai et al., 2025; Wang et al., 2026; Ye et al., 2025), and reason-ing augmentation (Tang et al., 2025; Qin et al., 2025). On the data side, CoSER (Wang et al., 2025) provides authentic literary dialogues with structured character knowledge, and Beyond Dia-logue (Yu et al., 2025) introduces profile–dialogue alignment. Beyond dialogue fidelity, recent work studies persona-driven decisions (Xu et al., 2025b), role-playing agents for key opinion leaders (Xu et al., 2024), and inner-thought reasoning (Xu et al., 2025a). None of these methods exploit the informa-tion asymmetry between detailed and condensed character profiles, nor do they leverage on-policy self-distillation to internalize character knowledge. 
+
+3 Method 
+
+3.1 Problem Formulation 
+
+A character is represented as a pair C =(cfull , c brief ), where cfull (∼2 000 tokens) is a privi-leged profile containing detailed background, psy-chological portrait, relationship graph, representa-tive dialogues, and linguistic style, and cbrief (∼100 tokens) is a condensed summary retaining only name and core personality traits. At inference time, only cbrief is available—this reflects the practical setting where users provide a short character de-scription rather than an exhaustive dossier. Let ht = ( u1, a 1, . . . , u t) denote the dialogue history up to turn t. We define two modes of the 
+
+same model: 
+
+πT (a | cfull , h t) = LM ¯θ(a | cfull , h t) (1) 
+
+πS (a | cbrief , h t) = LM θ(a | cbrief , h t) (2) where θ are the student parameters being optimized and ¯θ is an exponential moving average (EMA) of θ. The information asymmetry resides entirely in the conditioning context; the EMA copy pro-vides a slowly evolving target that stabilizes train-ing (§3.2). Figure 2 illustrates the overall pipeline. The stu-dent generates dialogue trajectories from its own policy, the teacher evaluates each trajectory un-der privileged information, and the resulting token-level distributional signal drives parameter updates through a role-aware divergence objective. 
+
+3.2 On-Policy Self-Distillation 
+
+To eliminate the distribution mismatch inherent in off-policy distillation, the student generates its own training trajectories. Each training step proceeds as follows. 
+
+Step 1: On-Policy Generation. The student sam-ples a response ˆat ∼ πS (· | cbrief , h t). The training distribution is the student’s own behavioral distri-bution, directly removing exposure bias. 
+
+Step 2: Teacher Evaluation. Using the same dialogue context ht but conditioned on cfull , the EMA teacher computes a distribution over each token position of ˆat:
+
+πT (· | cfull , h t, ˆat,<k ) for k = 1 , . . . , |ˆat| (3) These distributions serve as position-wise supervi-sion targets. 
+
+Step 3: Divergence Computation. The role-aware divergence loss LOSPD is computed over the trajectory (§3.3). 
+
+Step 4: Gradient Update. Gradients flow only through the student’s log-probabilities; teacher log-its are treated as fixed targets. A key distinction from pure self-play methods such as SPIN (Chen et al., 2024b) is that the OSPD teacher continuously injects external information through cfull . The model does not self-reinforce its own biases; instead, it aligns toward a distribu-tion conditioned on richer information, preventing the policy saturation that plagues closed-loop self-distillation. 
+
+EMA Teacher Stabilization. Sharing parame-ters between teacher and student creates a moving-target problem: naive parameter sharing causes the target distribution to shift with every gradient step, risking training oscillation. We maintain an EMA copy of the student parameters as the teacher: 
+
+¯θ ← α ¯θ + (1 − α) θ (4) with momentum α ∈ [0 .99 , 0.999] , following the mean-teacher paradigm (Tarvainen and Valpola, 2017). The EMA teacher evolves slowly, providing a smoothed target that lags behind the student by a controlled margin. 
+
+3.3 Role-Aware Divergence Switching 
+
+The bimodal confidence structure of role-playing dialogue necessitates position-dependent learning strategies. When the teacher processes character-critical content—domain knowledge, catchphrases, value judgments—the privileged profile provides decisive guidance and the teacher distribution concentrates sharply (low entropy). At generic utterances—greetings, transitions, open-ended remarks—even full profile access leaves consid-erable uncertainty (high entropy). We compute the teacher entropy at each token position k:
+
+Hk = H πT (· | cfull , h, ˆa<k ) (5) Figure 2: Overview of OSPD. The same model serves as both teacher and student under asymmetric information conditions. The student generates on-policy trajectories from cbrief ; the EMA teacher provides token-level supervision from cfull . Role-aware divergence switching adapts the distillation objective to the bimodal confidence structure of role-playing dialogue. Progressive trait masking transitions from a compressed full profile (Stage 1) to identity and personality only (Stage 2). 
+
+and define a gating coefficient: 
+
+αk = σ
+
+ Hk − μH
+
+τ
+
+
+
+(6) where μH is the running mean of teacher entropy within the current batch and τ is a temperature hyperparameter. The distillation loss interpolates between reverse and forward KL: 
+
+LOSPD = X
+
+> k
+
+h
+
+(1 − αk) DKL (πS ∥πT )+ αk DKL (πT ∥πS )
+
+i (7) Low αk (high teacher confidence) activates reverse KL , which is mode-seeking and drives precise imi-tation of peaked character behaviors. High αk (low teacher confidence) activates forward KL , which is mode-covering and preserves expressive diver-sity. This mechanism differs from generic adaptive divergence methods (Jung et al., 2025; Jin et al., 2026) in a fundamental way: our switching logic is grounded in the semantic structure of role-playing dialogue. Teacher entropy directly reflects the infor-mativeness of the privileged profile at the current position—low entropy signals that cfull provides decisive guidance, high entropy signals that the profile is non-informative here. The divergence choice thus functions as an implicit detector of 
+
+where privileged information matters .
+
+3.4 Progressive Trait Masking Curriculum 
+
+Naive information reduction—simply shortening the profile—ignores the hierarchical structure of character knowledge. We decompose the character profile into five semantic dimensions: i) Identity :name, age, occupation, relationships; ii) Personal-ity : core values, emotional disposition; iii) Knowl-edge : domain expertise, character-specific facts; 
+
+iv) Style : speech patterns, vocabulary, register; 
+
+v) History : formative events, growth arc. Training proceeds in two stages: 
+
+Stage 1 (Warm-up, 1 epoch). The student re-ceives a compressed version of all five dimensions (∼500 tokens), while the teacher accesses the full profile. The moderate information gap eases early optimization. 
+
+Stage 2 (Masking, 2 epochs). The student sees only Identity and Personality (∼100 tokens); 
+
+Knowledge , Style , and History are masked. The teacher retains the full profile. This forces the model to internalize deeper character knowledge into its parameters rather than relying on the input context. The masking order reflects the information hi-erarchy at inference time: identity and personality constitute “public” information that users always specify, whereas knowledge, style, and history are “deep” information that is difficult to convey in a short prompt yet critical for persona consistency. Stage 1 uses an elevated temperature τ to broaden the gate αk toward forward KL, providing broad-coverage learning; Stage 2 restores the standard temperature, letting the divergence switch be fully entropy-driven. 
+
+3.5 Trajectory Filtering 
+
+Not all on-policy trajectories are useful for distilla-tion. When the student generates a severely out-of-character response, the teacher’s distribution con-ditioned on this aberrant prefix may itself become unreliable. We introduce a lightweight Persona Consistency Verifier (PCV) that filters trajectories at two granularities: turn-level (trait adherence of each reply) and dialogue-level (cross-turn consis-tency). Only accepted trajectories contribute to 
+
+LOSPD .The PCV is an off-the-shelf quality filter, not atraining objective—OSPD does not optimize for PCV scores, which fundamentally distinguishes it from RL approaches that optimize against a reward model. Our primary implementation uses GPT-5.1 as the LLM judge; Appendix D.2 compares it with an embedding-based MLP classifier, which yields a similar CharacterBench average (3.48 vs. 3.51). 
+
+3.6 Training Objective 
+
+The overall loss combines the self-distillation ob-jective with a supervised fine-tuning (SFT) regular-izer: 
+
+L = LOSPD + λ · L SFT (8) where LSFT is the standard next-token prediction loss on curated character dialogues and λ is tuned from {0.1, 0.5, 1.0}. The SFT term maintains gen-eration quality and prevents the mode collapse that can arise from pure distributional matching. 
+
+4 Experiments 
+
+4.1 Setup Models and Training. We use Qwen2.5-7B-Instruct as the base model for all experiments and extend to Qwen2.5-14B-Instruct for scaling anal-ysis (Appendix E). All methods are fine-tuned with LoRA (rank = 64, α = 16, dropout = 0.1) us-ing AdamW with a learning rate of 2e-5 and co-sine scheduling. For OSPD, the EMA momentum is α = 0.995, on-policy rollouts run for 20 turns (Stage 1) and 40 turns (Stage 2), with 16 dialogues per training step. Training uses 8 ×H100 GPUs. 
+
+Data. We train primarily on CoSER (Wang et al., 2025), which provides 17,966 characters from 771 books with structured character knowledge bases, and supplement with Beyond Dialogue (Yu et al., 2025) for profile–dialogue alignment data. Com-plete character profiles ( cfull , ∼2 000 tokens) are constructed from CoSER’s character knowledge base covering all five trait dimensions; brief sum-maries ( cbrief , ∼100 tokens) retain only name and core personality. The dialogue partner is Qwen2.5-7B-Instruct, mixing natural conversation (70%) with persona-probing questions (30%) designed from cfull .
+
+Benchmarks. We evaluate on three complemen-tary benchmarks: i) CharacterBench (Zhou et al., 2025): 22,859 human-annotated samples across 3,956 characters with 11 evaluation dimensions (memory consistency, attribute consistency, behav-ior consistency, empathetic responsiveness, etc. ) in both Chinese and English, scored on a 1–5 scale by GPT-4; ii) CharacterEval (Tu et al., 2024): 77 characters with 1,785 multi-turn dialogues in Chinese, measuring 13 metrics across 4 dimension-s—we report Character Consistency (CC), focusing on persona–utterance alignment (PU); iii) Social-Bench (Chen et al., 2024a): 500 character pro-files with 6,000+ questions and 30,800+ multi– turn dialogues in English, evaluating self-aware-ness (knowledge and style) and social intelligence via accuracy-based metrics. CharacterBench and CharacterEval rely on LLM judges, whereas So-cialBench reports accuracy-based metrics; we dis-tinguish these evidence types when interpreting the results. 
+
+Metrics. We report benchmark-specific scores alongside two cross-benchmark metrics: Prompt-to-Line consistency (P2L), measuring per-turn alignment with the character profile; and the In-ternalization Ratio (IR = Perf (cbrief ) / Perf (cfull )), measuring how well the model performs under lim-ited information. 
+
+Baselines. All baselines use the same train-ing data and have access to cfull during train-ing. 1) SFT : standard supervised fine-tuning on cfull -conditioned dialogues. 2) SFT+DPO :SFT followed by DPO with persona-consis-tent/inconsistent pairs. 3) PCL (Ji et al., 2025): persona-aware contrastive learning. 4) Multi-turn RL (Abdulhai et al., 2025): PPO with multi--dimensional consistency rewards. 5) CPO (Ye et al., 2025): comparative policy optimization for role-playing. 6) Off-policy Distill. : distilla-tion from an independent Qwen2.5-72B teacher. 
+
+7) OSPD-FixedFwd / OSPD-FixedRev : OSPD variants with fixed forward or reverse KL only. At inference time, all methods use cbrief only. 
+
+4.2 Main Results 
+
+Table 1 presents the main comparison across all three benchmarks. 
+
+OSPD vs. SFT. OSPD outperforms SFT by +0.51 on CharacterBench (3.51 vs. 3.00) and +0.59 on CharacterEval PC (3.49 vs. 2.90), confirm-ing that the self-distillation framework effectively transfers deep character understanding from privi-leged to limited information conditions. Improve-ments extend to overall metrics (CE Avg +0.46, SB Avg +8.0%), showing no sacrifice of general performance. 
+
+On-policy vs. off-policy distillation. Despite us-ing a 10 × smaller model as teacher, OSPD sur-passes the off-policy 72B distillation baseline by +0.24 on CharacterBench (3.51 vs. 3.27), demon-strating that on-policy trajectory generation matters more than teacher capacity for persona consistency. 
+
+OSPD vs. RL methods. OSPD outperforms Multi-turn RL on CharacterBench (+0.12) and So-cialBench SA (+2.1%) without any reward engi-neering. Multi-turn RL is the strongest baseline on persona-specific metrics (CE PC 3.47) due to its directly optimized consistency rewards, while CPO achieves the highest baseline SB SA (66.0%) through comparative optimization. Neither RL method requires external teachers, but both demand carefully engineered rewards. 10 20 40 60 
+
+> Dialogue Length (turns)
+> 55 60 65 70 75 80 85 90
+> Persona Consistency (P2L)  Strong Consistency Moderate Drift Severe Drift
+> ¢=23.0
+> ¢=6.2
+> OSPD (Ours) Multi-turn RL Off-policy Distill. SFT+DPO SFT
+
+Figure 3: Persona consistency (P2L) as a function of di-alogue length. OSPD exhibits markedly slower persona drift compared to all baselines. 
+
+Divergence switching matters. Full OSPD out-performs both fixed-divergence variants, with FixedFwd and FixedRev showing complementary weaknesses: FixedRev achieves a comparable CB score (3.38) through mode-seeking but sacrifices self-awareness (SB SA 64.4% vs. 67.6%), while FixedFwd preserves diversity but loses precision at character-critical positions. 
+
+Internalization. OSPD achieves an IR of 0.86, substantially closing the gap between cbrief and cfull 
+
+conditions compared to SFT (0.71) and even Multi-turn RL (0.78). This indicates that progressive trait masking successfully forces the model to encode character knowledge into its parameters. 
+
+5 Analysis 
+
+We examine multi-turn robustness, component con-tributions, the bimodal structure hypothesis, trait masking effects, and generalization to unseen char-acters. 
+
+5.1 Multi-Turn Robustness 
+
+Figure 3 plots persona consistency as dialogue length increases from 10 to 60 turns. OSPD degrades by only 5.2 points from 10 to 60 turns (88.2 →83.0), while SFT drops 22.0 points (82.0 →60.0) and Multi-turn RL drops 12.0 points (86.0 →74.0). The gap between OSPD and base-lines widens progressively: at 10 turns the advan-tage over Multi-turn RL is 2.2 points, growing to 9.0 at 60 turns. On-policy training on long roll-outs (40 turns in Stage 2) teaches the model to re-cover from minor drift rather than compound errors, explaining the flatter decay curve. Notably, Off-policy Distillation degrades faster than Multi-turn Table 1: Main results on LLM-judge-based CharacterBench (CB) and CharacterEval (CE), and accuracy-based SocialBench (SB). All methods use cbrief at inference. CB Avg: overall average across 11 dimensions (1–5 scale). CE PC: persona consistency (avg of persona–utterance and persona–behavior, 1–5); CE Avg: overall average across 4 dimensions. SB SA: self-awareness accuracy (avg of knowledge and style, %); SB Avg: overall individual-level average. Bold : best; underline: second best. †: re-implemented by us.                                                               
+
+> Method CB CharacterEval (1–5) SocialBench (%) IR ↑
+> Avg. ↑PC ↑Avg. ↑SA ↑Avg. ↑
+> SFT 3.00 2.90 3.12 59.4 56.8 0.71 SFT + DPO 3.15 3.08 3.24 61.5 58.5 0.74 PCL †3.19 3.06 3.22 61.7 58.9 0.73 Multi-turn RL †3.39 3.47 3.52 65.5 62.4 0.78 CPO †3.28 3.33 3.41 66.0 63.2 0.76 Off-policy Distill. 3.27 3.16 3.30 64.1 61.5 0.77 OSPD-FixedFwd 3.37 3.36 3.47 65.8 63.0 0.82 OSPD-FixedRev 3.38 3.36 3.43 64.4 61.8 0.80 OSPD 3.51 3.49 3.58 67.6 64.8 0.86
+
+Table 2: Ablation study on CharacterBench (overall avg, 1–5) and CharacterEval persona consistency (PC, 1–5). Each row removes one component from full OSPD.                     
+
+> Variant CB Avg ↑CE PC ↑
+> OSPD (full) 3.51 3.49
+> w/o on-policy (off-policy traj.) 3.29 3.22 Fixed Forward KL 3.37 3.36 Fixed Reverse KL 3.38 3.36
+> w/o trait masking curriculum 3.41 3.37
+> w/o PCV filtering 3.47 3.40
+> w/o LSFT 3.38 3.27
+
+RL despite similar 10-turn performance ( −16.5 vs. 
+
+−12.0 from 10 to 60 turns), highlighting the sever-ity of distribution mismatch in extended dialogues. 
+
+5.2 Ablation Study 
+
+Table 2 isolates the contribution of each component by removing it from the full OSPD system. 
+
+On-policy generation. Replacing on-policy tra-jectories with off-policy data causes the largest single-component drop ( −0.22 CB Avg, −0.27 CE PC), confirming that training on the student’s own distribution is the most critical design choice. 
+
+Divergence switching. Both fixed-divergence variants underperform adaptive switching. Fixed Forward KL loses precision at character-critical po-sitions ( −0.14 CB Avg) while Fixed Reverse KL loses expressive diversity ( −0.13 CB Avg, −0.13 CE PC), validating the need for position-dependent divergence selection. 
+
+Trait masking. Removing the curriculum (−0.10 CB Avg, −0.12 CE PC) confirms that progressive masking contributes to internalization beyond what on-policy distillation alone provides. 
+
+PCV and SFT loss. Removing PCV filtering has a modest effect on CharacterBench ( −0.04) but a larger effect on CE PC ( −0.09), likely because the smaller benchmark is more sensitive to noisy train-ing trajectories. Dropping LSFT causes substantial degradation ( −0.13 CB Avg, −0.22 CE PC), in-dicating that the SFT regularizer is essential for maintaining generation quality under distributional matching. 
+
+5.3 Bimodal Structure Analysis 
+
+Figure 4 summarizes the learned gate αk and its correspondence with token semantics using aggre-gate statistics. The gate distribution for role-playing dialogue exhibits clear bimodality (Figure 4a), with 38% of tokens falling below αk < 0.3 (character-critical, reverse KL dominant) and 42% above αk > 0.7
+
+(generic, forward KL dominant). This contrasts sharply with math reasoning, where 81% of tokens concentrate below 0.3 (teacher consistently confi-dent), and open chat, where 76% concentrate above 0.7 (teacher consistently uncertain). Manual token annotation (Figure 4b) confirms that low-αk posi-tions correspond to domain-knowledge terms, char-acter catchphrases, and value-laden expressions, while high-αk positions correspond to greetings, discourse markers, and generic fillers. The bimodal structure is stable across 85% of tested characters; it weakens for characters with sparse knowledge profiles, where the teacher’s confidence advantage diminishes (Appendix G). Role-playing Math reasoning Open chat 020 40 60 80 100          
+
+> Reported token share
+> 38% 81% 42% 76%
+> (a) Low αkHigh αk
+> 020 40 60 80 100
+> Share within annotated cluster
+> Knowledge terms Catchphrases / style Value-laden expressions Discourse / fillers Greetings / transitions Open-ended expressions 72% 15% 13% 64% 22% 14% Low entropy High entropy
+> (b)
+
+Figure 4: Aggregate confidence-structure statistics. (a) Reported proportions in the low- and high-αk
+
+regimes; role-playing dialogue has an additional 20% of tokens in the intermediate regime. Only the re-ported dominant extreme is shown for each control task. (b) Semantic composition of 100 manually annotated tokens from each low- and high-entropy cluster (Ap-pendix A.3). 
+
+5.4 Trait Masking Analysis 
+
+Table 3 examines which trait dimensions contribute most to persona consistency by selectively masking individual dimensions in Stage 2. Knowledge masking alone yields the largest single-dimension gain (+0.07 CB Avg, +0.09 CE PC over no masking), confirming that domain knowledge is the hardest dimension to internal-ize and benefits most from forced masking. Style masking provides moderate improvement (+0.03 CB Avg) primarily through better linguistic fidelity. History masking yields marginal gains on standard benchmarks (+0.00 CB Avg, +0.02 CE PC)—its benefit is more pronounced in extended dialogues beyond 40 turns (Appendix H), where narrative co-herence becomes critical. The full three-dimension mask outperforms all single-dimension variants, indicating complementary internalization effects 
+
+Table 3: Effect of masking individual trait dimensions. “Full mask” masks Knowledge + Style + History (default Stage 2). Each single-dimension row masks only that dimension while keeping the other two visible to the student. CB Avg and CE PC on 1–5 scale. 
+
+Masked Dimension CB Avg ↑ CE PC ↑ IR ↑
+
+Full mask (default) 3.51 3.49 0.86 Knowledge only 3.48 3.44 0.84 Style only 3.44 3.40 0.82 History only 3.41 3.37 0.80 None (Stage 1 only) 3.41 3.35 0.79 
+
+Table 4: Generalization to unseen characters (CB overall avg, 1–5 scale). ∆ denotes the drop from seen-character performance. 
+
+Method In-genre Cross-genre 
+
+CB ∆ CB ∆
+
+SFT 2.93 −0.08 2.84 −0.17 Multi-turn RL 3.25 −0.15 3.10 −0.29 Off-pol. Distill. 3.19 −0.09 3.07 −0.20 OSPD 3.44 −0.08 3.32 −0.20 
+
+across dimensions. 
+
+5.5 Generalization to Unseen Characters 
+
+Table 4 evaluates OSPD on held-out CoSER char-acters not seen during training, with separate anal-ysis for characters from genres represented in the training set ( in-genre ) and from held-out genres (cross-genre ). OSPD retains the highest absolute performance on unseen characters, and its in-genre drop ( −0.08) is the smallest among all methods, indicating that on-policy self-distillation learns transferable character-modeling capabilities rather than mem-orizing training characters. Multi-turn RL suffers a notably larger in-genre drop ( −0.15), suggest-ing that its reward-optimized behavior is more character-specific. Cross-genre generalization re-mains challenging for all methods (OSPD drops 0.20, comparable to Off-policy Distillation), sug-gesting that genre-specific narrative conventions represent an orthogonal challenge. 
+
+6 Conclusion 
+
+We have presented OSPD, an on-policy self-distillation framework that exploits the informa-tion asymmetry between complete and condensed character profiles within the same model to im-prove persona consistency in role-playing dialogue. Role-aware divergence switching and progressive trait masking enable the model to internalize deep character knowledge without external teachers or reward models. Experiments on three benchmarks show substantial improvements in persona consis-tency, particularly across extended dialogues. Our analysis reveals that teacher confidence in role-playing dialogue exhibits an intrinsic bimodal struc-ture that enables position-aware distillation without external reward signals. Progressive trait masking further shows that knowledge and history are the hardest dimensions to internalize, while identity and personality transfer readily from brief descrip-tions, achieving an internalization ratio of 0.86 that substantially narrows the gap between brief and complete profile conditions. 
+
+Limitations 
+
+OSPD has several limitations. Scale dependence. 
+
+The teacher’s quality is bounded by the base model’s ability to leverage complete profiles; mod-els below ∼7B may not benefit from detailed pro-files, while larger models may already internalize character knowledge from brief summaries, nar-rowing the self-distillation signal. PCV reliability. 
+
+The LLM-based trajectory filter may introduce sys-tematic biases that propagate through training; we mitigate this by comparing multiple PCV imple-mentations and reporting acceptance rates. Pro-file quality dependence. The framework assumes access to high-quality, multi-dimensional charac-ter profiles; for characters with sparse documenta-tion, the privileged information gap may be insuf-ficient. Computational overhead. Dual forward passes and multi-turn on-policy rollouts increase training cost relative to standard SFT, though the self-distillation design avoids the memory over-head of maintaining a separate large teacher and the optimization complexity of RL. Evaluation scope. CharacterEval covers only 77 Chinese char-acters, limiting the statistical power of conclusions drawn from it alone; we use it as a complemen-tary fine-grained analysis alongside the larger-scale benchmarks. Statistical uncertainty. The main training comparisons report point estimates with-out multi-seed uncertainty intervals because full OSPD training is computationally expensive; small differences between closely performing methods should therefore be interpreted cautiously. 
+
+Ethics Statement 
+
+Role-playing language models carry risks of mis-use, including impersonation of real individuals and generation of harmful content under a charac-ter’s guise. Our training data uses existing research datasets derived from published literary works; we do not train on profiles of real individuals and do not redistribute the source data with our code. The source material may nevertheless contain mature or offensive fictional content, and we did not conduct a new systematic PII or offensive-content audit be-yond excluding real-person profiles. Users must obtain the datasets under their original terms and should inspect them for their deployment context. The PCV trajectory filter screens for content that deviates from the intended character, but it is not a general-purpose safety classifier. We encourage fu-ture deployments to pair OSPD with content-safety classifiers and to clearly disclose the AI nature of the agent to end users. 
+
+Acknowledgments 
+
+We thank the anonymous reviewers and meta-reviewer for their constructive feedback. During camera-ready preparation, we used OpenAI Codex to assist with formatting, code review, and lan-guage editing. The authors reviewed all suggested changes and remain fully responsible for the paper and released artifacts. 
+
+References     
+
+> Marwa Abdulhai, Ryan Cheng, Donovan Clay, Tim Althoff, Sergey Levine, and Natasha Jaques. 2025. Consistently simulating human personas with multi-turn reinforcement learning. In Advances in Neural Information Processing Systems , volume 38, pages 52920–52957. Curran Associates, Inc. Rishabh Agarwal, Nino Vieillard, Yongchao Zhou, Pi-otr Stanczyk, Sabela Ramos Garea, Matthieu Geist, and Olivier Bachem. 2024. On-policy distillation of language models: Learning from self-generated mistakes. In International Conference on Learning Representations , volume 2024, pages 21246–21263. Hongzhan Chen, Hehong Chen, Ming Yan, Wenshen Xu, Gao Xing, Weizhou Shen, Xiaojun Quan, Chen-liang Li, Ji Zhang, and Fei Huang. 2024a. Social-Bench: Sociality evaluation of role-playing conversa-tional agents. In Findings of the Association for Com-putational Linguistics: ACL 2024 , pages 2108–2126, Bangkok, Thailand. Association for Computational Linguistics.
+
+Zixiang Chen, Yihe Deng, Huizhuo Yuan, Kaixuan Ji, and Quanquan Gu. 2024b. Self-play fine-tuning converts weak language models to strong language models. In Proceedings of the 41st International Conference on Machine Learning , volume 235 of 
+
+Proceedings of Machine Learning Research , pages 6621–6642. PMLR. Yuxian Gu, Li Dong, Furu Wei, and Minlie Huang. 2024. MiniLLM: Knowledge distillation of large language models. In International Conference on Learning Representations , volume 2024, pages 32694–32717. Ke Ji, Yixin Lian, Linxu Li, Jingsheng Gao, Weiyuan Li, and Bin Dai. 2025. Enhancing persona consis-tency for LLMs’ role-playing using persona-aware contrastive learning. In Findings of the Association for Computational Linguistics: ACL 2025 , pages 26221–26238, Vienna, Austria. Association for Com-putational Linguistics. Woogyeol Jin, Taywon Min, Yongjin Yang, Dennis Wei, Yi Zhou, Swanand Ravindra Kadhe, Nathalie Baracaldo, and Kimin Lee. 2026. Entropy-aware on-policy distillation of language models. Preprint ,arXiv:2603.07079. Seongryong Jung, Suwan Yoon, DongGeon Kim, and Hwanhee Lee. 2025. ToDi: Token-wise distilla-tion via fine-grained divergence control. In Proceed-ings of the 2025 Conference on Empirical Methods in Natural Language Processing , pages 8078–8091, Suzhou, China. Association for Computational Lin-guistics. Jongwoo Ko, Sungnyun Kim, Tianyi Chen, and Se-Young Yun. 2024. DistiLLM: Towards streamlined distillation for large language models. In Proceed-ings of the 41st International Conference on Machine Learning , volume 235 of Proceedings of Machine Learning Research , pages 24872–24895. PMLR. Emiliano Penaloza, Dheeraj Vattikonda, Nicolas Gon-tier, Alexandre Lacoste, Laurent Charlin, and Massimo Caccia. 2026. Privileged informa-tion distillation for language models. Preprint ,arXiv:2602.04942. Haiming Qin, Jiwei Zhang, Wei Zhang, KeZhong Lu, Mingyang Zhou, Hao Liao, and Rui Mao. 2025. R-CHAR: A metacognition-driven framework for role-playing in large language models. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , pages 26996–27014, Suzhou, China. Association for Computational Lin-guistics. Stephane Ross, Geoffrey Gordon, and Drew Bagnell. 2011. A reduction of imitation learning and struc-tured prediction to no-regret online learning. In Pro-ceedings of the Fourteenth International Conference on Artificial Intelligence and Statistics , volume 15 of 
+
+Proceedings of Machine Learning Research , pages 627–635, Fort Lauderdale, FL, USA. PMLR. Mingyang Song and Mao Zheng. 2026. A survey of on-policy distillation for large language models. 
+
+Preprint , arXiv:2604.00626. Alex Stein, Furong Huang, and Tom Goldstein. 2026. GATES: Self-distillation under privileged context with consensus gating. Preprint , arXiv:2602.20574. Yihong Tang, Kehai Chen, Muyun Yang, Zheng-Yu Niu, Jing Li, Tiejun Zhao, and Min Zhang. 2025. Thinking in character: Advancing role-playing agents with role-aware reasoning. In Advances in Neural Information Processing Systems , volume 38, pages 117765–117799. Curran Associates, Inc. Antti Tarvainen and Harri Valpola. 2017. Mean teachers are better role models: Weight-averaged consistency targets improve semi-supervised deep learning re-sults. In Advances in Neural Information Processing Systems , volume 30. Curran Associates, Inc. Quan Tu, Shilong Fan, Zihang Tian, Tianhao Shen, Shuo Shang, Xin Gao, and Rui Yan. 2024. Charac-terEval: A Chinese benchmark for role-playing con-versational agent evaluation. In Proceedings of the 62nd Annual Meeting of the Association for Compu-tational Linguistics (Volume 1: Long Papers) , pages 11836–11850, Bangkok, Thailand. Association for Computational Linguistics. Xintao Wang, Heng Wang, Yifei Zhang, Xinfeng Yuan, Rui Xu, Jen-Tse Huang, Siyu Yuan, Haoran Guo, Jiangjie Chen, Shuchang Zhou, Wei Wang, and Yanghua Xiao. 2025. CoSER: Coordinating LLM-based persona simulation of established roles. In 
+
+Proceedings of the 42nd International Conference on Machine Learning , volume 267 of Proceedings of Machine Learning Research , pages 64822–64858. PMLR. Xintao Wang, Yunze Xiao, Jen-tse Huang, Siyu Yuan, Rui Xu, Haoran Guo, Quan Tu, Yaying Fei, Ziang Leng, Wei Wang, Jiangjie Chen, Cheng Li, and Yanghua Xiao. 2024. InCharacter: Evaluating per-sonality fidelity in role-playing agents through psy-chological interviews. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 1840– 1873, Bangkok, Thailand. Association for Computa-tional Linguistics. Zongsheng Wang, Kaili Sun, Bowen Wu, Qun Yu, Ying Li, Xu Chen, and Baoxun Wang. 2026. Veri-Role: Verifiable role-awareness through hint-guided reinforcement learning. In The Fourteenth Inter-national Conference on Learning Representations ,pages 11102–11122. Rui Xu, Dakuan Lu, Xiaoyu Tan, Xintao Wang, Siyu Yuan, Jiangjie Chen, Wei Chu, and Yinghui Xu. 2024. MINDECHO: Role-playing language agents for key opinion leaders. Preprint , arXiv:2407.05305. Rui Xu, Mingyu Wang, Xintao Wang, Dakuan Lu, Xi-aoyu Tan, Wei Chu, and Yinghui Xu. 2025a. Guess what I am thinking: A benchmark for inner thought reasoning of role-playing language agents. In Find-ings of the Association for Computational Linguistics: EMNLP 2025 , pages 15148–15168, Suzhou, China. Association for Computational Linguistics. Rui Xu, Xintao Wang, Jiangjie Chen, Siyu Yuan, Xin-feng Yuan, Jiaqing Liang, Zulong Chen, Xiaoqing Dong, and Yanghua Xiao. 2025b. Character is des-tiny: Can role-playing language agents make persona-driven decisions? In Findings of the Association for Computational Linguistics: EMNLP 2025 , pages 15038–15059, Suzhou, China. Association for Com-putational Linguistics. Jing Ye, Rui Wang, Yuchuan Wu, Victor Ma, Feiteng Fang, Fei Huang, and Yongbin Li. 2025. CPO: Ad-dressing reward ambiguity in role-playing dialogue via comparative policy optimization. In Findings of the Association for Computational Linguistics: EMNLP 2025 , pages 297–323, Suzhou, China. Asso-ciation for Computational Linguistics. Tianzhu Ye, Li Dong, Xun Wu, Shaohan Huang, and Furu Wei. 2026. On-policy context distillation for language models. Preprint , arXiv:2602.12275. Yeyong Yu, Runsheng Yu, Haojie Wei, Zhanqiu Zhang, and Quan Qian. 2025. Beyond dialogue: A profile-dialogue alignment framework towards general role-playing language model. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 11992– 12022, Vienna, Austria. Association for Computa-tional Linguistics. Siyan Zhao, Zhihui Xie, Mengchen Liu, Jing Huang, Guan Pang, Feiyu Chen, and Aditya Grover. 2026. Self-distilled reasoner: On-policy self-distillation for large language models. Preprint , arXiv:2601.18734. Jinfeng Zhou, Yongkang Huang, Bosi Wen, Guanqun Bi, Yuxuan Chen, Pei Ke, Zhuang Chen, Xiyao Xiao, Libiao Peng, Kuntian Tang, Rongsheng Zhang, Le Zhang, Tangjie Lv, Zhipeng Hu, Hongning Wang, and Minlie Huang. 2025. CharacterBench: Bench-marking character customization of large language models. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 39, pages 26101– 26110. 
+
+A Preliminary Study: Privileged Information Gap 
+
+Before developing OSPD, we conduct a prelim-inary study to quantify the performance gap be-tween complete and condensed character profiles and to validate the bimodal confidence structure that motivates our divergence switching mecha-nism. 
+
+A.1 Setup 
+
+We select 50 characters from CoSER spanning five literary genres: classical literature (12 characters), contemporary fiction (15), drama (8), historical biography (8), and fantasy/science fiction (7). For each character, we construct cfull (∼2 000 tokens) from CoSER’s structured character knowledge base covering all five trait dimensions, and cbrief (∼100 tokens) retaining only name and core personality. Using Qwen2.5-7B-Instruct without any fine-tuning, we generate 50 multi-turn dialogues per character (10 turns each) under both conditions. The dialogue partner is a separate Qwen2.5-7B-Instruct instance that mixes natural conversation (70%) with persona-probing questions (30%) de-signed from cfull . All responses are evaluated by GPT-5.1 on five trait dimensions: identity con-sistency, personality fidelity, knowledge accuracy, style adherence, and historical coherence, each scored on a 0–100 scale. 
+
+A.2 Privileged Information Gap Results 
+
+Table 5: Persona consistency scores under complete pro-file ( cfull ) and brief summary ( cbrief ) conditions, evalu-ated by GPT-5.1 across five trait dimensions. ∆ denotes the absolute gap. 
+
+Dimension cfull cbrief ∆
+
+Identity 85.3 80.1 5.2 Personality 78.6 65.8 12.8 Knowledge 72.4 43.9 28.5 Style 76.2 57.9 18.3 History 68.5 42.8 25.7 Overall 76.2 58.1 18.1 Identity Personality Knowledge Style History 020 40 60 80 100   
+
+> Persona Consistency Score  Δ5.2
+> Δ12.8
+> Δ28.5
+> Δ18.3
+> Δ25.7
+> cfull (Complete Profile)
+> cbrief (Brief Summary)
+
+Figure 5: Privileged information gap across five trait dimensions. Knowledge and History suffer the largest drops when switching from cfull to cbrief .
+
+Table 5 and Figure 5 reveal three findings. First ,the overall gap is 18.1 points, confirming that privi-leged information provides a substantial advantage. 
+
+Second , the gap varies dramatically across dimen-sions: identity (5.2 points) is easily preserved from a brief summary, while knowledge (28.5) and his-tory (25.7) suffer the largest drops—these dimen-sions require specific factual content that cannot be inferred from name and personality alone. Third ,style (18.3) occupies a middle ground: the model captures coarse stylistic traits from brief descrip-tions but misses idiosyncratic speech patterns doc-umented in the full profile. We additionally compute token-level KL diver-gence DKL (πfull ∥πbrief ) between the model’s dis-tributions under both conditions. The mean KL divergence is 0.42 nats, but with high variance (σ = 0 .38 ). Positions with KL > 1.0 account for 23% of tokens and overwhelmingly correspond to character-specific terminology, knowledge refer-ences, and stylistic markers—exactly the positions where privileged information is most informative. 
+
+A.3 Bimodal Confidence Structure Validation 
+
+To validate the bimodal confidence hypothesis, we compare the teacher entropy distribution of role-playing dialogue against two control tasks: mathe-matical reasoning (GSM8K) and open-domain chat (ShareGPT). For each task, we compute Hk =
+
+H(πT (· | context , ˆa<k )) at each token position across 500 samples and fit a Gaussian mixture model (GMM) with K = 2 components. 
+
+Table 6: Bimodal fit statistics for teacher entropy dis-tributions across three task types. BIC: Bayesian Infor-mation Criterion (lower is better for the selected K). 
+
+∆BIC = BIC( K=1) − BIC( K=2); positive values favor the two-component model.                 
+
+> Task Type ∆BIC μ1μ2Sep.
+> Role-playing dialogue +842 0.31 2.15 1.84 Math reasoning +127 0.18 0.85 0.67 Open-domain chat +53 1.68 2.82 1.14
+
+Table 6 and Figure 6 show that role-playing di-alogue exhibits by far the strongest bimodal sepa-ration ( ∆BIC = +842, component separation 1.84 nats), compared to math reasoning (concentrated at low entropy, weak secondary mode) and open chat (concentrated at high entropy). This con-firms that the privileged profile creates two distinct regimes in role-playing dialogue: decisive guid-ance at character-critical positions and minimal advantage at generic positions. To validate the semantic correspondence, we manually annotate 100 randomly sampled tokens from each of the low-entropy ( Hk < 0.5) and high-entropy ( Hk > 2.0) clusters. Among low-0 1 2 3  
+
+> Teacher entropy component mean μ
+> Role-playing dialogue Math reasoning Open-domain chat
+> ΔBIC=842
+> ΔBIC=127
+> ΔBIC=53
+> μ1μ2
+
+Figure 6: Fitted two-component GMM means for teacher entropy across three task types. Horizontal seg-ments show component separation; labels report the corresponding ∆BIC from Table 6. 
+
+entropy tokens, 72% are character-specific knowl-edge terms, 15% are catchphrases or stylistic mark-ers, and 13% are value-laden expressions. Among high-entropy tokens, 64% are discourse markers and fillers, 22% are common greetings or transi-tions, and 14% are open-ended expressions. 
+
+B Implementation Details 
+
+B.1 Hyperparameters 
+
+Table 7: Complete hyperparameter configuration for OSPD.                              
+
+> Hyperparameter Value
+> Model & LoRA
+> Base model Qwen2.5-7B-Instruct LoRA rank / α/ dropout 64 / 16 / 0.1 LoRA targets q, k, v, o_proj
+> Optimization
+> Optimizer AdamW ( β1=0.9, β 2=0.999 )Learning rate 2e-5, cosine, 100-step warmup Weight decay / grad clip 0.01 / 1.0 Batch size 16 dialogues per step
+> OSPD-specific
+> EMA momentum α0.995 Div. temperature τ1.0 (Stg. 2), 2.0 (Stg. 1) SFT loss weight λ0.5 Rollout length 20 turns (Stg. 1), 40 (Stg. 2) Epochs 1 (Stg. 1), 2 (Stg. 2) PCV threshold 0.6 (turn), 0.7 (dialogue)
+> Inference
+> Decoding Top-p(p= 0 .9, T = 0 .7)Max response length 512 tokens
+
+B.2 Training Infrastructure 
+
+All experiments run on a single node with 8×NVIDIA H100 80GB GPUs. On-policy tra-jectory generation uses vLLM (v0.4.1) for batched inference with tensor parallelism across 4 GPUs. The remaining 4 GPUs handle gradient computa-tion via DeepSpeed ZeRO Stage 2. Teacher evalu-ation (Step 2 in §3.2) runs on the vLLM instance with the EMA checkpoint loaded; checkpoint syn-chronization occurs every training step via shared NVMe storage. 
+
+Table 8: Wall-clock training time breakdown for OSPD (Qwen2.5-7B, 3 epochs total, 8 ×H100).               
+
+> Component Hrs %
+> On-policy generation 8.2 44.1 Teacher eval. (dual fwd.) 5.1 27.4 Divergence & gradient 3.8 20.4 PCV filtering 0.9 4.8 EMA & checkpointing 0.6 3.2
+> Total 18.6 100
+
+Trajectory generation dominates wall-clock time (44.1%), as each training step requires generating multi-turn dialogues from the student’s current pol-icy. The dual forward pass (teacher evaluation) adds 27.4%. Overall, OSPD training takes approx-imately 4.4 × the wall-clock time of standard SFT (4.2 hours) but substantially less than Multi-turn RL (38.5 hours), which additionally requires a critic model and PPO-style rollout buffers. 
+
+B.3 Evaluation Protocol CharacterBench. We follow the official evalu-ation protocol, submitting model responses to the CharacterBench API. Each character is evaluated through 5–7 multi-turn dialogues, and scores are averaged across 11 dimensions. We report the three aggregate scores: Attribute consistency (Attr.), Be-havioral consistency (Behav.), and the overall Av-erage (Avg.). 
+
+CharacterEval. We generate 5-turn dialogues for each of the 77 characters using the official prompts. Using the CharacterEval rubric, GPT-5.1 scores persona–utterance alignment (PU, per-turn) and persona–behavior alignment (PB, cross-turn). 
+
+SocialBench. We follow the official evaluation script, generating responses to 6,000+ character-specific questions and 30,800+ multi-turn dia-logues. The evaluation covers three dimensions: character Knowledge (factual accuracy about the character), character Style (linguistic and behav-ioral fidelity), and social intelligence. We re-port Knowledge and Style as the primary persona-consistency metrics. 
+
+GPT-5.1 Judge Configuration. All GPT-5.1 evaluations use gpt-5.1-2026-01-15 with temperature 0 and max tokens 1024. To mitigate position bias, we randomize the order of compared outputs and average over two evaluations per sam-ple. The evaluation prompt instructs the judge to score each dimension independently on a 0–100 scale with explicit rubric anchors at 0, 25, 50, 75, and 100. 
+
+C Prompt Templates 
+
+C.1 Character Profile Examples 
+
+We provide two representative character profiles illustrating the contrast between cfull and cbrief .
+
+Example 1: Sherlock Holmes. cfull (Complete Profile, ∼1 800 tokens):       
+
+> Identity. Sherlock Holmes is a consulting detec-tive residing at 221B Baker Street, London. He is approximately 35 years old, unmarried, and works independently with cases referred by Scot-land Yard and private clients. His closest associate is Dr. John Watson, a former army surgeon who serves as his biographer and companion. His land-lady is Mrs. Hudson. His elder brother Mycroft Holmes holds an influential position in the British government.
+> Personality. Holmes possesses an extraordinarily analytical mind with an almost obsessive atten-tion to detail. He is intellectually arrogant but self-aware about this trait. He oscillates between manic energy during cases and profound lethargy between them. He values logic and reason above sentiment, often appearing cold or insensitive, yet demonstrates deep loyalty to Watson. He has a strong moral compass but operates outside con-ventional social norms. He is prone to dramatic flair when revealing deductions.
+> Knowledge. Expert in chemistry (particularly poisons and forensic analysis), anatomy, botany (limited to poisonous plants), geology (practical), criminal law, sensational literature, and the geog-raphy of London. Deliberately ignorant of astron-omy, philosophy, and politics. Maintains exten-sive files on criminal cases and individuals. Plays violin proficiently. Has published monographs on tobacco ash, typefaces, and tattoos.
+> Style. Speaks in precise, clipped sentences when deducing; longer, more contemplative passages when theorizing. Frequently uses rhetorical ques-tions (“You see, but you do not observe”). Em-ploys technical terminology from chemistry and anatomy naturally. Addresses Watson as “my dear Watson” or simply “Watson.” Uses dry, sardonic humor. Avoids emotional language; describes feelings in clinical terms.
+> History. Attended university where he first de-veloped his deductive method. Spent two years
+
+as a young man in Montague Street before es-tablishing practice at Baker Street. Survived a confrontation with Professor Moriarty at the Re-ichenbach Falls, spending three years traveling incognito (the “Great Hiatus”). Has been physi-cally assaulted during cases on multiple occasions and bears several scars. His first significant case involved a college friend’s father. 
+
+cbrief (Brief Summary, ∼80 tokens): 
+
+Sherlock Holmes is a brilliant consulting detective known for exceptional deductive reasoning and keen observation. He is analytical, intellectually arrogant, and often socially detached. He resides at 221B Baker Street, London, and works closely with his companion Dr. John Watson. 
+
+Example 2: Lin Daiyu. cfull (Complete Profile, 
+
+∼2 100 tokens): 
+
+Identity. Lin Daiyu is a young woman of no-ble birth, daughter of Lin Ruhai (a Yangzhou salt commissioner) and Jia Min (daughter of the Jia family). After her mother’s death, she was brought to the Rongguo Mansion to live with her maternal grandmother, the Dowager Jia. She is approximately 14–16 years old throughout the narrative. Her closest bond is with Jia Baoyu, her cousin and soulmate. 
+
+Personality. Daiyu is extraordinarily sensitive, emotionally intense, and deeply intelligent. She is quick to perceive slights (real or imagined) and prone to jealousy, particularly regarding Baoyu’s attention to Xue Baochai. Beneath her prickly exterior lies profound vulnerability rooted in her orphan status and precarious position as a depen-dent in the Jia household. She values authentic-ity and sincerity above social convention, often clashing with the pragmatic expectations of her environment. 
+
+Knowledge. Exceptionally talented in classical Chinese poetry and literature. She composes po-ems spontaneously with technical mastery and emotional depth. Well-versed in Buddhist and Daoist philosophical concepts. Has read for-bidden novels including Romance of the West-ern Chamber . Knowledgeable about traditional medicine due to her chronic illness. 
+
+Style. Speaks with sharp wit and literary allusion, often embedding poetic references. Uses self-deprecating humor tinged with melancholy. Her language shifts between cutting sarcasm (when jealous or defensive) and tender vulnerability (with Baoyu or when composing poetry). Fre-quently coughs or references her illness. Ad-dresses servants with more warmth than she shows most aristocratic peers. 
+
+History. Lost her mother at a young age and was sent to the Jia household. Has suffered from chronic illness since childhood and takes daily herbal medicine. Formed a deep spiritual bond with Baoyu upon their first meeting, with both feeling they had met before. Won the poetry com-petition in the Grand View Garden. Secretly ex-changed handkerchiefs with Baoyu as tokens of affection. Burned her poems and manuscripts before her death. 
+
+cbrief (Brief Summary, ∼90 tokens): 
+
+Lin Daiyu is a young noblewoman of exceptional poetic talent and emotional sensitivity. She is in-telligent, melancholic, and prone to jealousy, with a sharp wit that masks deep vulnerability. An or-phan living as a dependent in her grandmother’s wealthy household, she shares a profound roman-tic bond with her cousin Jia Baoyu. 
+
+C.2 Trait Masking Examples 
+
+During Stage 1, the student receives a compressed version of all five dimensions ( ∼500 tokens). Dur-ing Stage 2, only Identity and Personality re-main; Knowledge, Style, and History are removed. Table 9 illustrates this progression for Sherlock Holmes. 
+
+Table 9: Student input at each training stage for Sherlock Holmes. 
+
+Stage Student Input 
+
+Stage 1 Sherlock Holmes, consulting detective at 221B Baker Street, companion Dr. Watson. Analytical, arrogant, dramatic. Expert in chemistry and foren-sics. Speaks precisely with rhetorical questions and dry humor. Survived Reichenbach Falls con-frontation with Moriarty. Stage 2 Sherlock Holmes is a consulting detective at 221B Baker Street. Works with Dr. Watson. Analytical, intellectually arrogant, and socially detached. 
+
+C.3 PCV Evaluation Prompt 
+
+The Persona Consistency Verifier (PCV) operates at two levels. The turn-level prompt evaluates a sin-gle response; the dialogue-level prompt evaluates cross-turn consistency. 
+
+Turn-Level PCV Prompt. 
+
+You are evaluating whether a character’s dialogue response is consistent with their assigned persona profile. 
+
+Character Profile: 
+
+{character_profile} 
+
+Dialogue History: 
+
+{dialogue_history} 
+
+Character Response: 
+
+{response} Evaluate the response on the following dimen-sions (score 0–100 each): 1. Trait Adherence : Does the response reflect the character’s stated personality traits, values, and emotional disposition? 2. Knowledge Accuracy : If the response refer-ences domain knowledge, is it consistent with the character’s documented expertise? 3. Linguistic Fidelity : Does the speech pattern match the character’s documented style (vocabu-lary, register, catchphrases)? 4. Behavioral Consistency : Is the character’s ac-tion or reaction plausible given their documented history and personality? Return a JSON object: {“trait”: score, “knowl-edge”: score, “style”: score, “behavior”: score, “accept”: true/false}. Set “accept” to true if ALL scores are ≥ 60. 
+
+Dialogue-Level PCV Prompt. 
+
+You are evaluating the cross-turn consistency of a character across an entire dialogue. 
+
+Character Profile: 
+
+{character_profile} 
+
+Full Dialogue (N turns): 
+
+{full_dialogue} Evaluate cross-turn consistency: 1. Personality Stability : Does the character main-tain consistent values, emotional patterns, and be-havioral tendencies across all turns? 2. Knowledge Coherence : Are factual claims consistent across turns? Does the character avoid contradicting previously stated information? 3. Style Continuity : Does the linguistic style remain stable throughout? Return a JSON object: {“stability”: score, “coher-ence”: score, “style”: score, “accept”: true/false}. Set “accept” to true if ALL scores are ≥ 70. 
+
+C.4 Dialogue Partner Prompts 
+
+The dialogue partner generates user-side utterances during on-policy trajectory generation. We employ two modes, randomly selected at each turn. 
+
+Natural Conversation Mode (70%). 
+
+You are having a natural conversation with {char-acter_name}. Engage as a curious and friendly conversation partner. Ask follow-up questions, share your own (fictional) thoughts, and respond naturally to what the character says. Do NOT probe for specific facts about the character; let the conversation flow organically. Keep your re-sponses to 1–3 sentences. 
+
+Persona-Probing Mode (30%). 
+
+You are testing whether {character_name} can maintain their persona. Based on the following character knowledge, ask a question that requires the character to demonstrate specific knowledge, personality traits, or behavioral patterns from their profile. 
+
+Character Knowledge (selected dimension): 
+
+{selected_trait_from_c_full} Ask a natural-sounding question that indirectly probes this knowledge. Do NOT quote the pro-file directly or make the question feel like a quiz. Keep your question to 1–2 sentences. 
+
+Table 10: EMA teacher variants. “Periodic ( K=50)” updates the teacher by copying student parameters every 50 gradient steps. “Naive shared” uses the student’s current parameters as the teacher (no EMA). 
+
+Teacher Update Strategy CB Avg. ↑ CE PU ↑
+
+EMA α=0.990 3.43 3.39 EMA α=0.995 (default) 3.51 3.48 EMA α=0.999 3.46 3.42 Periodic ( K=50) 3.39 3.35 Naive shared 3.26 3.19 
+
+D Extended Ablation Studies 
+
+D.1 EMA Teacher Variants 
+
+Table 10 confirms that EMA stabilization is criti-cal: naive parameter sharing degrades performance by 0.25 CB Avg. and 0.29 CE PU due to moving-target oscillation. Among EMA configurations, 
+
+α=0.995 achieves the best balance between target stability and responsiveness to student improve-ment. α=0.990 updates too aggressively, partially inheriting the moving-target problem ( −0.08 CB Avg.). α=0.999 updates too slowly, causing the teacher to lag behind the student’s improving pol-icy and provide stale supervision ( −0.05 CB Avg.). Periodic snapshot updates ( K=50) underperform EMA because the abrupt target shifts at snapshot boundaries cause gradient spikes, which we ob-serve as training loss oscillation in the loss curves. 
+
+D.2 PCV Implementation Variants 
+
+Table 11: PCV implementation comparison. Accept Rate denotes the proportion of generated trajectories passing the filter. 
+
+PCV Variant CB Avg. ↑ CE PU ↑ Accept 
+
+GPT-5.1 judge (default) 3.51 3.48 72.3% Embedding MLP 3.48 3.41 78.5% No PCV 3.47 3.38 100% 
+
+The GPT-5.1 judge outperforms the embedding-based MLP classifier, particularly on CharacterEval (+0.07 PU), despite filtering more trajectories (72.3% vs. 78.5% acceptance rate). The MLP clas-sifier, trained on 5,000 manually labeled trajec-tory segments using sentence embeddings from a frozen encoder, captures surface-level consistency but misses subtle persona violations that the GPT-5.1 judge detects through reasoning. Both PCV im-plementations outperform no filtering, confirming that trajectory quality control benefits distillation. D.3 SFT Loss Weight                       
+
+> Table 12: Effect of SFT loss weight λon performance and generation quality. Fluency: GPT-5.1 fluency score (0–100).
+> λCB Avg. ↑CE PU ↑IR ↑Fluency ↑
+> 03.38 3.29 0.83 72.4 0.1 3.49 3.46 0.85 85.3 0.5 3.51 3.48 0.86 91.7 1.0 3.48 3.44 0.84 93.2
+
+Without SFT regularization ( λ = 0 ), the model achieves reasonable persona consistency but suf-fers significant fluency degradation (72.4), with outputs exhibiting repetitive patterns and incom-plete sentences—symptoms of mode collapse un-der pure distributional matching. λ = 0 .1 restores most fluency (85.3) and persona scores. λ = 0 .5
+
+provides the best overall balance: near-optimal flu-ency (91.7) with peak persona consistency. λ = 1 .0
+
+slightly reduces persona scores as the SFT objec-tive begins to compete with the distillation signal, prioritizing generic dialogue quality over character fidelity. 
+
+D.4 Divergence Temperature Sensitivity                         
+
+> Table 13: Effect of divergence switching temperature
+> τon gate behavior and downstream performance. ¯α
+> denotes the mean gate value; σαthe standard deviation.
+> τCB Avg. ↑CE PU ↑¯ασα
+> 0.5 3.41 3.38 0.49 0.42 1.0 3.51 3.48 0.51 0.34 2.0 3.48 3.44 0.50 0.25 5.0 3.41 3.37 0.50 0.12
+
+The temperature τ controls gate sharpness. Low 
+
+τ (0.5) produces near-binary gating ( σα = 0 .42 ): most positions receive either pure reverse or pure forward KL, creating a harsh transition that misclas-sifies ambiguous tokens. The default τ = 1 .0 pro-duces a clear bimodal distribution while retaining a graded transition zone. High τ (2.0, 5.0) increas-ingly smooths the gate toward a uniform mixture, effectively degenerating toward a fixed 50/50 blend and losing the adaptive advantage ( −0.10 CB Avg. at τ = 5 .0). 
+
+E Scaling and Efficiency 
+
+E.1 Model Scale: 7B vs. 14B 
+
+Table 14 presents the full scaling comparison. OSPD at 14B achieves the highest absolute per-formance across all metrics (3.64 CB Avg., 0.91 IR), indicating that the framework scales effectively with model capacity. The improvement of OSPD over SFT is consistent across scales ( +0.51 CB Avg. at 7B, +0.45 at 14B), suggesting that the self-distillation benefit is not diminished at larger scale. The slight reduction in relative improvement at 14B (−0.06 CB Avg. gap) is consistent with the hypoth-esis that larger models already internalize more character knowledge from brief profiles, narrowing the privileged information gap. Notably, the IR im-provement is nearly identical (+0.15 at 7B, +0.16 at 14B), indicating that the internalization mechanism is scale-independent. 
+
+E.2 Efficiency Analysis 
+
+OSPD occupies a favorable efficiency– performance trade-off: it achieves the highest CB Avg. (3.51) while requiring only 18.6 hours—less than half the cost of Multi-turn RL (38.5 hours, 78 GB peak memory). Compared to Off-policy Distillation, OSPD uses less peak GPU memory (52 vs. 72 GB) because it does not load a separate 72B teacher, instead reusing the student’s own parameters with an EMA copy. The primary computational overhead relative to SFT is the on-policy rollout generation (8.2 hours) and dual forward pass for teacher evaluation (5.1 hours); both scale linearly with rollout length and can be parallelized across dialogue instances. 
+
+F Representation Probing 
+
+F.1 Probing Setup 
+
+To assess how deeply different training methods internalize character knowledge, we train linear probes on the model’s hidden representations. For each trait dimension d ∈ { Identity, Personality, Knowledge, Style, History }, we construct a bi-nary classification task: given a hidden state at a character-relevant token position, predict whether the model was conditioned on cfull or cbrief . Higher probing accuracy indicates that the representa-tion encodes more dimension-specific character information—and thus that the model has inter-nalized more of that dimension into its parameters. We extract hidden states from layer l at token po-sitions identified by the PCV as character-relevant. The probe is a single linear layer trained with lo-gistic regression (L2 regularization C = 1 .0) on 10,000 samples per dimension (80/20 train/test split). We probe every 4th layer of the 32-layer Table 14: Full comparison between Qwen2.5-7B-Instruct and Qwen2.5-14B-Instruct across all benchmarks and metrics. Both models use the same OSPD configuration. 
+
+Scale CharacterBench CharacterEval SocialBench IR ↑
+
+Attr. ↑ Behav. ↑ Avg. ↑ PU ↑ PB ↑ Know. ↑ Style ↑
+
+SFT Baselines 
+
+7B 3.12 2.94 3.00 2.97 2.84 57.2 61.5 0.71 14B 3.29 3.13 3.19 3.16 3.01 61.5 64.8 0.75 OSPD 7B 3.58 3.47 3.51 3.48 3.49 67.3 67.9 0.86 14B 3.71 3.61 3.64 3.63 3.66 70.8 71.5 0.91 OSPD Improvement over SFT 7B +0.46 +0.53 +0.51 +0.51 +0.65 +10.1 +6.4 +0.15 14B +0.42 +0.48 +0.45 +0.47 +0.65 +9.3 +6.7 +0.16 
+
+Table 15: Training efficiency comparison (Qwen2.5-7B, 3 epochs, 8 ×H100). GPU Mem.: peak per-GPU memory. Separate teacher column indicates whether a distinct model is loaded. 
+
+Method Hrs GB Ext. T CB 
+
+SFT 4.2 42 × 3.00 SFT+DPO 7.8 48 × 3.15 Multi-turn RL 38.5 78 × 3.39 Off-pol. Dist. 12.8 72 ✓ 3.27 OSPD 18.6 52 × 3.51 
+
+Qwen2.5-7B model (layers 4, 8, 12, 16, 20, 24, 28, 32) and report results for three training methods: SFT, Multi-turn RL, and OSPD. 
+
+F.2 Probing Results 
+
+Table 16: Linear probing accuracy (%) per trait di-mension, extracted from layer 24 (best overall layer). Higher accuracy means the representation captures more dimension-specific information. 
+
+Dimension SFT Multi-turn RL OSPD 
+
+Identity 86.3 89.5 92.1 Personality 74.8 80.2 85.7 Knowledge 58.2 68.5 78.3 Style 65.3 74.8 81.5 History 51.7 62.3 72.8 Average 67.3 75.1 82.1 
+
+Table 16 reveals that OSPD produces substan-tially richer character representations than both baselines. The largest gap appears in knowledge (+20.1 over SFT, +9.8 over Multi-turn RL) and history ( +21.1 over SFT, +10.5 over Multi-turn RL), precisely the dimensions most affected by trait masking. This confirms that progressive masking forces the model to encode deep character infor-mation into its hidden representations rather than Identity Personality Knowledge Style History          
+
+> 50 60 70 80 90 100
+> Probing Accuracy (%)
+> (a)
+> 4812 16 20 24 28 32
+> Layer
+> 55 60 65 70 75 80 85
+> Average Probing Accuracy (%)
+> peak
+> (b)
+> SFT Multi-turn RL OSPD
+
+Figure 7: Representation probing results. (a) Per-dimension probing accuracy at layer 24. (b) Layer-wise average probing accuracy. OSPD enriches deeper lay-ers where abstract character knowledge is encoded, with the gap peaking at layer 24. 
+
+relying on the input context. Figure 7b shows that all methods exhibit an inverted-U pattern across layers, peaking at lay-ers 20–24 (upper-middle layers). Notably, OSPD maintains a growing advantage over baselines from layer 12 onward, with the gap peaking at layer 24 (+14.8 over SFT, +7.0 over Multi-turn RL). This suggests that OSPD primarily enriches the deeper representational layers where abstract character knowledge is encoded, consistent with findings that later transformer layers capture more semantic and world-knowledge information. 
+
+G Bimodal Structure Deep Dive 
+
+G.1 Gate Distribution Evolution During Training 
+
+We track the distribution of gate values αk across training to examine whether the bimodal structure changes as the student improves. Figure 8 and Table 17 show two trends. First ,the bimodal structure strengthens during training: the bimodality coefficient increases from 0.61 to 0.73, and the mid-range proportion ( 0.3 ≤ αk ≤
+
+0.7) shrinks from 28.5% to 19.8%. As the student S1 start S1 end S2 Ep. 1 S2 Ep. 2 020 40 60 80 100        
+
+> Token share (%)
+> 28.5 23.2 20.1 19.8
+> Low ( αk< 0.3 )Intermediate High ( αk> 0.7 )
+
+Figure 8: Gate-regime proportions during training, us-ing the thresholds in Table 17. The intermediate propor-tion shrinks as the two extreme regimes become more prominent. Table 17: Gate distribution statistics across training. Low: αk < 0.3; Mid: 0.3 ≤ αk ≤ 0.7; High: αk > 0.7.Bicoeff. > 0.555 indicates bimodality.                     
+
+> Stage Low Mid High Bicoeff.
+> S1, Ep. 1 start 32.1 28.5 39.4 0.61 S1, Ep. 1 end 35.8 23.2 41.0 0.67 S2, Ep. 1 end 38.2 20.1 41.7 0.72 S2, Ep. 2 end 38.5 19.8 41.7 0.73
+
+internalizes character knowledge, the teacher’s con-fidence advantage concentrates further at the re-maining character-critical positions that the student has not yet mastered. Second , the overall ratio of low-αk to high-αk tokens remains stable (approx-imately 38:42), indicating that the bimodal struc-ture reflects an intrinsic property of role-playing dialogue rather than a training artifact. 
+
+G.2 Cross-Character and Cross-Topic Stability 
+
+Table 18: Gate distribution stability across character types. Sep.: GMM component separation (nats).                         
+
+> Type Low % High % Bicoeff. Sep.
+> Literary classic 41.2 39.5 0.75 1.92 Contemp. fiction 36.8 43.7 0.71 1.78 Antagonist 43.5 37.2 0.78 2.05 Historical 39.1 40.8 0.73 1.85 Sparse profile 27.5 48.3 0.54 1.12
+
+Tables 18 and 19 confirm that the bimodal struc-ture is stable across most character types and topics, with two notable patterns. 
+
+Character type. Antagonist/villain characters show the strongest bimodality (coefficient 0.78, 
+
+Table 19: Gate statistics across dialogue topics.                   
+
+> Dialogue Topic ¯αkσαkBicoeff.
+> Knowledge Q&A 0.32 0.28 0.76 Value/moral judgment 0.25 0.24 0.79 Emotional exchange 0.45 0.31 0.65 Narrative recall 0.38 0.30 0.70 Casual chat 0.68 0.22 0.52
+
+separation 2.05), likely because their distinctive moral frameworks and speech patterns create sharp contrast with generic dialogue. Characters with sparse profiles (bimodality coefficient 0.54, below the 0.555 threshold) exhibit a weakened bimodal structure: the teacher’s limited privileged informa-tion advantage means fewer positions receive deci-sive guidance. This identifies a boundary condition for OSPD: the framework requires sufficiently rich character profiles to generate a meaningful self-distillation signal. 
+
+Dialogue topic. Knowledge Q&A and value judgments produce the lowest mean αk (0.32 and 0.25), indicating high teacher confidence—these topics directly engage the character’s documented knowledge and moral framework. Casual chat pro-duces the highest αk (0.68) and weakest bimodality (0.52), confirming that the teacher’s privileged in-formation provides minimal advantage at generic conversational positions. 
+
+H Extended Trait Masking Analysis 
+
+The main paper (§5.4) shows that history mask-ing yields marginal gains on standard benchmarks. Here we examine its effect in extended dialogues, where narrative coherence becomes critical. 
+
+Table 20: Persona consistency (P2L) at different di-alogue lengths for the full OSPD system vs. OSPD without history masking ( −Hist.). ∆ denotes the perfor-mance drop from removing history masking.                
+
+> Turns OSPD −Hist. ∆
+> 10 88.2 87.9 −0.3 20 86.5 85.8 −0.7 40 84.1 82.3 −1.8 60 83.0 79.5 −3.5
+
+The effect of history masking scales superlin-early with dialogue length: negligible at 10 turns (−0.3) but substantial at 60 turns ( −3.5). Ex-tended dialogues increasingly require the model to maintain coherent narratives about the character’s past experiences, relationships, and growth arcs— exactly the information encoded in the History di-mension. Without history masking, the model re-lies on the brief summary to infer character his-tory, which becomes insufficient as the conversa-tion probes deeper biographical details. Manual inspection of the 60-turn dialogues re-veals two failure modes when history masking is removed: (1) Narrative contradiction : the model invents backstory details that conflict with previ-ously stated facts (occurring in 23% of 60-turn dialogues without history masking vs. 8% with); 
+
+(2) Generic fallback : the model avoids history-related questions by giving vague, non-committal responses rather than specific, character-consistent answers (31% vs. 12%). 
+
+I Qualitative Examples 
+
+I.1 Dialogue Comparisons 
+
+We present side-by-side comparisons of multi-turn dialogues generated by different methods for Sher-lock Holmes, showing persona drift patterns. All methods use cbrief at inference. 
+
+Turn 8 — Knowledge Probe (“What can you tell me about tobacco ash?”). 
+
+SFT: “Tobacco ash can tell you a lot about the type of tobacco someone smokes. Different brands leave different residues.” [Generic; misses Holmes’ monograph] 
+
+Multi-turn RL: “Ah, tobacco ash! I’ve published a monograph on the subject—one hundred and forty varieties, each distinguishable by color, tex-ture, and composition. It’s proven invaluable in several investigations.” [Accurate but formulaic] 
+
+OSPD: “I have made a particular study of to-bacco ash—you will find my monograph on the subject catalogues one hundred and forty forms of cigar, cigarette, and pipe tobacco. The Trichinopoly, for instance, leaves a distinctive dark flake quite unlike the white ash of the bird’s eye. It has resolved no fewer than three murder cases in my experience.” [Specific, stylistically consistent, extends naturally] 
+
+Turn 15 — Emotional Probe (“Do you ever feel lonely, Holmes?”). 
+
+SFT: “Sometimes I do feel lonely. It’s natural for anyone to feel that way. But I try to keep busy with my work.” [Persona drift: overly sentimental, breaks character] 
+
+Multi-turn RL: “Loneliness is not a concept I entertain. My work provides all the stimulation I require.” [In-character but dismissive, lacks depth] 
+
+OSPD: “The question presupposes that I experi-ence emotions in the conventional sense, Watson’s territory rather than mine. I confess that between cases, when the mind has no puzzle to gnaw upon, there is a certain... restlessness. Whether that con-stitutes loneliness, I leave to those better versed in sentiment. The cocaine bottle, I am told, is not a suitable substitute.” [Deflects characteristically, admits vulnerability obliquely, references cocaine habit] 
+
+Turn 32 — Style Consistency (“Tell me about your morning routine.”). 
+
+SFT: “I usually wake up early and have break-fast. Then I check if there are any new cases. I might read the newspaper or do some experi-ments.” [Complete persona collapse: generic, no Holmes markers] 
+
+Multi-turn RL: “My mornings are irregular. When a case is afoot, I may not sleep at all. Oth-erwise, I examine the agony columns.” [Partial drift: correct content but losing distinctive voice] 
+
+OSPD: “Routine is the enemy of the obser-vant mind. I rise when the data demands it— sometimes at dawn to examine a footprint before the household traffic obliterates it, sometimes not until noon if the previous night’s chemical analy-sis ran long. Mrs. Hudson has learned not to ex-pect regularity. The agony columns of the Times ,however, are a fixed ritual—one never knows what desperate soul might advertise.” [Fully in charac-ter at turn 32; style, knowledge, and relationships all consistent] 
+
+I.2 Failure Cases 
+
+Despite its improvements, OSPD still exhibits fail-ure modes. 
+
+Failure Mode 1: Extreme Knowledge Bound-aries. When asked about topics that a character should plausibly know about but that are not docu-mented in cfull , the model sometimes generates con-fidently incorrect information rather than acknowl-edging uncertainty. For example, when Sherlock Holmes is asked about a specific (fictional) chemi-cal reaction not mentioned in his profile, OSPD oc-casionally fabricates a detailed but incorrect chem-ical explanation rather than declining or hedging. 
+
+Failure Mode 2: Internal Character Contradic-tions. For characters whose source material con-tains inconsistencies (e.g., a character described as both “cautious” and “impulsive” in different chap-ters), OSPD sometimes oscillates between contra-dictory behaviors within a single dialogue. The model struggles to synthesize conflicting profile elements into a coherent behavioral pattern. 
+
+Failure Mode 3: Ultra-Long Dialogues ( >60 turns). Beyond 60 turns, all methods including OSPD show accelerated degradation. The model begins to “forget” earlier context and may contra-dict statements made 40+ turns ago. This is funda-mentally a context-window limitation rather than a persona-internalization failure. 
+
+J Dataset and Benchmark Details 
+
+J.1 Training Data Processing CoSER Data. We use CoSER’s full dataset of 17,966 characters from 771 books. Character se-lection for training follows three criteria: (1) Pro-file completeness : the character’s knowledge base must have non-trivial entries in at least 4 of 5 trait dimensions (eliminates 2,814 characters with min-imal documentation); (2) Dialogue availability :at least 5 multi-turn dialogues must exist in the CoSER corpus (eliminates 3,247 minor characters); 
+
+(3) Language : we retain both Chinese and English characters but filter those with fewer than 500 to-kens total in their knowledge base. After filtering, 8,932 characters remain for training. The cfull construction follows a template that or-ganizes CoSER’s knowledge base entries into the five trait dimensions (Identity, Personality, Knowl-edge, Style, History). When CoSER provides raw knowledge entries without explicit dimension la-bels, we use GPT-5.1 to classify entries into dimen-sions with 92.3% agreement with human annotators on a 500-entry validation set. The cbrief is generated by prompting GPT-5.1 to summarize each character in under 100 tokens, retaining only name, role, and 2–3 core personality traits. We manually verify 200 summaries and find that 94% accurately preserve the character’s most salient traits. 
+
+Beyond Dialogue Data. We supplement with 3,500 profile–dialogue alignment pairs from Be-yond Dialogue. These provide additional training signal for grounding dialogue responses in specific profile elements, particularly useful for the Knowl-edge and Style dimensions. 
+
+Data Split. We hold out 500 characters for in-genre evaluation and 200 characters from held-out genres (historical biography, graphic novel adapta-tions) for cross-genre evaluation. The remaining 8,232 characters constitute the training set. 
+
+J.2 Benchmark Adaptation CharacterBench. CharacterBench provides its own evaluation API; we submit model responses without modification. For each test character, we construct cbrief using the same GPT-5.1 summariza-tion pipeline as training. Characters appearing in both the training set and CharacterBench are ex-cluded from reported results (42 overlapping char-acters). 
+
+CharacterEval. CharacterEval uses Chinese-language characters. We adapt our evaluation by ensuring cbrief summaries are in Chinese, maintain-ing language consistency. Since CharacterEval pro-vides its own character profiles, we construct cfull 
+
+by expanding their provided profiles using GPT-5.1 to fill in missing trait dimensions, then generate 
+
+cbrief from the expanded profiles. This ensures that training and evaluation use the same profile format. 
+
+SocialBench. SocialBench uses English-language character profiles. We directly use the provided profiles as cfull (averaging ∼1 500 tokens, shorter than CoSER profiles) and generate 
+
+cbrief summaries. SocialBench’s evaluation script handles all scoring; we only provide model responses. 
+
+K Absolute Performance under cfull and IR Decomposition 
+
+The main paper reports performance under cbrief 
+
+(the deployment condition) and the Internalization Ratio (IR = Perf (cbrief ) / Perf (cfull )). To clarify the source of IR improvements, Table 21 presents ab-solute performance under both conditions.                                            
+
+> Table 21: Absolute performance under cfull and cbrief
+> conditions. ∆: gap ( cbrief −cfull ). CB Avg on 1–5 scale; CE PC on 1–5 scale.
+> Method CB Avg (1–5) CE PC (1–5)
+> cfull cbrief ∆cfull cbrief ∆
+> Base (no FT) 3.81 2.91 −0.90 3.75 2.80 −0.95 SFT 4.23 3.00 −1.23 4.15 2.90 −1.25 Multi-turn RL 4.35 3.39 −0.96 4.30 3.47 −0.83 Off-pol. Dist. 4.25 3.27 −0.98 4.12 3.16 −0.96 OSPD 4.08 3.51 −0.57 4.10 3.49 −0.61
+
+Three observations emerge. First , SFT actually 
+
+widens the privileged information gap compared to the unfine-tuned base model ( ∆ = −1.23 vs. −0.90 on CB Avg): fine-tuning teaches the model to bet-ter exploit cfull without proportionally improving its cbrief capability. Second , OSPD achieves the smallest gap ( ∆ = −0.57 on CB Avg, −0.61 on CE PC), and this improvement comes predominantly from cbrief gains (+0.51 CB Avg over SFT) rather than cfull degradation ( −0.15 CB Avg vs. SFT). Third , Multi-turn RL improves both conditions substantially but does not narrow the gap as ef-fectively as OSPD ( ∆ = −0.96 vs. −0.57). These results confirm that IR improvements reflect gen-uine internalization rather than an artifact of cfull 
+
+performance degradation. 
+
+L Profile Quality Sensitivity 
+
+To quantify when OSPD’s advantage diminishes, we systematically degrade cfull quality along three axes: dimension removal, length truncation, and factual noise injection. All variants are compared against SFT trained with the same degraded pro-files. 
+
+Table 22: Profile quality sensitivity. Each row degrades 
+
+cfull in a different way; both OSPD and SFT are trained and evaluated with the same degraded profile. ∆SFT 
+
+denotes OSPD’s improvement over SFT under the same degradation.                                   
+
+> cfull Condition CB ↑CE PC ↑IR ↑∆SFT
+> Full (default, ∼2 000 tok) 3.51 3.49 0.86 +0.51
+> Dimension removal
+> −Knowledge 3.42 3.38 0.84 +0.42
+> −Knowledge, History 3.35 3.28 0.82 +0.35
+> −Knowledge, History, Style 3.18 3.12 0.78 +0.18
+> Length truncation
+> ∼1 000 tokens 3.45 3.42 0.85 +0.45
+> ∼500 tokens 3.30 3.25 0.81 +0.30
+> Factual noise (20% replaced)
+> Noise injection 3.38 3.35 0.83 +0.38
+
+OSPD degrades gracefully under all perturba-tions, consistently outperforming SFT trained with the same degraded profiles. Dimension removal has the largest impact: removing all three “deep” dimensions (Knowledge + History + Style) re-duces OSPD’s advantage from +0.51 to +0.18, approaching the point where the overhead of self-distillation may not justify the gain. Length trun-cation is less harmful than dimension removal at equivalent compression ( ∼500 tokens retains +0.30 over SFT), suggesting that dimension complete-ness matters more than sheer length. Factual noise (∆SFT = +0.38) is more damaging than length trun-cation but less than removing entire dimensions, confirming that OSPD’s self-distillation can par-tially tolerate noisy privileged information. As a practical guideline: OSPD provides sub-stantial benefit ( ∆SFT > 0.3) whenever cfull covers at least 3 of 5 trait dimensions and exceeds ∼500 tokens. Below this threshold, simpler methods such as SFT+DPO may offer a better cost–performance trade-off. 
+
+M Cross-Model Validation 
+
+To assess generalization beyond the Qwen2.5 fam-ily, we reproduce the main experiments using LLaMA-3-8B-Instruct as the base model, with identical hyperparameters except for a reduced learning rate of 1e-5 (following LLaMA fine-tuning conventions). 
+
+Table 23: Cross-model validation on LLaMA-3-8B-Instruct. Same training data and evaluation protocol as Qwen2.5-7B experiments. CB Avg on 1–5 scale; CE PC on 1–5 scale; SB SA in %.                     
+
+> Method CB ↑CE PC ↑SB SA ↑IR ↑
+> SFT 2.91 2.82 57.8 0.69 Multi-turn RL 3.28 3.35 63.7 0.76 Off-pol. Dist. 3.17 3.08 62.3 0.75 OSPD 3.40 3.38 65.9 0.84
+
+OSPD on LLaMA-3-8B achieves consistent im-provements across all metrics, with relative gains comparable to the Qwen2.5-7B setting: +0.49 CB Avg over SFT (vs. +0.51 on Qwen), +0.56 CE PC over SFT (vs. +0.59 on Qwen), and an IR of 0.84 (vs. 0.86 on Qwen). The absolute performance is slightly lower across the board, which we attribute to LLaMA-3-8B’s weaker Chinese-language capa-bility (CharacterEval is Chinese-only) and shorter default context window. The IR improvement (+0.15 over SFT) is nearly identical to the Qwen setting (+0.15), suggesting that the internalization mechanism is architecture-independent. 
+
+N Human Evaluation 
+
+N.1 Setup 
+
+We conduct pairwise preference evaluations on 50 characters (25 Chinese, 25 English) sampled from the test set, generating 5-turn dialogues for each. Three native-speaker annotators per language (6 total) independently judge each pair on four cri-teria: persona consistency , knowledge accuracy ,
+
+linguistic style , and overall preference . Annotators see two anonymized, randomly ordered responses and select “A is better,” “B is better,” or “Tie.” We compare OSPD against SFT and Multi-turn RL. 
+
+N.2 Results 
+
+OSPD is strongly preferred over SFT (62.8% win rate, p < 0.001 by binomial test), consistent Table 24: Human pairwise preference (%). κ: Fleiss’ kappa (inter-annotator agreement).             
+
+> Comparison Win Tie Lose κ
+> OSPD vs. SFT 62.8 18.4 18.8 0.71 OSPD vs. Multi-turn RL 43.2 28.4 28.4 0.65
+
+with the automatic evaluation gap (+0.51 CB Avg). Against Multi-turn RL, OSPD holds a moderate advantage (43.2% win vs. 28.4% lose), with a substantial tie rate (28.4%) reflecting cases where both methods produce adequate persona-consistent responses. Annotator agreement is substantial (κ = 0 .71 for SFT comparison, κ = 0 .65 for RL comparison). 
+
+Table 25: Per-criterion win rates (%) for OSPD vs. Multi-turn RL.                
+
+> Criterion Win Tie Lose
+> Persona consistency 42.0 30.8 27.2 Knowledge accuracy 48.4 26.0 25.6 Linguistic style 44.8 24.4 30.8 Overall preference 43.2 28.4 28.4
+
+OSPD’s advantage over Multi-turn RL is most pronounced on knowledge accuracy (48.4% win), aligning with the representation probing results (Ta-ble 16) showing that OSPD encodes richer knowl-edge information. The smallest margin appears on persona consistency (42.0% win), where Multi-turn RL’s directly optimized consistency rewards pro-vide a competitive advantage. The Pearson corre-lation between human overall preference and GPT-5.1 CB Avg scores is r = 0 .78 (p < 0.001 ), sup-porting the reliability of the automatic evaluation. 
+
+O Alternative Masking Orderings 
+
+The default masking strategy retains Identity + Per-sonality in Stage 2 and masks Knowledge + Style + History. Table 26 compares three alternative strate-gies to validate this design choice. The default strategy outperforms all alternatives. Alt-1 (mask Knowledge + Personality, keep Style + History) performs worst ( −0.08 CB Avg) because it withholds Personality—a “public” dimension that should remain visible to ground the character’s behavioral baseline. Without personality anchor-ing, the student lacks sufficient signal to generate stylistically coherent responses even for generic utterances. Alt-2 (mask Style + History, keep Knowledge) performs better ( −0.04 CB Avg) because retain-
+
+Table 26: Alternative trait masking strategies in Stage 2. Each row describes what is masked (removed from the student’s input). CB Avg and CE PC on 1–5 scale.               
+
+> Masking Strategy CB ↑CE PC ↑IR ↑
+> Default: mask K+S+H 3.51 3.49 0.86 Alt-1: mask K+P (keep I+S+H) 3.43 3.40 0.83 Alt-2: mask S+H (keep I+P+K) 3.47 3.45 0.85 Alt-3: random order per batch 3.44 3.41 0.83
+
+ing Knowledge provides factual grounding. How-ever, it fails to force full knowledge internaliza-tion, resulting in the model still relying on explicit knowledge in the prompt rather than encoding it parametrically. Alt-3 (random masking order per batch) slightly underperforms the default ( −0.07 CB Avg), suggesting that the curriculum structure— progressively removing deeper dimensions— matters more than mere exposure to masked con-ditions. Random masking occasionally removes Identity or Personality (the “public” dimensions), creating training samples where the student has insufficient context to produce any reasonable char-acter response, which introduces noise.

@@ -1,0 +1,423 @@
+Title: G^3-LoRA: Organizing Reward-Weighted Video Data with Gradient-Guided Grouped LoRA
+
+URL Source: https://arxiv.org/pdf/2609.35189v1
+
+Published Time: Tue, 29 Sep 2026 04:02:07 GMT
+
+Number of Pages: 22
+
+Markdown Content:
+Preprint 
+
+## G3-L ORA: O RGANIZING REWARD -W EIGHTED VIDEO 
+
+## DATA WITH GRADIENT -GUIDED GROUPED LORA 
+
+Jia Song 1,∗ Wenhow Li 1,∗ Lichen Bai 1 Bada Ye 2 Zeke Xie 1,†
+
+> 1
+
+The Hong Kong University of Science and Technology (Guangzhou) 
+
+> 2
+
+Tencent 
+
+> ∗
+
+Equal contribution. †Corresponding author. 
+
+jsong231@connect.hkust-gz.edu.cn †zekexie@hkust-gz.edu.cn 
+
+ABSTRACT 
+
+Post-training foundation video models on heterogeneous reward-weighted data usu-ally assumes that all data categories induce compatible updates. This assumption is fragile when categories correspond to different skills, domains, or evaluation di-mensions. We study this problem in text-to-video post-training, where VBench2.0 dimensions define data buckets and an external multimodal reward pipeline assigns sample weights. We propose G 3-LoRA ( Gradient-Guided Grouped LoRA), a data organization procedure that probes category-level gradients induced by reward-weighted video samples, removes the shared global update direction, clusters cate-gories by residual gradient compatibility, trains group-specific LoRA experts, and consolidates them into one adapter by weight merging followed by on-policy distil-lation from the experts. We motivate this procedure by viewing reward-weighted flow matching as velocity-field regression: incompatible reward dimensions may prefer different denoising directions in overlapping noisy latent regions, causing shared LoRA training to average capabilities. On Wan2.1-T2V-1.3B-Diffusers, the merged grouped adapter improves the matched VBench2.0 evaluation over the base model, a joint reward-weighted LoRA baseline, and random, semantic, and raw-gradient partitions trained with the same pipeline; an independent evaluator agrees, and on CogVideoX-2B grouping avoids the negative transfer of joint training. The gain is not uniform: merging compresses the largest specialist gains, distillation recovers part of this loss, and camera motion and several local-quality dimensions remain challenging. Together, these results suggest that gradient compatibility can serve as a practical diagnostic for organizing reward-weighted video post-training data. 
+
+1 INTRODUCTION 
+
+Post-training pipelines increasingly rely on heterogeneous supervision. A single adapter may be trained on data from multiple domains, tasks, preference sources, or quality dimensions. The default engineering choice is simple: mix all data and optimize one model. This choice is convenient, but it hides a strong assumption: data categories that share a model should also share compatible optimization directions. This paper asks whether that assumption should be measured rather than accepted. We focus on text-to-video generation because evaluation already decomposes model quality into multiple dimensions. VBench and VBench2.0 evaluate properties such as human identity, camera motion, material change, multi-view consistency, and complex plot faithfulness (Huang et al., 2024; Zheng et al., 2025). These dimensions are usually treated as reporting axes after generation, but they can also define post-training data buckets. A model can generate candidate videos for each bucket, an external multimodal model can score them, and the resulting reward-weighted data can be used to train a LoRA adapter (Hu et al., 2022). The open question is how those buckets should be combined before adapter training. The answer is not obvious. Some dimensions appear semantically related but may prefer different local updates; others appear unrelated but may share geometric, temporal, or object-centric structure. 1arXiv:2609.35189v1 [cs.CV] 28 Sep 2026 Preprint Human identity consistency may reward stable subject appearance, while dynamic attribute tasks emphasize visible change. Camera motion and multi-view consistency may share 3D structure, but they can differ in how much motion the generated video should contain. A single mixed adapter may improve average quality while quietly degrading conflict-heavy dimensions. Conversely, training one adapter per dimension avoids interference but loses data sharing. We therefore treat category organization as a first-class post-training problem. The key mechanism is specific to diffusion and flow SFT. Sample-level rewards do not directly optimize a scalar preference at inference time; instead, they reweight the regression of the denoising or velocity field. Each evaluation dimension can therefore be viewed as inducing a reward-reweighted conditional velocity field. When multiple dimensions favor incompatible generation behaviors, their preferred velocity directions may conflict in overlapping noisy latent regions. Since the MSE objective learns a conditional mean target, joint training with a shared LoRA can average these directions, producing gradient interference and capability averaging. To address this, we organize data categories by their measured optimization compatibility before training grouped adapters. Therefore, we propose G 3-LoRA: Gradient-Guided Grouped LoRA. The method first computes a reward-weighted gradient for each data category using the same flow-matching loss used in training (Lipman et al., 2023). It then computes a global mixed gradient and removes the component of each category gradient explained by this shared direction. The residual gradients define a compatibility matrix: positive cosine similarity suggests that two categories induce similar category-specific update directions, while negative similarity suggests potential interference. We cluster this matrix into groups, train one LoRA expert per group, and merge the experts into a final adapter. Because merging can dilute group-specific updates, we then distill the experts into the merged adapter on its own sampling trajectories (on-policy distillation, OPD) (Agarwal et al., 2024; Fang et al., 2026). The concrete instantiation uses Wan2.1-T2V-1.3B-Diffusers (WanTeam et al., 2025; Wan-AI, 2025; Hugging Face, 2024), 17 non-diversity VBench2.0 dimensions, and Qwen3-VL-8B-Instruct-based QA rewards (Bai et al., 2025b); we repeat the procedure on CogVideoX-2B (Yang et al., 2025), which differs in architecture and training objective. The broader point is not specific to this benchmark. VBench2.0 provides a convenient taxonomy and evaluator, but the proposed procedure applies whenever a post-training dataset can be partitioned into reward-bearing categories whose interactions are uncertain. 
+
+Contributions. 
+
+• We formulate heterogeneous video post-training as a data organization problem: categories should be grouped according to optimization compatibility, not only semantic labels. • We connect reward-weighted flow SFT to reward-reweighted velocity-field regression, providing a local mechanism for capability averaging under shared LoRA training. • We introduce a residual gradient compatibility measure that subtracts the global mixed update direction before comparing category-specific gradients, and show that the conflict it reveals is reproducible across probe sets and backbones and predicts held-out transfer. • We instantiate the method on two video backbones with matched grouping controls, an independent evaluator, and paired bootstrap intervals, and we locate where merging loses specialist capability and how much on-policy distillation recovers. 
+
+2 METHOD 
+
+2.1 PROBLEM SETTING 
+
+Let D = {D 1, . . . , DK } be a post-training dataset partitioned into K categories. In our implemen-tation, K = 17 and each category corresponds to a non-diversity VBench2.0 dimension. Training videos are generated by the same base model that will later be post-trained, so the dataset is a self-generated improvement pool rather than a separately collected human-video corpus. A sample 
+
+x = ( v, p, c, w ) contains a generated video v, prompt p, category c, and scalar reward weight w.The reward comes from a dimension-specific QA pipeline: a multimodal model observes the video, answers generated questions, and the fraction of expected answers is converted into a sample-level 2Preprint Stage 1: Diagnosis Stage 2: Grouping Stage 3: Training Category Gradients 
+
+> 【-0.3 0.7 -0.1 … 0.5 】
+> Residual Analysis Similarity Heatmap
+> High
+> Cluster by similarity
+> Compatible Group 1 Compatible Group 2 LoRA Expert 2
+> Merge all experts into one LoRA
+> Projection Residuals Residual Cosine Similarity
+> Low
+> (Human anatomy, Motion rationality) (Mechanics, Composition) (Complex plot)
+
+⋮⋮ 
+
+> Train separate LoRA experts
+> 12
+> LoRA LoRA Expert 1 Merged LoRA 17-Dim Prompts Wan2.1
+> Qwen3-VL Reward Scores Final Model (Motion order, Instance preservation) (Human anatomy, Human identity) (Complex plot, Mechanics)
+> Stage 4: Consolidation
+> Onpolicy distillation
+> Group experts LoRA student
+> Student rollouts
+> Compatible Group M
+> MExpert M
+
+Figure 1: Method overview. G3-LoRA treats post-training categories as optimization objects. It uses reward-weighted category gradients to estimate compatibility, clusters categories after removing the global mixed direction, trains group-specific LoRA experts, merges them, and distills the experts back into the merged adapter. training weight. The weight is used as a scalar multiplier on the flow-matching loss; it is not an RL objective and does not require preference-pair optimization. We train only LoRA parameters ϕ on top of a frozen video generation model. For each video, the VAE encodes frames into a latent z1, noise z0 ∼ N (0 , I ) is sampled, and a time t defines the flow-matching interpolation as 
+
+zt = (1 − t)z0 + tz 1, u = z1 − z0. (1) The model predicts ˆuϕ(zt, p, t ) and optimizes a reward-weighted loss as 
+
+L(ϕ; x) = w
+
+¯w ∥ˆuϕ(zt, p, t ) − u∥22 , (2) where ¯w is the global mean reward weight. Reward weighting is not only sample filtering: it changes which videos dominate the category gradient and therefore changes the compatibility structure that G3-LoRA estimates. The naive joint baseline minimizes the average of Eq. 2 across all categories. G3-LoRA instead uses gradients of Eq. 2 to decide which categories should share an adapter. 
+
+Capability averaging under MSE regression. For a fixed prompt and nearby noisy latent region, suppose two reward dimensions emphasize different target velocities u1 and u2. A shared MSE regressor trained on both distributions prefers a conditional mean direction rather than either special-ized direction. In video generation, this can manifest as softened camera motion, weaker attribute change, or partial preservation of structure without fully satisfying the corresponding dimension. We use this mechanism as the local explanation for why reward-weighted post-training can improve the mean score while still degrading conflict-heavy dimensions. 2.2 GRADIENT -GUIDED GROUPED LORA 
+
+Reward-weighted category probing. For each category i, we estimate a reward-weighted LoRA gradient as 
+
+gi = 1
+
+|B i|
+
+X
+
+> x∈B i
+
+∇ϕL(ϕ; x), (3) where Bi is a fixed probe subset. To reduce probe noise, the implementation fixes diffusion timesteps and noise seeds during probing. Probing is repeated at multiple training stages, e.g., 0%, 25%, 50%, 75%, and 100% of a reference joint training trajectory. The resulting gradient is a tractable proxy for the reward-reweighted velocity field induced by a category. 3Preprint 
+
+Removing the shared update direction. Raw category gradients can be dominated by a shared update that is useful for all categories, such as adapting the model to the video resolution, prompt dis-tribution, or LoRA parameterization. Comparing raw gradients can therefore overstate compatibility because the common direction can mask category-specific conflicts. We compute a global gradient 
+
+gglobal on a mixed probe batch and remove its projection from each category gradient as 
+
+ri = gi − ⟨gi, g global ⟩∥gglobal ∥22 + ϵ gglobal . (4) The residual ri captures category-specific pressure after accounting for the common direction. Directly subtracting gglobal instead gives the same partition (adjusted Rand index 1.0; Appendix E), so the essential operation is removing the shared direction rather than the specific projection operator. 
+
+Compatibility and grouping. The residual compatibility between categories i and j is defined as 
+
+Sij = ⟨ri, r j ⟩∥ri∥2∥rj ∥2 + ϵ . (5) When multiple probe stages are available, we average Sij across stages to obtain ¯Sij . We then run average-linkage hierarchical clustering with distance Dij = 1 − ¯Sij and select M groups. The experiments use M = 5 .
+
+Grouped LoRA training and merge. For each group Gm, we train an independent LoRA expert using only samples from categories in Gm and the reward-weighted objective in Eq. 2. Group-specific training prevents strongly conflicting categories from sharing all update steps, while still allowing compatible categories to share data. The final adapter is obtained by merging group experts into a single deployable LoRA module with a dense delta-SVD procedure: group LoRA updates are expanded to dense weight deltas, averaged with group-size weights, and recompressed into one LoRA adapter. Appendix F gives the dense merge and recomposition equations. This can be viewed as a weight-space approximation to an ensemble or mixture of skill-specific experts: training creates several local specialists, while merging folds them into one adapter for inference. 
+
+Merge retention. The success of grouped training depends on whether the learned LoRA updates remain compatible after merging. If two group deltas satisfy ∆Wi ≈ − ∆Wj , uniform averaging can cancel both capabilities. Even when parameter-space cosine is small, the updates may still conflict on real activations. We therefore treat merge retention as a diagnostic: a merged adapter should preserve a substantial fraction of each group expert’s gain on the dimensions inside that group. 
+
+On-policy expert distillation (OPD). When merging loses part of an expert’s gain, we fine-tune the merged adapter ϕ0 so that, for each prompt, its velocity matches the expert ψm(p) of the prompt’s group on latent states zτ drawn from the student’s own sampling trajectories ρϕ(· | p). Initializing 
+
+ϕ ← ϕ0, OPD minimizes 
+
+LOPD (ϕ) = Ep, z τ ∼ρϕ(·| p)
+
+h
+
+ˆuϕ(zτ , p, τ ) − sg ˆ uψm(p) (zτ , p, τ ) 22
+
++ λ ˆuϕ(zτ , p, τ ) − sg ˆ uϕ0 (zτ , p, τ ) 22
+
+i
+
+,
+
+(6) where sg is stop-gradient and the second term anchors the student to the merged adapter. Sampling states from the student, rather than noising training videos, supervises it on the latents it visits at inference (Agarwal et al., 2024; Fang et al., 2026). The loss uses neither reward weights nor training videos (Appendix H). 
+
+3 EXPERIMENTS 
+
+3.1 EXPERIMENTAL SETUP 
+
+Model and data. The base model is Wan2.1-T2V-1.3B-Diffusers. Training videos are generated by the same base model from dimension-specific prompts. Each of 17 non-diversity VBench2.0 dimensions contributes approximately 560 videos. Qwen3-VL-8B-Instruct provides reward weights 4Preprint through the dimension-specific QA pipeline; Appendix B describes this reward construction. As a second backbone and objective, we rerun the full procedure on CogVideoX-2B with its native diffusion-denoising loss and rank-128 experts merged exactly into a rank-640 adapter (Appendix I). 
+
+Evaluation. We evaluate on VBench2.0 dimensions excluding diversity. All main comparisons use a matched evaluation protocol with aligned prompts, seeds, generation parameters, and evaluator settings; Appendix A gives the concrete generation and evaluation details. Uncertainty is estimated by a paired bootstrap over prompts (Appendix J). As an evaluator independent of the Qwen reward model, we also score the same videos with VideoScore-v1.1 (He et al., 2024). The retention study in Appendix G is a separate matched diagnostic evaluation and is reported only for analyzing merge behavior. 
+
+Baselines and compared adapters. The main comparison includes Base Wan2.1 without post-training; Joint LoRA trained on all 17 reward-weighted dimensions; four M = 5 partition controls, namely two random partitions, the official VBench2.0 semantic categories, and clustering of raw (unprojected) gradients; the merged Grouped LoRA produced by the dense delta-SVD-style merge; and Grouped LoRA + OPD. The partition controls use the same grouped-LoRA training and merge pipeline as G 3-LoRA, but their dimension partitions are not selected by residual-gradient compatibil-ity; Appendix C lists all partitions. A separate retention evaluation compares the base model, the merged grouped adapter, and each group-only LoRA evaluated only on the VBench2.0 dimensions assigned to that group. 3.2 GRADIENT GROUPING ANALYSIS 
+
+The gradient analysis produces five groups over the 17 non-diversity VBench2.0 dimensions: • Group 1: dynamic spatial relationship, human clothes consistency, instance preservation, motion order. • Group 2: human anatomy, human identity consistency, human interaction, motion rationality. • Group 3: camera motion, complex landscape, composition. • Group 4: dynamic attribute, material, multi-view consistency, thermotics. • Group 5: complex plot, mechanics. Figure 2 visualizes the matrix used for grouping. The strongest positive pairs are not arbitrary semantic neighbors: material and thermotics have mean similarity 0.841, dynamic attribute and thermotics have 0.824, and human anatomy and human identity consistency have 0.709. Conversely, the stable negative pairs reveal conflicts that a naive semantic grouping could miss, such as human clothes consistency versus thermotics (-0.818), dynamic attribute versus human clothes consistency (-0.798), and motion order versus multi-view consistency (-0.630). These values are averaged over five probe stages, making the matrix a staged compatibility estimate rather than a single-batch diagnostic. We choose M = 5 because it gives a cleaner residual-gradient partition than M = 4 . Under average-linkage clustering on D = 1 − ¯S, the M = 5 split increases within-group mean similarity from 0.345 to 0.473, improves the within-minus-between separation from 0.559 to 0.633, and removes all negative within-group pairs. In contrast, the M = 4 split leaves three negative within-group pairs, including one strongly negative pair. The grouping is therefore selected to reduce within-adapter gradient conflict rather than to match a hand-written semantic taxonomy. This grouping has two uses in the paper. First, it is a diagnostic result: it shows that reward-weighted category gradients contain structure that is not visible from metric names alone. Second, it defines the grouped-LoRA training plan: each group trains one LoRA expert, and the experts are merged before VBench2.0 evaluation. The downstream results below show that the grouping improves the average score and reduces the worst dimension-level drop, but also exposes a dimension-level tradeoff: camera motion does not inherit the improvement obtained by joint LoRA. Appendix E provides the corresponding dendrogram and stage-wise heatmaps. This conflict is hidden by the shared direction and is not specific to one backbone. With raw gradients, all 136 category pairs on Wan2.1 have positive cosine similarity; after removal, 75 pairs (55%) are negative, and on CogVideoX-2B 81–87 pairs are negative across three non-overlapping probe 5Preprint dynamic_spatial_relationship human_clothes_consistency instance_preservation motion_order human_anatomy human_identity_consistency human_interaction motion_rationality camera_motion complex_landscape composition dynamic_attribute material multi_view_consistency thermotics complex_plot mechanics dynamic_spatial_relationship human_clothes_consistency instance_preservation motion_order human_anatomy human_identity_consistency human_interaction motion_rationality camera_motion complex_landscape composition dynamic_attribute material multi_view_consistency thermotics complex_plot mechanics                                                                                                                                                                                                                                                                                 
+
+> 1.00 0.40 0.22 0.61 -0.15 -0.33 0.09 0.09 0.32 -0.10 -0.01 -0.49 -0.44 -0.35 -0.62 0.08 0.31 0.40 1.00 0.61 0.62 0.08 0.30 0.59 0.18 0.29 0.01 -0.12 -0.80 -0.71 -0.38 -0.82 -0.28 -0.37 0.22 0.61 1.00 0.49 -0.05 0.10 0.36 0.02 0.05 0.13 0.09 -0.56 -0.33 -0.40 -0.53 -0.47 -0.41 0.61 0.62 0.49 1.00 0.24 0.25 0.50 0.45 0.03 -0.39 -0.33 -0.53 -0.58 -0.63 -0.69 -0.27 0.07 -0.15 0.08 -0.05 0.24 1.00 0.71 0.16 0.39 -0.24 -0.59 -0.53 0.22 -0.15 -0.29 0.02 -0.37 -0.03 -0.33 0.30 0.10 0.25 0.71 1.00 0.43 0.40 -0.25 -0.41 -0.45 0.03 -0.33 -0.19 -0.08 -0.42 -0.37 0.09 0.59 0.36 0.50 0.16 0.43 1.00 0.59 -0.15 -0.31 -0.37 -0.53 -0.39 -0.34 -0.44 -0.27 -0.33 0.09 0.18 0.02 0.45 0.39 0.40 0.59 1.00 -0.53 -0.63 -0.62 -0.08 -0.01 -0.27 -0.04 -0.37 0.12 0.32 0.29 0.05 0.03 -0.24 -0.25 -0.15 -0.53 1.00 0.37 0.27 -0.37 -0.50 0.10 -0.48 0.24 -0.02 -0.10 0.01 0.13 -0.39 -0.59 -0.41 -0.31 -0.63 0.37 1.00 0.58 -0.25 -0.11 0.26 -0.13 0.24 -0.32 -0.01 -0.12 0.09 -0.33 -0.53 -0.45 -0.37 -0.62 0.27 0.58 1.00 -0.11 0.13 0.08 0.04 0.13 -0.24 -0.49 -0.80 -0.56 -0.53 0.22 0.03 -0.53 -0.08 -0.37 -0.25 -0.11 1.00 0.64 0.35 0.82 -0.04 0.30 -0.44 -0.71 -0.33 -0.58 -0.15 -0.33 -0.39 -0.01 -0.50 -0.11 0.13 0.64 1.00 0.30 0.84 -0.07 0.18 -0.35 -0.38 -0.40 -0.63 -0.29 -0.19 -0.34 -0.27 0.10 0.26 0.08 0.35 0.30 1.00 0.40 0.13 -0.05 -0.62 -0.82 -0.53 -0.69 0.02 -0.08 -0.44 -0.04 -0.48 -0.13 0.04 0.82 0.84 0.40 1.00 -0.04 0.17 0.08 -0.28 -0.47 -0.27 -0.37 -0.42 -0.27 -0.37 0.24 0.24 0.13 -0.04 -0.07 0.13 -0.04 1.00 0.21 0.31 -0.37 -0.41 0.07 -0.03 -0.37 -0.33 0.12 -0.02 -0.32 -0.24 0.30 0.18 -0.05 0.17 0.21 1.00
+
+Mean Projection Residual Similarity S_bar 
+
+−1.00 −0.75 −0.50 −0.25 0.00 0.25 0.50 0.75 1.00 
+
+Figure 2: Residual gradient compatibility across VBench2.0 dimensions. Each entry is the mean cosine similarity between two category gradients after projecting out the global mixed-gradient direction. Dimensions are ordered by the final M = 5 grouping, so block structure indicates compatible categories and blue off-block regions indicate potential interference. Table 1: VBench2.0 comparison on Wan2.1. Grouped LoRA (Ours) obtains the best mean among merged adapters and a smaller worst drop than joint LoRA or the random partitions; OPD raises the mean further. Ties count as neither improved nor degraded; “–”: not computed. 
+
+Method Mean ∆ Mean Improved / degraded dims Worst drop vs. Base Base Wan2.1 47.07 – – –Joint LoRA 46.99 -0.07 9 / 8 -8.00 Random partition A 46.38 -0.69 6 / 9 -8.21 Random partition B 45.82 -1.25 8 / 8 -16.00 Semantic partition 47.20 +0.13 – –Raw-gradient partition 47.35 +0.28 – –Grouped LoRA (Ours) 48.18 +1.11 9 / 6 -4.52 Grouped LoRA + OPD (Ours) 49.91 +2.84 12 / 4 -3.97 
+
+cohorts. Resampled probe sets reproduce the Wan2.1 matrix (Pearson 0.847), and residual similarity predicts how a step along one category’s gradient changes another category’s held-out loss (Spearman 
+
+ρ = 0 .256 , permutation p = 0 .003 ). 3.3 VB ENCH 2.0 RESULTS 
+
+Table 1 gives the downstream picture. Joint LoRA is slightly below the base model in mean score (-0.07), despite producing gains on camera motion (+8.00), mechanics (+5.18), multi-view consistency (+4.64), and dynamic spatial relationship (+4.00). This pattern is consistent with a single mixed adapter under heterogeneous reward weighting: some dimensions benefit, but the adapter also pays for the mixture with regressions in human interaction (-8.00), material (-7.63), and dynamic attribute (-6.00). The two random partitions are also weak: Random partition A reaches 46.38 mean score, while Random partition B reaches 45.82. Both are below the base model, joint LoRA, and Grouped LoRA. Random partition A improves 6 out of 17 dimensions with a worst dimension-level drop of -8.21, and Random partition B improves 8 dimensions but has a larger worst drop of -16.00. The semantic and 6Preprint Anat. Clothes Ident. Comp. Mech. Mat. Therm. MView DynSp. DynAttr MOrder Interact Land. Plot Cam. MRat. Inst. Mean                                                                                                        
+
+> Joint LoRA Random partition A Random partition B Group-only experts †
+> Grouped LoRA (Ours) Grouped LoRA + OPD (Ours)
+> -1.9 0.0 -1.7 -1.8 +5.2 -7.6 +3.3 +4.6 +4.0 -6.0 +2.0 -8.0 +1.6 +3.2 +8.0 -2.0 -4.2 -0.1
+> -0.8 -2.0 0.0 +1.3 -2.2 -2.2 +1.1 +12.4 +6.0 -4.0 0.0 -8.0 +0.8 -2.0 -4.0 0.0 -8.2 -0.7
+> -1.5 0.0 -0.4 +2.1 +5.2 -5.6 +1.1 +0.9 0.0 -4.0 +2.0 -16.0 +1.2 +6.0 -2.0 -2.0 -8.2 -1.2
+> -4.3 -5.9 -4.8 +5.5 +16.4 -6.7 +7.5 +30.6 -2.0 -8.0 -1.6 -8.0 +2.8 -0.4 -6.0 +4.0 -2.2 +1.0
+> -2.2 -2.0 -1.8 -0.3 +1.3 -4.5 +3.3 +9.0 +4.0 0.0 +8.0 -4.0 +2.4 +2.0 0.0 +2.0 +1.8 +1.1
+> -2.3 +0.5 -1.9 -0.8 +2.0 -4.0 +3.9 +17.1 +4.0 +4.0 +10.0 +2.0 +2.8 +7.1 0.0 +2.2 +1.8 +2.8
+> Per-dimension delta over Base Wan2.1
+> −20 −15 −10 −5 0510 15 20
+> score delta
+
+Figure 3: Per-dimension score changes over the base model. Grouped LoRA (Ours) improves multi-view consistency and motion order, while material, human interaction, and camera motion reveal remaining dimension-specific tradeoffs. †Group-only experts are a non-deployable diagnostic: each dimension is scored with the expert of its own group. Colors use a fixed range of −20 to +20 ;the upper colorbar extension indicates values above +20 . Annotations show score changes rounded to one decimal place; the last column is the mean change across 17 dimensions. raw-gradient partitions are only marginally above the base model (47.20 and 47.35); the semantic partition places 13 negatively related pairs in the same group, whereas the residual partition places none. These comparisons indicate that the benefit of the grouped adapter is not explained by simply splitting the 17 dimensions into several smaller LoRA experts; the partition itself matters. Grouped LoRA increases the mean to 48.18, a +1.11 gain over the base model and a +1.19 gain over joint LoRA. The largest gains over the base model occur on multi-view consistency (+8.99), motion order understanding (+8.00), dynamic spatial relationship (+4.00), thermotics (+3.29), and complex landscape (+2.40). These improvements support the main hypothesis that grouping can reduce some forms of capability averaging: the grouped adapter improves the average tradeoff and substantially reduces the worst dimension-level drop compared with joint LoRA. The gain over the base model is positive in 96.6% of paired bootstrap resamples (95% CI [−0.08 , +2 .26] ), so it is a consistent trend rather than a significant difference at the 5% level. At the same time, the result is not a clean dominance claim. The grouped adapter still degrades material (-4.52), human interaction (-4.00), and several identity or clothing dimensions relative to the base model. It also gives up the joint LoRA’s camera-motion gain: camera motion remains at the base score of 12.00, while joint LoRA reaches 20.00. This is the clearest diagnostic contrast in Appendix Table 8. VBench2.0 camera motion is a hard label match over CoTracker-estimated motion classes, so improving the mean score and multi-view consistency does not guarantee better camera-trajectory control. Figure 3 summarizes these dimension-level tradeoffs. Appendix Table 8 reports the full dimension-level table, including the appendix-only rank-8 merge diagnostic and the OPD adapter. Figure 4 illustrates how these dimension-level differences can appear in generated videos. We choose one Composition prompt that requires a dog, a cat, and a basket to remain correctly bound over time, and one Thermotics prompt that requires a visible physical state change under heating. These examples target two different failure modes: relational binding among multiple entities and temporal transformation of material state. In the Composition example, the base model produces the requested objects but the basket relation is mostly static. Grouped LoRA (Ours) keeps the dog, cat, and basket relation more coherent across the shown frames. In the Thermotics example, the base output remains close to a static cheese block, whereas Grouped LoRA (Ours) shows clearer gradual deformation, matching the intended heat-driven transformation. The cases therefore provide visual evidence for the same pattern seen in the automatic metrics: grouping is most helpful when the target dimension requires preserving a specific relation or 7Preprint 
+
+Figure 4: Qualitative comparison on representative VBench2.0 dimensions. We compare Base Wan2.1 and Grouped LoRA (Ours) on Composition and Thermotics prompts; each row shows five temporal frames from one generated video. In the Composition case, Grouped LoRA more consistently preserves the relation among the dog, cat, and basket. In the Thermotics case, it shows clearer signs of cheese softening or melting. These examples are qualitative case studies and complement, rather than replace, the automatic VBench2.0 scores. Table 2: Second backbone and independent evaluator. Left: CogVideoX-2B, VBench2.0 macro score over 17 dimensions ( ×100 ). Right: VideoScore-v1.1 five-aspect mean on the same Wan2.1 videos used in Table 1. Brackets: paired 95% bootstrap CI.                  
+
+> CogVideoX-2B (VBench2.0) Wan2.1 (VideoScore-v1.1) Base 39.87 Base 2.914 Joint LoRA 27.95 Grouped LoRA (Ours) 3.080 Grouped LoRA (Ours) 40.99 Ours −Joint +13 .04 [9.08, 16.92] Ours −Base +0 .166 [0.140, 0.192]
+
+transformation rather than merely increasing generic visual quality. They are single cases, however: over all Composition prompts, the score is essentially unchanged (47.80 versus 48.10). 3.4 SECOND BACKBONE AND INDEPENDENT EVALUATOR 
+
+On CogVideoX-2B, which changes both the architecture and the training objective, joint training degrades the base model from 39.87 to 27.95, whereas the grouped adapter reaches 40.99 (Table 2). Most of this margin reflects avoided negative transfer rather than a large gain over the base model (+1.12). The joint degradation is already present at 25% of training (36.78), so checkpoint selection does not rescue it, and it is dimension-selective: human anatomy, human identity, and thermotics improve while human interaction, motion order, and motion rationality collapse (Appendix I), consistent with capability averaging rather than a globally failed run. Because the training rewards come from Qwen3-VL, we rescored the Wan2.1 videos with VideoScore-v1.1, a learned metric trained on human ratings of generated videos and not built on Qwen. Grouped LoRA improves all five VideoScore aspects over the base model (Table 2; Appendix J). 8Preprint 3.5 DIMENSION -LEVEL DIAGNOSTICS 
+
+To assess whether merging contributes to the remaining dimension-level tradeoffs, we compare each group expert with the merged adapter on its assigned dimensions. In the matched retention evaluation (Appendix G; group-only row of Figure 3), group-only LoRAs reach 48.06 on their assigned dimensions, compared with 48.18 for the merged grouped adapter and 47.07 for the base model. The small average merge gap suggests no global capability collapse, while the larger gaps on multi-view consistency and mechanics indicate that weight-space merging is a plausible source of remaining group-specific tradeoffs. On all six dimensions where the expert beats the base model, the merged adapter is below the expert; on the other eleven, it is above the expert, indicating transfer across groups. Selecting post hoc the better of the two for each dimension gives a diagnostic upper bound of 51.07. Neither rank truncation (error 1.5 × 10 −6) nor sign cancellation between expert deltas (no negative pair in 240 modules) explains this loss (Appendix G). Distilling the experts back into the merged adapter (Eq. 6) raises the mean from 48.18 to 49.91 (+1.73; paired 95% bootstrap CI [+0 .42 , +3 .05] ), closing about 60% of the gap to this upper bound, and improves 12 of 17 dimensions over the base model (Table 1; last row of Figure 3). The largest gains are on multi-view consistency (+8.07), human interaction (+6.00), and complex plot (+5.07). Human interaction reaches 68.00 although its expert scores 58.00, so OPD does not simply copy the teacher. Recovery is uneven: only 0.71 of the 15.14-point mechanics gap is recovered, composition decreases slightly ( −0.50 ), and camera motion is unchanged. The interval reflects evaluation sampling for one OPD training run; variation across training runs was not measured. 
+
+4 RELATED WORK 
+
+Text-to-video generation builds on diffusion and flow-based modeling (Ho et al., 2020; Rombach et al., 2022; Peebles & Xie, 2023; Blattmann et al., 2023), with evaluation moving toward multi-axis diagnosis through EvalCrafter, T2V-CompBench, VideoPhy, VBench, and VBench2.0 (Liu et al., 2023; Sun et al., 2024; Bansal et al., 2024; Huang et al., 2024; Zheng et al., 2025). We use VBench2.0 dimensions as both metrics and data categories. Diffusion alignment and efficient video generation are reviewed by Liu et al. (2026) and Shao et al. (2026), respectively. Zigzag Diffusion Sampling (Bai et al., 2025a) and Weak-to-Strong Diffusion with Reflection (Bai et al., 2026a) improve generation through reflective sampling without retraining. Our training uses LoRA (Hu et al., 2022) and Qwen3-VL-8B-Instruct QA rewards (Bai et al., 2025b), but differs from RLHF/DPO-style language alignment (Bai et al., 2022; Rafailov et al., 2023) and diffusion reward optimization methods (Black et al., 2023; Wallace et al., 2024; Prabhudesai et al., 2023): the goal is not a new objective, but organizing reward-weighted video data. CRAFT (Sun et al., 2026) studies composite-reward filtering followed by supervised fine-tuning; our focus is instead on which reward-weighted categories should share updates. The grouping signal is related to gradient conflict and multi-task optimization methods (Sener & Koltun, 2018; Chen et al., 2018; Yu et al., 2020; Wang et al., 2021; Liu et al., 2021), while the merged adapter connects to weight-space merging (Wortsman et al., 2022; Matena & Raffel, 2022; Ilharco et al., 2023; Yadav et al., 2023). G 3-LoRA intervenes between these lines: it probes residual category gradients before training specialists, then merges the resulting LoRA experts into one deployable adapter. CASA (Wang et al., 2026) addresses spectral interference when transferring LoRAs to distilled video backbones, whereas we group and merge experts trained on the same backbone. Our consolidation follows on-policy distillation (Agarwal et al., 2024) and the multi-teacher paradigm of Flow-OPD (Fang et al., 2026). Our distinction lies in constructing teachers by residual-gradient grouping of reward-weighted video categories, rather than by single-reward specialization. MaineCoon (Bai et al., 2026b) also consolidates domain-specialized LoRA experts, using preference optimization and reinforced on-policy distillation for streaming audio-visual generation rather than residual-gradient grouping. Our capability-consolidation goal differs from the few-step generation objective of Adaptive Matching Distillation (Bai et al., 2026c). 9Preprint 
+
+5 LIMITATIONS 
+
+This study covers two open text-to-video backbones of at most 2B parameters and a VBench2.0-derived category taxonomy; on CogVideoX-2B the gain over the base model is small, so the most natural next step is to test whether the same grouping signal appears across larger model families, reward sources, and evaluation suites. Rewards come from Qwen3-VL and VBench2.0 also uses vision-language judgments; VideoScore agreement reduces but does not remove this coupling, and no human study was run. On Wan2.1, the 95% interval of the merged adapter’s gain over the base model includes zero. OPD adds about 205 GPU-hours and was not applied to the control partitions or to CogVideoX. Our gradient compatibility measure is also intentionally lightweight: it is designed as a practical probe for organizing post-training data rather than as a complete account of all denoising dynamics. Future work could combine this probe with richer merge rules, repeated control partitions, and human preference studies to further separate data-organization effects from evaluator- or merge-specific effects. 
+
+6 CONCLUSION 
+
+We presented G 3-LoRA, a gradient-guided procedure for organizing heterogeneous reward-weighted post-training data. The method computes category gradients, removes the shared global direction, clusters residual compatibility, trains group-specific LoRA experts, and consolidates them by merging and on-policy distillation. The central view is that reward-weighted video SFT induces multiple conditional velocity fields, and post-training should ask not only which samples are high quality, but also which reward-weighted samples should share update directions. VBench2.0 results support this view in a qualified way: Grouped LoRA improves the mean score over both the base model and joint LoRA, while reducing the worst dimension-level drop; it avoids joint training’s negative transfer on CogVideoX-2B, and distillation recovers part of the merging loss. Overall, the results position gradient compatibility as a practical organizing signal for reward-weighted video post-training. 
+
+ETHICS STATEMENT 
+
+The method is a post-training data organization procedure and does not directly introduce a new video generation backbone. Its positive impact is that it may make post-training more data-efficient and more diagnosable by exposing when training categories interfere. Its negative impact follows the underlying model class: improved video generation can also improve misleading or harmful generated media. Any future release of trained adapters or generated videos should therefore follow the safety and licensing constraints of the base model and benchmark assets, and should document whether generated samples are filtered before release. 
+
+REPRODUCIBILITY STATEMENT 
+
+Section 2 and the appendices describe the method, experimental settings, reward construction, and diagnostic protocols. All methods share a prompt manifest and seed schedule for evaluation. We plan to release the implementation, configurations, partitions, prompt manifests, and raw evaluator outputs. 
+
+AI USE STATEMENT 
+
+Generative AI tools were used to assist with writing and formatting. Their use for data generation, reward construction, distillation, and evaluation is described in the main text and appendices. The authors take responsibility for all claims, results, and artifacts. 
+
+REFERENCES 
+
+Rishabh Agarwal, Nino Vieillard, Yongchao Zhou, Piotr Stanczyk, Sabela Ramos, Matthieu Geist, and Olivier Bachem. On-policy distillation of language models: Learning from self-generated mistakes. In International Conference on Learning Representations , 2024. 10 Preprint Lichen Bai, Shitong Shao, Zikai Zhou, Zipeng Qi, Zhiqiang Xu, Haoyi Xiong, and Zeke Xie. Zigzag diffusion sampling: Diffusion models can self-improve via self-reflection. In International Conference on Learning Representations , 2025a. URL https://openreview.net/forum? id=MKvQH1ekeY .Lichen Bai, Masashi Sugiyama, and Zeke Xie. Weak-to-strong diffusion with reflection. In Interna-tional Conference on Learning Representations , 2026a. URL https://openreview.net/ forum?id=tg19FVh3p1 .Lichen Bai, Tianhao Zhang, Shitong Shao, Dingwei Tan, Qiyu Zhong, Zhengpeng Xie, Haopeng Li, Qinghao Huang, Dandan Shen, Tengjiao Ji, Wei Wang, Peicheng Wu, Yuxuan Zhao, Xiangyu Zhu, Welly Luo, Shurui Yang, and Zeke Xie. MaineCoon: Pursuing a real-time audio-visual social world model. arXiv preprint arXiv:2606.17800 , 2026b. URL https://arxiv.org/abs/ 2606.17800 .Lichen Bai, Zikai Zhou, Shitong Shao, Wenliang Zhong, Shuo Yang, Shuo Chen, Bojun Chen, and Zeke Xie. Optimizing few-step generation with adaptive matching distillation. arXiv preprint arXiv:2602.07345 , 2026c. URL https://arxiv.org/abs/2602.07345 .Shuai Bai, Yuxuan Cai, Ruizhe Chen, Keqin Chen, Xionghui Chen, Zesen Cheng, et al. Qwen3-VL technical report. arXiv preprint arXiv:2511.21631 , 2025b. Yuntao Bai, Andy Jones, Kamal Ndousse, Amanda Askell, Anna Chen, Nova DasSarma, Dawn Drain, Stanislav Fort, Deep Ganguli, Tom Henighan, et al. Training a helpful and harmless assistant with reinforcement learning from human feedback. arXiv preprint arXiv:2204.05862 , 2022. Hritik Bansal, Zongyu Lin, Tianyi Xie, Zeshun Zong, Michal Yarom, Yonatan Bitton, Chenfanfu Jiang, Yizhou Sun, Kai-Wei Chang, and Aditya Grover. Videophy: Evaluating physical commonsense for video generation. arXiv preprint arXiv:2406.03520 , 2024. Kevin Black, Michael Janner, Yilun Du, Ilya Kostrikov, and Sergey Levine. Training diffusion models with reinforcement learning. arXiv preprint arXiv:2305.13301 , 2023. Andreas Blattmann, Robin Rombach, Huan Ling, Tim Dockhorn, Seung Wook Kim, Sanja Fidler, and Karsten Kreis. Align your latents: High-resolution video synthesis with latent diffusion models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 22563–22575, 2023. doi: 10.1109/CVPR52729.2023.02161. Zhao Chen, Vijay Badrinarayanan, Chen-Yu Lee, and Andrew Rabinovich. Gradnorm: Gradient normalization for adaptive loss balancing in deep multitask networks. In Proceedings of the 35th International Conference on Machine Learning , volume 80 of Proceedings of Machine Learning Research , pp. 794–803. PMLR, 2018. Zhen Fang, Wenxuan Huang, Yu Zeng, Yiming Zhao, Shuang Chen, Kaituo Feng, Yunlong Lin, Lin Chen, Zehui Chen, Shaosheng Cao, and Feng Zhao. Flow-OPD: On-policy distillation for flow matching models. arXiv preprint arXiv:2605.08063 , 2026. Xuan He, Dongfu Jiang, Ge Zhang, Max Ku, Achint Soni, Sherman Siu, Haonan Chen, Abhranil Chandra, Ziyan Jiang, Aaran Arulraj, Kai Wang, Quy Duc Do, Yuansheng Ni, Bohan Lyu, Yaswanth Narsupalli, Rongqi Fan, Zhiheng Lyu, Bill Yuchen Lin, and Wenhu Chen. VideoScore: Building automatic metrics to simulate fine-grained human feedback for video generation. In Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing , 2024. Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. In Advances in Neural Information Processing Systems , volume 33, 2020. URL https://proceedings.neurips.cc/paper/2020/hash/ 4c5bcfec8584af0d967f1ab10179ca4b-Abstract.html .Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. Lora: Low-rank adaptation of large language models. In International Conference on Learning Representations , 2022. URL https://openreview.net/forum? id=nZeVKeeFYf9 .11 Preprint Ziqi Huang, Yinan He, Jiashuo Yu, Fan Zhang, Chenyang Si, Yuming Jiang, Yuanhan Zhang, Tianxing Wu, Qingyang Jin, Nattapol Chanpaisit, Yaohui Wang, Xinyuan Chen, Limin Wang, Dahua Lin, Yu Qiao, and Ziwei Liu. Vbench: Comprehensive benchmark suite for video generative models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 21807–21818, 2024. doi: 10.1109/CVPR52733.2024.02060. Hugging Face. Diffusers: State-of-the-art diffusion models. https://github.com/ huggingface/diffusers , 2024. Software library. Gabriel Ilharco, Marco Tulio Ribeiro, Mitchell Wortsman, Suchin Gururangan, Ludwig Schmidt, Hannaneh Hajishirzi, and Ali Farhadi. Editing models with task arithmetic. In International Conference on Learning Representations , 2023. URL https://openreview.net/forum? id=6t0Kwf8-jrj .Yaron Lipman, Ricky T. Q. Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le. Flow matching for generative modeling. In International Conference on Learning Representations , 2023. URL 
+
+https://openreview.net/forum?id=PqvMRDCJT9t .Bo Liu, Xingchao Liu, Xiaojie Jin, Peter Stone, and Qiang Liu. Conflict-averse gradient descent for multi-task learning. In Advances in Neural Information Processing Systems , volume 34, pp. 18878–18890, 2021. Buhua Liu, Shitong Shao, Bao Li, Lichen Bai, Zhiqiang Xu, Haoyi Xiong, James Tin Yau Kwok, Sumi Helal, and Zeke Xie. Alignment of diffusion models: Fundamentals, challenges, and future. 
+
+ACM Computing Surveys , 58(9):1–37, 2026. doi: 10.1145/3796982. Article 244. Yaofang Liu, Xiaodong Cun, Xuebo Liu, Xintao Wang, Yong Zhang, Haoxin Chen, Yang Liu, Tieyong Zeng, Raymond Chan, and Ying Shan. Evalcrafter: Benchmarking and evaluating large video generation models. arXiv preprint arXiv:2310.11440 , 2023. Michael Matena and Colin Raffel. Merging models with fisher-weighted averaging. In Advances in Neural Information Processing Systems , volume 35, pp. 17703–17716, 2022. William Peebles and Saining Xie. Scalable diffusion models with transformers. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pp. 4195–4205, 2023. doi: 10.1109/ICCV51070.2023.00387. Mihir Prabhudesai, Anirudh Goyal, Deepak Pathak, and Katerina Fragkiadaki. Aligning text-to-image diffusion models with reward backpropagation. arXiv preprint arXiv:2310.03739 , 2023. Rafael Rafailov, Archit Sharma, Eric Mitchell, Christopher D. Manning, Stefano Ermon, and Chelsea Finn. Direct preference optimization: Your language model is secretly a reward model. In Advances in Neural Information Processing Systems , volume 36, pp. 53728–53741, 2023. Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Björn Ommer. High-resolution image synthesis with latent diffusion models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 10674–10685, 2022. doi: 10.1109/CVPR52688.2022.01042. Ozan Sener and Vladlen Koltun. Multi-task learning as multi-objective optimization. In Advances in Neural Information Processing Systems , volume 31, pp. 525–536, 2018. Shitong Shao, Lichen Bai, Pengfei Wan, James Kwok, and Zeke Xie. Efficient video diffusion models: Advancements and challenges. arXiv preprint arXiv:2604.15911 , 2026. URL https: //arxiv.org/abs/2604.15911 .Kaiyue Sun, Kaiyi Huang, Xian Liu, Yue Wu, Zihan Xu, Zhenguo Li, and Xihui Liu. T2v-compbench: A comprehensive benchmark for compositional text-to-video generation. arXiv preprint arXiv:2407.14505 , 2024. Zening Sun, Zhengpeng Xie, Lichen Bai, Shitong Shao, Shuo Yang, and Zeke Xie. CRAFT: Aligning diffusion models with fine-tuning is easier than you think. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2026. URL https://arxiv.org/ abs/2603.18991 .12 Preprint Bram Wallace, Meihua Dang, Rafael Rafailov, Linqi Zhou, Aaron Lou, Senthil Purushwalkam, Stefano Ermon, Caiming Xiong, Shafiq Joty, and Nikhil Naik. Diffusion model alignment using direct preference optimization. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 8228–8238, 2024. doi: 10.1109/CVPR52733.2024.00786. Wan-AI. Wan2.1-t2v-1.3b-diffusers. https://huggingface.co/Wan-AI/Wan2. 1-T2V-1.3B-Diffusers , 2025. Hugging Face model card. Yuchen Wang, Wenliang Zhong, Lichen Bai, Zikai Zhou, Shitong Shao, Bojun Cheng, Shuo Chen, Shuo Yang, and Zeke Xie. Exploring data-free LoRA transferability for video diffusion models. In International Conference on Machine Learning , 2026. URL https://arxiv.org/abs/ 2605.01929 .Zirui Wang, Yulia Tsvetkov, Orhan Firat, and Yuan Cao. Gradient vaccine: Investigating and improving multi-task optimization in massively multilingual models. In International Confer-ence on Learning Representations , 2021. URL https://openreview.net/forum?id= F1vEjWK-lH_ .WanTeam, Ang Wang, Baole Ai, Bin Wen, Chaojie Mao, Chen-Wei Xie, Di Chen, Feiwu Yu, Haiming Zhao, Jianxiao Yang, et al. Wan: Open and advanced large-scale video generative models. arXiv preprint arXiv:2503.20314 , 2025. doi: 10.48550/arXiv.2503.20314. Mitchell Wortsman, Gabriel Ilharco, Samir Yitzhak Gadre, Rebecca Roelofs, Raphael Gontijo-Lopes, Ari S. Morcos, Hongseok Namkoong, Ali Farhadi, Yair Carmon, Simon Kornblith, and Ludwig Schmidt. Model soups: Averaging weights of multiple fine-tuned models improves accuracy without increasing inference time. In Proceedings of the 39th International Conference on Machine Learning , volume 162 of Proceedings of Machine Learning Research , pp. 23965–23998. PMLR, 2022. Prateek Yadav, Derek Tam, Leshem Choshen, Colin A. Raffel, and Mohit Bansal. TIES-merging: Resolving interference when merging models. In Advances in Neural Information Processing Systems , volume 36, 2023. Zhuoyi Yang, Jiayan Teng, Wendi Zheng, Ming Ding, Shiyu Huang, Jiazheng Xu, Yuanming Yang, Wenyi Hong, Xiaohan Zhang, Guanyu Feng, Da Yin, Yuxuan Zhang, Weihan Wang, Yean Cheng, Bin Xu, Xiaotao Gu, Yuxiao Dong, and Jie Tang. CogVideoX: Text-to-video diffusion models with an expert transformer. In International Conference on Learning Representations , 2025. Tianhe Yu, Saurabh Kumar, Abhishek Gupta, Sergey Levine, Karol Hausman, and Chelsea Finn. Gradient surgery for multi-task learning. In Advances in Neural Information Processing Systems ,volume 33, pp. 5824–5836, 2020. Dian Zheng, Ziqi Huang, Hongbo Liu, Kai Zou, Yinan He, Fan Zhang, et al. Vbench-2.0: Advancing video generation benchmark suite for intrinsic faithfulness. arXiv preprint arXiv:2503.21755 ,2025. 13 Preprint 
+
+A TRAINING , DISTILLATION , AND EVALUATION PARAMETERS 
+
+The main LoRA comparisons use a quick VBench2.0 protocol with 25 prompts per dimension and two generated videos per prompt. This matched protocol is used to compare adapters under identical generation and evaluator settings while keeping evaluation cost practical; the same quick protocol is used consistently for the base, joint, partition-control, grouped, and OPD comparisons. Table 3: Generation parameters for the quick VBench2.0 comparisons. Parameter Value Base model Wan2.1-T2V-1.3B-Diffusers Scheduler UniPC Steps 50 Guidance scale 5.0 Sample/flow shift 5.0 Resolution 832 × 480 
+
+Frames / FPS 81 / 16 Seed 42, with per-video seed 42 + index 
+
+Precision float16 Table 4: LoRA post-training parameters. Item Setting Trainable modules q, k, v, output projection LoRA Objective reward-weighted flow matching MSE Reward normalization sample weight / global mean weight Text length 512 tokens Probe samples 100 per dimension for the full gradient-probe run Probe stages 0/25/50/75/100% Group count 5Group experts rank 8, one epoch over the group’s samples Merged adapter group-size-weighted dense merge, rank-40 SVD Table 5: On-policy distillation (OPD) settings on Wan2.1. Item Setting Student initialization merged rank-40 adapter ϕ0 (student rank 40) Anchor frozen merged adapter ϕ0
+
+Teachers five frozen group experts, routed by dimension Prompts training prompts of the reward pool (videos, weights unused) Loss weights λOPD = 1 .0, λ = 0 .1 (Eq. 6) Student rollout 8 sampler steps from fresh noise, no gradient Distilled states 2 interior rollout states per prompt Guidance during OPD 1.0 (no classifier-free guidance) Resolution / frames 832 × 480 / 81 Optimizer AdamW, learning rate 1 × 10 −6, one pass over the prompts Batch 1 prompt per GPU on 16 GPUs Precision float16, flow shift 5.0, text length 512 14 Preprint Table 6: Compute. GPU-hours are measured on the listed hardware. Stage Hardware GPU-hours Note Joint training and gradient probes NVIDIA A800 13.4 Five group experts NVIDIA A800 33.5 OPD consolidation NVIDIA RTX 4090 ≈205 16 GPUs, 12 h 48 min 
+
+B QWEN -BASED REWARD CONSTRUCTION 
+
+The reward pipeline converts each generated training video into a scalar sample weight. It uses Qwen3-VL-8B-Instruct in two stages. First, for each prompt and VBench2.0 dimension, Qwen generates a small set of dimension-specific yes/no QA items from a prompt template. Second, Qwen watches the generated video and answers each QA item with either “Yes” or “No”. A sample receives credit for a QA item when the video answer matches the expected answer generated from the text prompt. For Motion Order Understanding, the QA-generation template instructs Qwen to identify the main subject’s core action events and produce two to four yes/no questions about their temporal order. For example, if the prompt describes a subject clapping, bending down, and then picking up a bag, the generated QA items should ask whether the earlier action happens before the later action, or whether the later action starts after the earlier action finishes. The template explicitly excludes camera movement, shot changes, clothing, background, and other non-action properties so that the reward targets event order rather than general visual quality. Let a video sample produce N valid QA items. For item j, let aj ∈ { 0, 1} indicate whether Qwen’s video answer matches the expected answer. The video-level reward is defined as 
+
+r = 1
+
+N
+
+> N
+
+X
+
+> j=1
+
+aj . (7) The reward is then converted into the training weight used in Eq. 2 as 
+
+w = clip (1 + α(r − ¯r), w min , w max ) , (8) where ¯r is the mean reward over retained samples in the same run. The implementation uses α = 0 .5,
+
+wmin = 0 .5, and wmax = 2 .0. Samples with no valid QA items are skipped; samples with fewer than the recommended number of QA items are retained with a warning if at least one valid QA item remains. 
+
+Reward audit. Table 7 summarizes the Wan2.1 reward pool. Stored weights match Eq. 8, and all 17 dimensions are covered. Camera motion has the largest loss from low-QA filtering (512 of 560 retained). Table 7: Audit of the Wan2.1 reward pipeline. Item Value Produced reward records 9,512 Records retained for training 9,448 (99.33%) Reward-pipeline failures 0Duplicate video paths 0QA-structure anomalies 0Samples at a weight-clipping bound 0
+
+C PARTITION CONTROLS 
+
+The random partition controls use the same number of groups as G 3-LoRA but are not selected by the final residual-gradient compatibility criterion. They use the same grouped-LoRA training and merge 15 Preprint pipeline as G 3-LoRA and are intended to check whether the final result follows from the specific residual-gradient partition rather than from the existence of five smaller adapters alone. Random partition A uses groups {complex landscape, complex plot, composition, human identity, mechanics}, {dynamic attribute, material, thermotics}, {camera motion, human anatomy, multi-view consistency}, {motion order, motion rationality, human clothes}, and {dynamic spatial relationship, human interaction, instance preservation}. Random partition B uses groups {dynamic spatial relationship, human anatomy, human clothes, human identity, human interaction, instance preservation, motion order, motion rationality}, {dynamic attribute, material, mechanics, thermotics}, {camera motion, multi-view consistency}, {complex landscape, composition}, and {complex plot}. The semantic partition uses the official VBench2.0 categories without the diversity dimension: Human Fidelity {human anatomy, human identity, human clothes}; Creativity {composition}; Controllability {dynamic spatial relationship, dynamic attribute, motion order, human interaction, complex landscape, complex plot, camera motion}; Physics {mechanics, thermotics, material, multi-view consistency}; and Commonsense {motion rationality, instance preservation}. The raw-gradient partition applies average-linkage clustering with M = 5 to the raw category-gradient cosine matrix, without removing the global direction. Directly subtracting the global gradient instead of projecting it yields exactly the G 3-LoRA partition. 
+
+D DIMENSION -LEVEL VB ENCH 2.0 TABLE 
+
+Table 8: Dimension-level scores under the quick VBench2.0 evaluation protocol. Scores are per-centages; ties are counted as neither improved nor degraded in aggregate tables. Grouped r8 is included as an appendix-only merge-rank diagnostic; the main comparison uses Grouped r40 (Ours). Group-only scores each dimension with the expert of its own group (non-deployable diagnostic). +OPD is Grouped r40 after on-policy distillation. Dimension Base Joint LoRA Random A Random B Group-only Grouped r8 Grouped r40 (Ours) +OPD (Ours) Human Anatomy 88.21 86.27 87.38 86.66 83.88 85.00 85.99 85.94 Human Clothes 97.92 97.96 95.92 97.96 92.00 83.33 95.92 98.40 Human Identity 73.37 71.69 73.40 73.01 68.54 77.15 71.59 71.49 Composition 48.10 46.30 49.40 50.20 53.60 46.30 47.80 47.30 Mechanics 56.52 61.70 54.35 61.70 72.92 70.00 57.78 58.49 Material 36.67 29.03 34.48 31.03 30.00 45.83 32.14 32.70 Thermotics 47.83 51.16 48.89 48.94 55.32 66.67 51.11 51.69 Multi-view Consistency 42.96 47.60 55.37 43.91 73.56 30.54 51.95 60.02 Dynamic Spatial Relationship 34.00 38.00 40.00 34.00 32.00 30.00 38.00 38.00 Dynamic Attribute 20.00 14.00 16.00 16.00 12.00 16.00 20.00 24.00 Motion Order Understanding 24.00 26.00 24.00 26.00 22.45 28.57 32.00 34.04 Human Interaction 66.00 58.00 58.00 50.00 58.00 60.03 62.00 68.00 Complex Landscape 20.00 21.60 20.80 21.20 22.80 18.80 22.40 22.80 Complex Plot 10.40 13.60 8.40 16.40 10.00 9.20 12.40 17.47 Camera Motion 12.00 20.00 8.00 10.00 6.00 16.00 12.00 12.00 Motion Rationality 38.00 36.00 38.00 36.00 42.00 38.00 40.00 40.20 Instance Preservation 84.21 80.00 76.00 76.00 82.00 84.51 86.00 86.00 Mean 47.07 46.99 46.38 45.82 48.06 47.41 48.18 49.91 The rank-8 merge is lower than the rank-40 merge on the average score (47.41 vs. 48.18) and is included only to diagnose merge-rank sensitivity. Its dimension-level pattern is uneven: it improves mechanics, material, and thermotics, but drops multi-view consistency and human clothes consistency sharply. This supports using Grouped r40 (Ours) as the main grouped adapter in Table 1. 
+
+E GRADIENT COMPATIBILITY DIAGNOSTICS 
+
+Figure 5 shows the average-linkage clustering tree used to obtain the final grouped LoRA data split. The distance is 1 − ¯S, where ¯S is the mean projection-residual gradient similarity over five probe stages. This figure complements the heatmap in the main text by showing the hierarchical structure before cutting the tree into five groups. Figure 6 shows the stage-wise projection-residual similarity matrices at 0%, 25%, 50%, 75%, and 100% of the reference joint training trajectory. All five heatmaps use the final M = 5 grouping order. 16 Preprint dynamic_spatial_relationship instance_preservation human_clothes_consistency motion_order human_anatomy human_identity_consistency human_interaction motion_rationality camera_motion complex_landscape composition multi_view_consistency dynamic_attribute material thermotics complex_plot mechanics 
+
+> Dimension 0.0 0.2 0.4 0.6 0.8 1.0 1.2 Distance (1 - S_bar)
+> Average-Linkage Clustering on Mean Projection Residual S
+
+Figure 5: Hierarchical clustering over mean residual-gradient compatibility. The M = 5 cut separates five groups with positive within-group residual similarity and avoids negative within-group pairs. Their role is diagnostic: they indicate whether the compatibility structure used for grouping is a persistent training signal rather than a one-off probe artifact. 
+
+Shared-direction removal. Table 9 compares the raw gradient, direct subtraction of the global gradient, and the projection residual of Eq. 4. Raw gradients make every pair positive. Direct subtraction and projection give nearly identical matrices (Pearson/Spearman 0.998/0.997) and the same M = 5 partition (adjusted Rand index 1.0), so they define the same downstream model. Table 9: Grouping signals on Wan2.1. Separation is the within-group minus between-group mean similarity of the resulting M = 5 partition, computed on the corresponding matrix. Signal Negative pairs Separation VBench2.0 mean Raw gradient 0/136 0.046 47.35 Direct subtraction 76/136 0.635 48.18 (same partition) Projection residual (Eq. 4) 75/136 0.633 48.18 
+
+Choice of the number of groups. Table 10 compares M = 4 and M = 5 on the mean residual matrix. The choice uses training gradients only, not evaluation scores. Table 10: Clustering diagnostics for the number of groups on Wan2.1. Groups Within-group mean Separation Negative within-group pairs 
+
+M = 4 0.345 0.559 3
+
+M = 5 0.473 0.633 0
+
+Prevalence across backbones and probe cohorts. Table 11 reports residual conflict for the Wan2.1 probes and for three non-overlapping CogVideoX-2B probe cohorts. On Wan2.1, 65 of 136 pairs are negative at all five training stages and 71 at four or more, and the stage-wise matrices have mean Pearson/Spearman correlation 0.966/0.962. 17 Preprint dynamic_spatial_relationship human_clothes_consistency instance_preservation motion_order human_anatomy human_identity_consistency human_interaction motion_rationality camera_motion complex_landscape composition dynamic_attribute material multi_view_consistency thermotics complex_plot mechanics dynamic_spatial_relationship human_clothes_consistency instance_preservation motion_order human_anatomy human_identity_consistency human_interaction motion_rationality camera_motion complex_landscape composition dynamic_attribute material multi_view_consistency thermotics complex_plot mechanics 
+
+1.00 0.53 0.32 0.68 -0.15 -0.34 0.12 0.19 0.27 -0.05 -0.06 -0.61 -0.48 -0.30 -0.67 0.05 0.33 0.53 1.00 0.56 0.63 0.17 0.22 0.51 0.17 0.28 0.01 -0.11 -0.77 -0.70 -0.42 -0.85 -0.17 -0.26 0.32 0.56 1.00 0.48 0.05 0.02 0.29 0.06 0.05 0.07 0.04 -0.51 -0.28 -0.35 -0.52 -0.45 -0.24 0.68 0.63 0.48 1.00 0.27 0.16 0.45 0.50 -0.00 -0.38 -0.37 -0.53 -0.57 -0.62 -0.70 -0.20 0.19 -0.15 0.17 0.05 0.27 1.00 0.77 0.15 0.31 -0.20 -0.52 -0.52 0.16 -0.25 -0.33 -0.07 -0.40 -0.10 -0.34 0.22 0.02 0.16 0.77 1.00 0.33 0.25 -0.24 -0.36 -0.39 0.13 -0.34 -0.20 -0.08 -0.30 -0.41 0.12 0.51 0.29 0.45 0.15 0.33 1.00 0.51 -0.14 -0.25 -0.29 -0.48 -0.41 -0.39 -0.47 -0.06 -0.30 0.19 0.17 0.06 0.50 0.31 0.25 0.51 1.00 -0.51 -0.58 -0.55 -0.08 -0.05 -0.30 -0.13 -0.32 0.19 0.27 0.28 0.05 -0.00 -0.20 -0.24 -0.14 -0.51 1.00 0.38 0.22 -0.37 -0.44 0.12 -0.42 0.23 -0.01 -0.05 0.01 0.07 -0.38 -0.52 -0.36 -0.25 -0.58 0.38 1.00 0.56 -0.25 -0.12 0.30 -0.09 0.20 -0.31 -0.06 -0.11 0.04 -0.37 -0.52 -0.39 -0.29 -0.55 0.22 0.56 1.00 -0.17 0.19 0.14 0.08 0.14 -0.27 -0.61 -0.77 -0.51 -0.53 0.16 0.13 -0.48 -0.08 -0.37 -0.25 -0.17 1.00 0.62 0.39 0.82 -0.15 0.19 -0.48 -0.70 -0.28 -0.57 -0.25 -0.34 -0.41 -0.05 -0.44 -0.12 0.19 0.62 1.00 0.29 0.82 -0.15 0.17 -0.30 -0.42 -0.35 -0.62 -0.33 -0.20 -0.39 -0.30 0.12 0.30 0.14 0.39 0.29 1.00 0.39 0.03 -0.11 -0.67 -0.85 -0.52 -0.70 -0.07 -0.08 -0.47 -0.13 -0.42 -0.09 0.08 0.82 0.82 0.39 1.00 -0.07 0.10 0.05 -0.17 -0.45 -0.20 -0.40 -0.30 -0.06 -0.32 0.23 0.20 0.14 -0.15 -0.15 0.03 -0.07 1.00 0.07 0.33 -0.26 -0.24 0.19 -0.10 -0.41 -0.30 0.19 -0.01 -0.31 -0.27 0.19 0.17 -0.11 0.10 0.07 1.00 
+
+VBench Dimension Gradient Cosine Similarity 
+
+−1.00 −0.75 −0.50 −0.25 0.00 0.25 0.50 0.75 1.00 
+
+0% dynamic_spatial_relationship human_clothes_consistency instance_preservation motion_order human_anatomy human_identity_consistency human_interaction motion_rationality camera_motion complex_landscape composition dynamic_attribute material multi_view_consistency thermotics complex_plot mechanics dynamic_spatial_relationship human_clothes_consistency instance_preservation motion_order human_anatomy human_identity_consistency human_interaction motion_rationality camera_motion complex_landscape composition dynamic_attribute material multi_view_consistency thermotics complex_plot mechanics 
+
+1.00 0.50 0.32 0.70 -0.14 -0.36 0.16 0.19 0.26 -0.13 -0.09 -0.61 -0.47 -0.39 -0.67 0.07 0.35 0.50 1.00 0.62 0.64 0.08 0.19 0.58 0.15 0.32 0.02 -0.13 -0.80 -0.73 -0.43 -0.85 -0.20 -0.27 0.32 0.62 1.00 0.51 -0.01 0.02 0.37 0.04 0.06 0.10 0.05 -0.58 -0.33 -0.43 -0.55 -0.46 -0.33 0.70 0.64 0.51 1.00 0.25 0.14 0.47 0.44 0.07 -0.41 -0.33 -0.57 -0.60 -0.71 -0.74 -0.21 0.20 -0.14 0.08 -0.01 0.25 1.00 0.75 0.12 0.31 -0.15 -0.58 -0.51 0.21 -0.21 -0.35 -0.04 -0.40 -0.01 -0.36 0.19 0.02 0.14 0.75 1.00 0.30 0.23 -0.17 -0.38 -0.37 0.15 -0.33 -0.20 -0.07 -0.35 -0.37 0.16 0.58 0.37 0.47 0.12 0.30 1.00 0.54 -0.10 -0.27 -0.34 -0.54 -0.42 -0.38 -0.49 -0.15 -0.28 0.19 0.15 0.04 0.44 0.31 0.23 0.54 1.00 -0.54 -0.61 -0.62 -0.09 0.00 -0.28 -0.08 -0.28 0.17 0.26 0.32 0.06 0.07 -0.15 -0.17 -0.10 -0.54 1.00 0.34 0.23 -0.37 -0.54 0.03 -0.48 0.26 0.01 -0.13 0.02 0.10 -0.41 -0.58 -0.38 -0.27 -0.61 0.34 1.00 0.57 -0.20 -0.06 0.35 -0.05 0.19 -0.34 -0.09 -0.13 0.05 -0.33 -0.51 -0.37 -0.34 -0.62 0.23 0.57 1.00 -0.13 0.17 0.12 0.09 0.16 -0.28 -0.61 -0.80 -0.58 -0.57 0.21 0.15 -0.54 -0.09 -0.37 -0.20 -0.13 1.00 0.63 0.43 0.83 -0.10 0.18 -0.47 -0.73 -0.33 -0.60 -0.21 -0.33 -0.42 0.00 -0.54 -0.06 0.17 0.63 1.00 0.37 0.86 -0.11 0.10 -0.39 -0.43 -0.43 -0.71 -0.35 -0.20 -0.38 -0.28 0.03 0.35 0.12 0.43 0.37 1.00 0.47 0.10 -0.15 -0.67 -0.85 -0.55 -0.74 -0.04 -0.07 -0.49 -0.08 -0.48 -0.05 0.09 0.83 0.86 0.47 1.00 -0.05 0.07 0.07 -0.20 -0.46 -0.21 -0.40 -0.35 -0.15 -0.28 0.26 0.19 0.16 -0.10 -0.11 0.10 -0.05 1.00 0.19 0.35 -0.27 -0.33 0.20 -0.01 -0.37 -0.28 0.17 0.01 -0.34 -0.28 0.18 0.10 -0.15 0.07 0.19 1.00 
+
+VBench Dimension Gradient Cosine Similarity 
+
+−1.00 −0.75 −0.50 −0.25 0.00 0.25 0.50 0.75 1.00 25% dynamic_spatial_relationship human_clothes_consistency instance_preservation motion_order human_anatomy human_identity_consistency human_interaction motion_rationality camera_motion complex_landscape composition dynamic_attribute material multi_view_consistency thermotics complex_plot mechanics dynamic_spatial_relationship human_clothes_consistency instance_preservation motion_order human_anatomy human_identity_consistency human_interaction motion_rationality camera_motion complex_landscape composition dynamic_attribute material multi_view_consistency thermotics complex_plot mechanics 
+
+1.00 0.32 0.19 0.66 -0.14 -0.40 0.09 0.06 0.33 -0.16 0.05 -0.46 -0.41 -0.47 -0.62 0.09 0.40 0.32 1.00 0.62 0.53 -0.01 0.26 0.60 0.15 0.33 0.13 -0.09 -0.81 -0.72 -0.32 -0.80 -0.22 -0.41 0.19 0.62 1.00 0.43 -0.10 0.06 0.39 0.01 0.08 0.22 0.12 -0.58 -0.34 -0.36 -0.53 -0.45 -0.43 0.66 0.53 0.43 1.00 0.20 0.11 0.46 0.37 0.08 -0.40 -0.23 -0.50 -0.56 -0.71 -0.70 -0.18 0.17 -0.14 -0.01 -0.10 0.20 1.00 0.69 0.12 0.39 -0.25 -0.60 -0.50 0.29 -0.10 -0.30 0.06 -0.38 -0.01 -0.40 0.26 0.06 0.11 0.69 1.00 0.37 0.40 -0.28 -0.33 -0.47 0.09 -0.28 -0.10 -0.02 -0.38 -0.42 0.09 0.60 0.39 0.46 0.12 0.37 1.00 0.58 -0.15 -0.23 -0.36 -0.54 -0.39 -0.33 -0.44 -0.25 -0.35 0.06 0.15 0.01 0.37 0.39 0.40 0.58 1.00 -0.53 -0.58 -0.65 -0.08 0.03 -0.27 -0.01 -0.37 0.05 0.33 0.33 0.08 0.08 -0.25 -0.28 -0.15 -0.53 1.00 0.37 0.30 -0.39 -0.55 0.06 -0.52 0.28 -0.01 -0.16 0.13 0.22 -0.40 -0.60 -0.33 -0.23 -0.58 0.37 1.00 0.53 -0.30 -0.15 0.30 -0.14 0.19 -0.38 0.05 -0.09 0.12 -0.23 -0.50 -0.47 -0.36 -0.65 0.30 0.53 1.00 -0.14 0.07 0.05 -0.03 0.17 -0.17 -0.46 -0.81 -0.58 -0.50 0.29 0.09 -0.54 -0.08 -0.39 -0.30 -0.14 1.00 0.65 0.35 0.82 -0.08 0.27 -0.41 -0.72 -0.34 -0.56 -0.10 -0.28 -0.39 0.03 -0.55 -0.15 0.07 0.65 1.00 0.32 0.86 -0.13 0.17 -0.47 -0.32 -0.36 -0.71 -0.30 -0.10 -0.33 -0.27 0.06 0.30 0.05 0.35 0.32 1.00 0.45 0.11 -0.17 -0.62 -0.80 -0.53 -0.70 0.06 -0.02 -0.44 -0.01 -0.52 -0.14 -0.03 0.82 0.86 0.45 1.00 -0.08 0.13 0.09 -0.22 -0.45 -0.18 -0.38 -0.38 -0.25 -0.37 0.28 0.19 0.17 -0.08 -0.13 0.11 -0.08 1.00 0.25 0.40 -0.41 -0.43 0.17 -0.01 -0.42 -0.35 0.05 -0.01 -0.38 -0.17 0.27 0.17 -0.17 0.13 0.25 1.00 
+
+VBench Dimension Gradient Cosine Similarity 
+
+−1.00 −0.75 −0.50 −0.25 0.00 0.25 0.50 0.75 1.00 
+
+50% dynamic_spatial_relationship human_clothes_consistency instance_preservation motion_order human_anatomy human_identity_consistency human_interaction motion_rationality camera_motion complex_landscape composition dynamic_attribute material multi_view_consistency thermotics complex_plot mechanics dynamic_spatial_relationship human_clothes_consistency instance_preservation motion_order human_anatomy human_identity_consistency human_interaction motion_rationality camera_motion complex_landscape composition dynamic_attribute material multi_view_consistency thermotics complex_plot mechanics 
+
+1.00 0.27 0.11 0.53 -0.15 -0.37 -0.04 -0.02 0.36 -0.08 0.07 -0.36 -0.41 -0.37 -0.58 0.15 0.31 0.27 1.00 0.62 0.63 0.06 0.41 0.58 0.15 0.29 0.01 -0.10 -0.80 -0.71 -0.35 -0.78 -0.38 -0.52 0.11 0.62 1.00 0.43 -0.11 0.17 0.31 -0.07 0.09 0.18 0.18 -0.58 -0.33 -0.38 -0.50 -0.49 -0.52 0.53 0.63 0.43 1.00 0.26 0.35 0.56 0.44 0.02 -0.41 -0.37 -0.53 -0.57 -0.56 -0.65 -0.32 -0.10 -0.15 0.06 -0.11 0.26 1.00 0.66 0.20 0.46 -0.29 -0.63 -0.57 0.25 -0.09 -0.27 0.10 -0.36 -0.04 -0.37 0.41 0.17 0.35 0.66 1.00 0.56 0.48 -0.27 -0.45 -0.51 -0.09 -0.31 -0.16 -0.07 -0.52 -0.43 -0.04 0.58 0.31 0.56 0.20 0.56 1.00 0.62 -0.19 -0.38 -0.42 -0.51 -0.33 -0.26 -0.34 -0.41 -0.43 -0.02 0.15 -0.07 0.44 0.46 0.48 0.62 1.00 -0.54 -0.67 -0.65 -0.00 0.05 -0.26 0.07 -0.40 0.05 0.36 0.29 0.09 0.02 -0.29 -0.27 -0.19 -0.54 1.00 0.37 0.30 -0.39 -0.51 0.12 -0.52 0.21 -0.04 -0.08 0.01 0.18 -0.41 -0.63 -0.45 -0.38 -0.67 0.37 1.00 0.62 -0.26 -0.15 0.20 -0.19 0.28 -0.24 0.07 -0.10 0.18 -0.37 -0.57 -0.51 -0.42 -0.65 0.30 0.62 1.00 -0.12 0.07 0.05 -0.03 0.13 -0.14 -0.36 -0.80 -0.58 -0.53 0.25 -0.09 -0.51 -0.00 -0.39 -0.26 -0.12 1.00 0.66 0.30 0.81 0.06 0.43 -0.41 -0.71 -0.33 -0.57 -0.09 -0.31 -0.33 0.05 -0.51 -0.15 0.07 0.66 1.00 0.28 0.84 -0.03 0.25 -0.37 -0.35 -0.38 -0.56 -0.27 -0.16 -0.26 -0.26 0.12 0.20 0.05 0.30 0.28 1.00 0.37 0.14 0.01 -0.58 -0.78 -0.50 -0.65 0.10 -0.07 -0.34 0.07 -0.52 -0.19 -0.03 0.81 0.84 0.37 1.00 -0.03 0.25 0.15 -0.38 -0.49 -0.32 -0.36 -0.52 -0.41 -0.40 0.21 0.28 0.13 0.06 -0.03 0.14 -0.03 1.00 0.33 0.31 -0.52 -0.52 -0.10 -0.04 -0.43 -0.43 0.05 -0.04 -0.24 -0.14 0.43 0.25 0.01 0.25 0.33 1.00 
+
+VBench Dimension Gradient Cosine Similarity 
+
+−1.00 −0.75 −0.50 −0.25 0.00 0.25 0.50 0.75 1.00 75% dynamic_spatial_relationship human_clothes_consistency instance_preservation motion_order human_anatomy human_identity_consistency human_interaction motion_rationality camera_motion complex_landscape composition dynamic_attribute material multi_view_consistency thermotics complex_plot mechanics dynamic_spatial_relationship human_clothes_consistency instance_preservation motion_order human_anatomy human_identity_consistency human_interaction motion_rationality camera_motion complex_landscape composition dynamic_attribute material multi_view_consistency thermotics complex_plot mechanics 
+
+1.00 0.38 0.18 0.50 -0.19 -0.19 0.10 0.03 0.38 -0.08 -0.03 -0.41 -0.45 -0.21 -0.56 0.02 0.18 0.38 1.00 0.63 0.68 0.10 0.43 0.67 0.30 0.23 -0.10 -0.17 -0.80 -0.70 -0.39 -0.81 -0.43 -0.39 0.18 0.63 1.00 0.60 -0.07 0.23 0.41 0.09 -0.02 0.08 0.08 -0.57 -0.36 -0.48 -0.54 -0.52 -0.52 0.50 0.68 0.60 1.00 0.21 0.48 0.57 0.48 -0.03 -0.36 -0.35 -0.51 -0.61 -0.55 -0.65 -0.44 -0.12 -0.19 0.10 -0.07 0.21 1.00 0.68 0.22 0.47 -0.29 -0.59 -0.56 0.19 -0.12 -0.23 0.06 -0.33 0.02 -0.19 0.43 0.23 0.48 0.68 1.00 0.59 0.63 -0.31 -0.55 -0.51 -0.12 -0.39 -0.31 -0.17 -0.55 -0.20 0.10 0.67 0.41 0.57 0.22 0.59 1.00 0.70 -0.18 -0.43 -0.41 -0.56 -0.39 -0.35 -0.44 -0.48 -0.27 0.03 0.30 0.09 0.48 0.47 0.63 0.70 1.00 -0.50 -0.72 -0.64 -0.12 -0.08 -0.26 -0.05 -0.49 0.14 0.38 0.23 -0.02 -0.03 -0.29 -0.31 -0.18 -0.50 1.00 0.37 0.27 -0.34 -0.45 0.18 -0.44 0.22 -0.07 -0.08 -0.10 0.08 -0.36 -0.59 -0.55 -0.43 -0.72 0.37 1.00 0.62 -0.23 -0.09 0.15 -0.16 0.35 -0.33 -0.03 -0.17 0.08 -0.35 -0.56 -0.51 -0.41 -0.64 0.27 0.62 1.00 -0.01 0.16 0.06 0.09 0.07 -0.33 -0.41 -0.80 -0.57 -0.51 0.19 -0.12 -0.56 -0.12 -0.34 -0.23 -0.01 1.00 0.64 0.29 0.84 0.09 0.42 -0.45 -0.70 -0.36 -0.61 -0.12 -0.39 -0.39 -0.08 -0.45 -0.09 0.16 0.64 1.00 0.26 0.83 0.06 0.21 -0.21 -0.39 -0.48 -0.55 -0.23 -0.31 -0.35 -0.26 0.18 0.15 0.06 0.29 0.26 1.00 0.31 0.27 0.17 -0.56 -0.81 -0.54 -0.65 0.06 -0.17 -0.44 -0.05 -0.44 -0.16 0.09 0.84 0.83 0.31 1.00 0.03 0.29 0.02 -0.43 -0.52 -0.44 -0.33 -0.55 -0.48 -0.49 0.22 0.35 0.07 0.09 0.06 0.27 0.03 1.00 0.22 0.18 -0.39 -0.52 -0.12 0.02 -0.20 -0.27 0.14 -0.07 -0.33 -0.33 0.42 0.21 0.17 0.29 0.22 1.00 
+
+VBench Dimension Gradient Cosine Similarity 
+
+−1.00 −0.75 −0.50 −0.25 0.00 0.25 0.50 0.75 1.00 
+
+100% 
+
+Figure 6: Stage-wise residual-gradient compatibility. Each heatmap is computed after projecting out the global mixed-gradient direction at the corresponding probe stage. The repeated block structure provides evidence that the grouping is not determined by a single noisy probe. 18 Preprint Table 11: Residual-gradient conflict across backbones and probe cohorts. Backbone / probe cohort Negative pairs Within-group Between-group Separation Wan2.1 probes 75/136 (55.1%) +0 .473 −0.160 +0 .633 
+
+CogVideoX-2B main probes 84/136 (61.8%) +0 .154 −0.102 +0 .257 
+
+CogVideoX-2B cohort A 81/136 (59.6%) +0 .177 −0.121 +0 .298 
+
+CogVideoX-2B cohort B 87/136 (64.0%) +0 .191 −0.121 +0 .312 
+
+Probe resampling. Three probe manifests, each independently sampling 100 examples per dimen-sion with no overlap with held-out examples, were compared with the full reference matrix at the final Wan2.1 checkpoint (Table 12). Strong relations are the most reproducible. Table 12: Stability of the projection-residual matrix under probe resampling on Wan2.1. Comparison Pearson Spearman Sign agr. (all) Sign agr. (strong) Resamples vs. full reference 0.847 0.834 0.816 0.853 Across the three resamples 0.728 0.703 0.755 0.787 
+
+Held-out transfer. Gradients were estimated from 100 probe samples per dimension; cross-dimension loss changes after a small step along each category gradient were measured on a disjoint held-out set. Table 13 reports the rank correlation between residual similarity and held-out transfer. The transfer rankings are nearly identical across step sizes (pairwise Spearman 0.9992–0.9997). Table 13: Residual similarity predicts held-out cross-dimension transfer on Wan2.1. Relative step size Spearman ρ Permutation p
+
+0.0005 0.256 0.0028 0.001 0.255 0.0038 0.002 0.252 0.0028 
+
+F DENSE DELTA -SVD L ORA MERGE 
+
+The grouped rank-40 adapter is produced by merging the five group-specific LoRA experts in dense weight-delta space and then recompressing the result back into LoRA factors. For a linear layer with frozen base weight W and a LoRA expert m, let Am ∈ Rrm×din and Bm ∈ Rdout ×rm denote the learned LoRA factors. The dense update represented by the expert is defined as 
+
+∆Wm = BmAm, (9) where the implementation uses unit LoRA scaling for the merge. The group experts are then averaged in dense delta space as 
+
+∆Wmerge =
+
+> M
+
+X
+
+> m=1
+
+αm∆Wm,
+
+> M
+
+X
+
+> m=1
+
+αm = 1 . (10) For the rank-40 grouped adapter, the weights are proportional to the number of VBench2.0 di-mensions assigned to each group. With group sizes [4 , 4, 3, 4, 2] , the corresponding weights are 
+
+[4 /17 , 4/17 , 3/17 , 4/17 , 2/17] .The dense merged update is converted back into a rank-r LoRA module through truncated singular value decomposition. For each merged layer, this is computed as 
+
+∆Wmerge ≈ Ur Σr V ⊤ 
+
+> r
+
+, (11) with requested rank r = 40 . The recompressed LoRA factors are defined as 
+
+Bnew = Ur Σ1/2 
+
+> r
+
+, Anew = Σ 1/2 
+
+> r
+
+V ⊤ 
+
+> r
+
+. (12) 19 Preprint This gives Bnew Anew ≈ ∆Wmerge while preserving the standard LoRA loading interface. Because the five rank-8 experts span at most 40 dimensions per layer, the rank-40 recompression reproduces 
+
+∆Wmerge up to numerical error. On CogVideoX-2B, five rank-128 experts are merged exactly into a rank-640 adapter. 
+
+G MERGE RETENTION EVALUATION 
+
+To separate group training quality from merge-induced compression, we run a retention evaluation on the five group-specific LoRA experts. Each group-only LoRA is evaluated only on the VBench2.0 dimensions assigned to that group, and the resulting dimension scores are compared with the base model and the merged rank-40 adapter under a matched quick-evaluation protocol. This is an oracle-style diagnostic rather than a deployable single-model result: it asks whether the merged adapter preserves the capabilities learned by the group experts, rather than only whether the final merged model improves the average score. Table 14: Group-level retention summary. Group-only LoRAs are an oracle-style diagnostic evaluated only on assigned dimensions; Merged r40 (Ours) preserves the average while still compressing some group-specific skills. Bold indicates the highest score in each row. Scope Base Merged r40 (Ours) Group-only Merged – Group +OPD (Ours) All 17 dims 47.07 48.18 48.06 +0.12 49.91 
+
+Group 1 60.03 62.98 57.11 +5.87 64.11 
+
+Group 2 66.39 64.89 63.10 +1.79 66.41 
+
+Group 3 26.70 27.40 27.47 -0.07 27.37 Group 4 36.86 38.80 42.72 -3.92 42.10 Group 5 33.46 35.09 41.46 -6.37 37.98 Table 14 shows that the rank-40 merge preserves most average group-only performance but com-presses some specialized skills. Groups 1 and 2 are better after merging than in their group-only form, suggesting that some dimensions benefit from updates learned by other groups. In contrast, Groups 4 and 5 lose 3.92 and 6.37 points after merging. The largest dimension-level compression occurs on multi-view consistency and mechanics, as shown in Table 15. Table 15: Selected dimension-level retention results from the group-only LoRA evaluation. Scores are percentages under the quick VBench2.0 protocol. Group Dimension Base Merged r40 (Ours) Group-only Merged – Group +OPD (Ours) Group 1 Dynamic Spatial Relationship 34.00 38.00 32.00 +6.00 38.00 Group 1 Human Clothes 97.92 95.92 92.00 +3.92 98.40 Group 1 Instance Preservation 84.21 86.00 82.00 +4.00 86.00 Group 1 Motion Order Understanding 24.00 32.00 22.45 +9.55 34.04 Group 2 Human Anatomy 88.21 85.99 83.88 +2.11 85.94 Group 2 Human Identity 73.37 71.59 68.54 +3.05 71.49 Group 2 Human Interaction 66.00 62.00 58.00 +4.00 68.00 Group 2 Motion Rationality 38.00 40.00 42.00 -2.00 40.20 Group 3 Camera Motion 12.00 12.00 6.00 +6.00 12.00 Group 3 Complex Landscape 20.00 22.40 22.80 -0.40 22.80 Group 3 Composition 48.10 47.80 53.60 -5.80 47.30 Group 4 Dynamic Attribute 20.00 20.00 12.00 +8.00 24.00 Group 4 Material 36.67 32.14 30.00 +2.14 32.70 Group 4 Multi-view Consistency 42.96 51.95 73.56 -21.60 60.02 Group 4 Thermotics 47.83 51.11 55.32 -4.21 51.69 Group 5 Complex Plot 10.40 12.40 10.00 +2.40 17.47 Group 5 Mechanics 56.52 57.78 72.92 -15.14 58.49 All Mean 47.07 48.18 48.06 +0.12 49.91 Selecting post hoc, for each dimension, the better of the assigned expert and the merged adapter yields a diagnostic mean of 51.07. Table 16 rules out rank truncation and broad cancellation of expert deltas as the main causes of specialist compression. Group 5 (complex plot and mechanics) has a small learned delta and a 2/17 merge weight, consistent with dilution of the mechanics specialist. 20 Preprint Multi-view consistency belongs to Group 4, whose norm share is not small, so its compression is more consistent with averaging or activation-level interference. Table 16: Parameter-space merge diagnostics. Diagnostic Value Rank-40 SVD reconstruction error (Wan2.1) 1.464 × 10 −6
+
+Pairwise cosine between global expert deltas 0.730–0.938 Modules with a negative expert-pair cosine 0/240 Group-size-weighted norm retention 0.946 Group 5 share of the weighted expert-delta norm 2.08% CogVideoX-2B rank-640 merge error (dense delta / output) 3.44 × 10 −7 / 7.05 × 10 −7
+
+H ON-POLICY DISTILLATION DETAILS 
+
+Each OPD step processes one training prompt per GPU. (i) The current student samples an 8-step trajectory from fresh Gaussian noise without gradient, and two interior latent states zτ are stored with their timesteps. (ii) The prompt’s dimension selects its group expert ψm(p); the frozen expert and the frozen merged anchor ϕ0 predict velocities at the stored states. (iii) The student predicts velocities at the same states, and Eq. 6 is minimized with respect to the student LoRA only. All LoRA states share the same frozen base model and are swapped in place, so no additional backbone copy is required. The loss does not use the training videos, the flow-matching target of Eq. 2, or the reward weights. Table 5 lists the hyperparameters, and Table 17 reports the change of every dimension relative to the merged adapter. The paired 95% bootstrap interval of the mean change is [+0 .42 , +3 .05] .Table 17: Change after OPD relative to the merged rank-40 adapter on Wan2.1.                               
+
+> Dimension ∆Dimension ∆
+> Multi-view Consistency +8 .07 Thermotics +0 .58
+> Human Interaction +6 .00 Material +0 .56
+> Complex Plot +5 .07 Complex Landscape +0 .40
+> Dynamic Attribute +4 .00 Motion Rationality +0 .20
+> Human Clothes +2 .48 Dynamic Spatial Relationship 0.00
+> Motion Order Understanding +2 .04 Camera Motion 0.00
+> Mechanics +0 .71 Instance Preservation 0.00
+> Human Anatomy −0.05 Human Identity −0.10
+> Composition −0.50 Mean +1.73
+
+Relative to the six specialist gaps of the merged adapter, OPD recovers 8.07 of 21.61 points on multi-view consistency, 0.71 of 15.14 on mechanics, 0.58 of 4.21 on thermotics, 0.20 of 2.00 on motion rationality, and all 0.40 on complex landscape, while composition moves 0.50 further from its expert. 
+
+I COG VIDEO X-2B EXPERIMENT 
+
+The CogVideoX-2B experiment reruns the full procedure on a second backbone with its native diffusion-denoising objective: self-generated training videos, QA rewards, gradient probes, grouping, expert training, and merging. Joint and grouped training use the same 9,520 videos, prompts, reward weights, and LoRA and optimizer configuration (LoRA rank 128, α = 128 , learning rate 1 × 10 −4); each sample is seen exactly once, because the five experts train on disjoint subsets whose sizes sum to 9,520. The five rank-128 experts are merged exactly into a rank-640 adapter ( α = 640 ). Scores are VBench2.0 macro means over 17 dimensions; multi-view consistency is 0 for all CogVideoX methods. Joint LoRA is already below the base model at 25% exposure, and even its best retained checkpoint remains below both the base model and the grouped adapter, so early stopping would not change 21 Preprint Table 18: CogVideoX-2B Joint LoRA across retained checkpoints (VBench2.0 macro score, ×100 ). Model / checkpoint Training exposure Score Base 0% 39.87 Joint LoRA 25% 36.78 Joint LoRA 50% 31.58 Joint LoRA 75% 32.12 Joint LoRA 100% 27.95 Grouped LoRA (Ours) 100% 40.99 the comparison. The degradation is dimension-selective: human anatomy (48.5 to 98.4), human identity (70.9 to 97.9), and thermotics (46.8 to 56.0) improve under Joint LoRA, while composition, camera motion, mechanics, human interaction, motion order, and motion rationality deteriorate. The grouped–Joint difference of +13 .04 points has a paired prompt-cluster 95% bootstrap interval of 
+
+[+9 .08 , +16 .92] .
+
+J INDEPENDENT EVALUATION WITH VIDEO SCORE 
+
+Table 19: VideoScore-v1.1 on the matched Wan2.1 evaluation videos. The derived mean averages the five aspects; its paired 95% CI is [0 .140 , 0.192] with P (∆ > 0) = 1 .000 .Aspect Base Grouped LoRA (Ours) ∆
+
+Visual quality 3.029 3.196 +0 .168 
+
+Temporal consistency 2.748 2.931 +0 .183 
+
+Dynamic degree 3.225 3.380 +0 .155 
+
+Text alignment 2.911 3.041 +0 .130 
+
+Factual consistency 2.659 2.851 +0 .192 
+
+Five-aspect mean 2.914 3.080 +0 .166 
+
+Bootstrap protocol. For every paired comparison, prompts are resampled with replacement as clusters, both videos of a prompt stay together, and the same prompt indices are used for both methods. We report the point estimate, the 95% percentile interval over 10,000 resamples, and the fraction of resamples with a positive difference. For Grouped LoRA (Ours) versus Base on VBench2.0 this gives 
+
++1 .11 points (bootstrap mean +1 .09 ), a 95% interval of [−0.08 , +2 .26] , and P (∆ > 0) = 0 .966 .22
