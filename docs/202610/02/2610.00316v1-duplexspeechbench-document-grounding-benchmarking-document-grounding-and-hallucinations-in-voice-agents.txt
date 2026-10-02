@@ -1,0 +1,933 @@
+Title: DuplexSpeechBench-Document Grounding: Benchmarking Document Grounding and Hallucinations in Voice Agents
+
+URL Source: https://arxiv.org/pdf/2610.00316v1
+
+Published Time: Fri, 02 Oct 2026 00:12:13 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+# DuplexSpeechBench-Document Grounding : Benchmarking Document Grounding and Hallucinations in Voice Agents 
+
+Puneet Mathur 1, Nedim Lipka 1, Zeyu Jin 1, Dinesh Manocha 2
+
+> 1Adobe Research, San Jose, USA
+> 2University of Maryland College Park, USA
+
+Project Page: https://dsb-dg.github.io/ 
+
+Abstract 
+
+Voice agents enable low-latency, natural interaction, yet their ability to faithfully ground responses in external documents remains underexplored. We introduce 
+
+DuplexSpeechBench-Document Grounding 
+
+(DSB-DG) , a benchmark for evaluating doc-ument grounding in voice agents across five professional domains. DSB-DG targets three failure modes: Context Saturation , which mea-sures grounding under increasing document length; Grounding Decay , which measures re-tention of document facts across multi-turn di-alogue; and Proactive Grounding , which eval-uates whether context re-injection mitigates conversational drift. The benchmark contains 1,636 adversarially verified QA pairs from 50 documents covering five professional do-mains, and supports fully automatic evaluation of grounding accuracy, hallucination, and re-sponse latency. Across systems spanning cas-caded, proprietary full-duplex and real-time, and open-weight speech2speech architectures, we find substantial differences in effective grounding capacity. While cascaded pipeline (ASR-LLM-TTS) achieves the highest ground-ing accuracy, Gemini-Live and GPT-Realtime closely trail behind. Open-weight systems ex-hibit distinct failure modes, most notably an abrupt context-capacity collapse and multi-turn grounding decay. More broadly, grounding fi-delity degrades with context and conversational load, and failures frequently manifest as unsup-ported generations rather than abstention. We show that contextual grounding as a key unre-solved challenge for reliable full-duplex voice agents. 
+
+1 Introduction 
+
+Audio language models have rapidly evolved from mere speech transcription systems to full-duplex models capable of simultaneous listening and speaking. Systems such as Moshi (Défossez et al., 
+
+Figure 1: DuplexSpeechBench–Document Grounding 
+
+> (DSB-DG) benchmark provides document context and spoken queries to a full-duplex speech model, and evaluates grounding accuracy, multi-turn retention, and real-time behavior through three complementary protocols.
+
+2024), GPT-Realtime 1, and MiniCPM-o (Cui et al., 2026) enable low-latency interaction with natural turn-taking, interruptions, and backchanneling. As such systems enter professional settings, conver-sational fluency alone is insufficient: voice agents must also answer faithfully from task-specific doc-uments, such as clinical protocols, financial reports, contracts, or regulatory filings. Document-grounded voice interaction intro-duces a fundamental challenge where models must preserve factual grounding while operating under the latency and turn-taking constraints of real-time speech. Under contextual load, unsupported re-sponses may be delivered with the same fluency and prosodic confidence as grounded ones. Evalu-ating when voice agents, including full-duplex and real-time models, retain, lose, or recover access to external context is therefore critical for reliability, yet document grounding in such systems remains largely unexplored. Existing benchmarks (Table 1) address parts of this problem but not their combination. The Full-Duplex-Bench series evaluates turn-taking and interruptions (Lin et al., 2025), overlapping speech (Lin et al., 2026c), multi-turn instruction following (Lin et al., 2026b), and tool use under                                                                                         
+
+> 1https://developers.openai.com/api/docs/models/gpt-realtime arXiv:2610.00316v1 [cs.CL] 29 Sep 2026 Benchmark Full-Real-Long Long-Multi-Document-Halluc. Latency Duplex Time Document Context Turn Factuality Eval. Eval.
+> SpokenSQuAD (Li et al., 2018) ✗✗✗✗✗✓✗✗
+> LongBench (Bai et al., 2024) ✗✗✓✓✗✓✗✗
+> Full-Duplex-Bench (Lin et al., 2025, 2026c) ✓✓✗✗✗✗✗✓
+> FD-Bench (Peng et al., 2025) ✓✓✗✗✗✗✗✓
+> Full-Duplex-Bench-v2 (Lin et al., 2026b) ✓✓✗✗✓✗✗✓
+> MTR-DuplexBench (He et al., 2026) ✓✓✗✗✓✗✗✓
+> Full-Duplex-Bench-v3 (Lin et al., 2026a) ✓✓✗✗✓✗✗✓
+> τ-Voice (Ray et al., 2026) ✓✓✗✗✓✗✗✓
+> DSB-DG (Ours) ✓✓✓✓✓✓✓✓
+
+Table 1: Comparison of DSB-DG with spoken-dialogue benchmarks. Existing voice agent benchmarks primarily evaluate conversational dynamics, multi-turn interaction, or task completion, whereas long-context benchmarks evaluate document understanding without real-time spoken interaction. DSB-DG jointly evaluates document factuality, multi-turn grounding retention, hallucination, and latency in full-duplex voice agents. 
+
+naturalistic disfluencies (Lin et al., 2026a), but not factual fidelity to external documents. Long-context benchmarks such as QuALITY (Pang et al., 2022), SCROLLS (Shaham et al., 2022), and Long-Bench (Bai et al., 2024) evaluate document un-derstanding in text without streaming speech con-straints, while SpokenSQuAD (Li et al., 2018) fo-cuses on single-turn extractive spoken QA. We introduce DuplexSpeechBench–Document Grounding (DSB-DG) , a streaming-native eval-uation benchmark for factual grounding and hal-lucination in document-conditioned voice agents (Figure 2). DSB-DG isolates three complemen-tary failure modes: Context Saturation , measures grounding as document length increases; Ground-ing Decay , measures factual retention across ex-tended dialogue; and Proactive Grounding , tests whether context re-injection restores grounding after conversational drift. The benchmark con-tains 1,636 adversarially verified QA pairs over 50 professional documents across five domains— clinical trial protocols, earnings-call transcripts, FDA 510(k) filings, lease agreements, and munic-ipal meeting minutes—with five prefix-consistent context tiers ranging from 500 to 8,000 tokens. All metrics are automatic, enabling reproducible com-parison across speech architectures. We evaluate seven systems spanning full-duplex, cascaded and end-to-end speech architectures: Gemini-Live 2, Cascaded (Whisper → GPT-4o →
+
+TTS), GPT-Realtime, MiniCPM-o-4.5 (Cui et al., 2026), SALMONN (Yu et al., 2024), Ultravox-v0.6-Qwen3-32B (UV-32B), and Moshi (Défos-sez et al., 2024). The results reveal distinct architecture-specific failure modes. The cascaded system provides the strongest overall grounding, while Gemini-Live, GPT-Realtime and MiniCPM-
+
+> 2
+
+https://gemini.google/overview/gemini-live/ 
+
+o approach its single-turn accuracy under real-time speech generation. SALMONN exhibits an abrupt context-capacity cliff, whereas Ultravox-32B shows severe grounding decay across extended dialogue. Moreover, context re-injection benefits GPT-Realtime and the cascaded system but can degrade smaller-backbone systems, demonstrat-ing that proactive grounding strategies must be architecture-dependent. Across systems, failures under contextual load frequently manifest as unsup-ported generation rather than abstention, exposing a critical reliability gap between conversational flu-ency and factual grounding. Main contributions :• DuplexSpeechBench–Document Grounding 
+
+Benchmark for evaluating factual grounding and hallucination in voice agents, compris-ing 1,636 spoken QA pairs in 50 professional documents spanning 5-tiered context-lengths, along with 20 controlled multi-turn dialogues. • Three complementary grounding protocols. 
+
+Context Saturation, Grounding Decay, and Proactive Grounding isolate failures from in-creasing contextual load, conversational for-getting, and context re-injection using auto-matic metrics for grounding, hallucination, re-tention, and latency. • Systematic evaluation across speech archi-tectures. Evaluation of cascaded, proprietary full duplex, real-time, and open-weight voice agents reveals distinct failure modes, includ-ing context-capacity collapse, conversational forgetting, and context saturation. We discuss related benchmarks in Appendix A. 
+
+2 Methodology 
+
+We evaluate document-grounded voice agents through three controlled protocols that isolate com-plementary sources of grounding failure. Con-Figure 2: DuplexSpeechBench–Document Grounding (DSB-DG) . We inject document context into a full-duplex speech language model that answers spoken user queries in real time. The benchmark comprises three complementary protocols:   
+
+> Context Saturation , evaluating grounding under increasing document lengths; Grounding Decay , evaluating retention of document facts across multi-turn conversations using repeated factual probes separated by distractor dialogue; and Proactive Grounding , evaluating the effectiveness of periodic document re-injection. Model responses are automatically scored using Grounding Accuracy (GA), Hallucination Rate (HR), Grounding Decay Score (GDS), and First-Token Emission Delay (FTED).
+
+text Saturation measures how grounding changes as document length increases; Grounding Decay 
+
+tests whether document facts remain accessible over extended multi-turn interaction; and Proactive Grounding evaluates if periodically reintroducing of document context mitigates conversational drift. 
+
+2.1 Context Saturation 
+
+Context Saturation measures grounding robustness as document length increases. By holding the ques-tion and supporting evidence fixed while expanding context, the protocol isolates the effect of contex-tual load and captures both gradual degradation and abrupt context-capacity collapse. 
+
+Setting : For a source document D, we construct five prefix-consistent tiers T1 ⊂ T2 ⊂ · · · ⊂ T5
+
+of approximately 500, 1k, 2k, 4k, and 8k tokens, such that information in Ti remains available in all subsequent tiers. For each question–answer pair (q, a ), we ask the same spoken question q
+
+under every eligible tier Ti and obtain response ri.Interactions are single-turn with no conversational history, so changes in grounding can be attributed to increasing contextual load. 
+
+2.2 Grounding Decay 
+
+Context capacity alone does not capture whether document information remains accessible as a con-versation progresses. Grounding decay measures retention of document facts under controlled con-versational drift. 
+
+Setting : For each document D, we construct a multi-turn conversation following a probe– distractor–repeat structure. Early turns contain document-grounded probes A, intermediate turns introduce domain-relevant distractors B, and late turns repeat the original probes as A′. As A′ is identical to A, performance changes reflect con-versational progression rather than question vari-ation. We define the Grounding Decay Score: 
+
+GDS = GA( A′) − GA( A), where GA( ·) denotes grounding accuracy over the corresponding probe set. Negative values indicate grounding loss and values near zero indicate stable retention. GDS is interpreted jointly with GA( A), since near-zero decay is uninformative when initial grounding is poor. Distractors remain domain-related but do not require the probed facts, inducing conversational drift without changing the source context. Conver-sation templates are provided in Appendix E.2. 
+
+2.3 Proactive Grounding 
+
+Proactive Grounding evaluates whether refreshing document context mitigates grounding loss during extended dialogue. Additional context may im-prove access to source information, but may also overwhelm the effective conversational context of some speech LM architectures. 
+
+Setting : Building on the grounding-decay setup, we compare three context-management conditions Domain # Docs # QA Avg. Qs / Doc Document Characteristics                         
+
+> Clinical Trials 10 391 39.1 Structured protocols, eligibility criteria, clinical endpoints Earnings Calls 10 314 31.4 Financial reporting, analyst Q&A, dense numerical content FDA 510(k) 10 292 29.2 Regulatory filings, device specifications, standardized structure Commercial Leases 10 358 35.8 Contract clauses, cross-references, legal reasoning Municipal Minutes 10 281 28.1 Procedural narratives, motions, amendments, voting records
+> Total 50 1,636 32.7 Multi-turn spoken conversations (20) grounded in documents
+
+Table 2: Domain composition and dataset statistics of DuplexSpeechBench-Document Grounding : 1,636 unique, adversarially verified QA pairs across five distinct professional domains along with complex multi-turn dialogue scripts. 
+
+with increasing levels of injected context: (i) C0
+
+(No Refresh ): context is provided initially but not re-injected; (ii) C1 (Single Refresh ): context is re-injected once mid-conversation; (iii) C2 (Multiple Refreshes ): context is re-injected multiple times. Conversations and factual probes are fixed across conditions; only the refresh strategy changes. We measure re-injection benefit relative to C0 as 
+
+∆light = GA( C1) − GA( C0), (1) 
+
+∆heavy = GA( C2) − GA( C0). (2) 
+
+Positive values indicate improved grounding and negative values degradation. See Appendix E.4 for protocol details. 
+
+3 Benchmark Design 
+
+Benchmark Composition. Table 2 shows DSB-DG comprises 50 professional documents across five domains: clinical trial protocols, earnings-call transcripts, FDA 510(k) filings, commercial lease agreements, and municipal meeting minutes. The benchmark contains 1,636 verified question– answer pairs and 20 controlled multi-turn conversa-tions. Each document is represented at five prefix-consistent context tiers of approximately 500, 1k, 2k, 4k, and 8k tokens, enabling controlled evalua-tion of context-length effects while preserving evi-dence from shorter tiers. Questions span entity and numerical retrieval, procedural reasoning, clause interpretation, and multi-hop document comprehen-sion. Additional dataset statistics in Appendix B. 
+
+QA Generation and Verification. Candidate QA pairs are generated using GPT-OSS-20B paired with restricted document context to ensure the QA is blind to extraneous information, followed by three-stage adversarial verification. This multi-stage process results in 1,636 QA pairs (1,341 grounded and 295 unanswerable). We addition-ally construct controlled multi-turn conversations containing document-grounded probes, domain-relevant distractors, and topic transitions. See Ap-pendix B.5 for QA verification, Appendix B.4 for prompts, and Appendix E for protocol templates. 
+
+Audio Interaction. All benchmark queries are synthesized as 16kHz mono speech using a fixed TTS voice, standardizing speaker, prosody, and recording conditions across systems. The bench-mark isolates document grounding under standard-ized acoustic input. TTS processing configurations are provided in Appendix D. 
+
+LLM-Judge Evaluation. Model responses are transcribed with Whisper-large-v3 (Radford et al., 2023) and scored by an LLM judge given the source context, question, reference answer, and re-sponse transcript to determine if the responses are supported by the supplied document context. See Appendix C for judge evaluation configurations. 
+
+4 Experiments 
+
+Evaluated Systems : We evaluate seven spoken-dialogue systems spanning full duplex, cascaded, proprietary real-time, and open-weight speech ar-chitectures: Gemini-Live , Cascaded (ASR →
+
+GPT-4o → TTS), GPT-Realtime , MiniCPM-o-4.5 (Cui et al., 2026), SALMONN (Yu et al., 2024), Ultravox-v0.6-Qwen3-32B (UV-32B) , and 
+
+Moshi (Défossez et al., 2024). All systems receive identical document content, synthesized user audio, and conversation scripts. See model configurations and API settings in Appendix D. 
+
+Evaluation Metrics : Grounding Accuracy (GA) 
+
+is the primary quality metric for factual grounding which measures the fraction of responses factually supported by the supplied document. Hallucina-tion Rate (HR) measures fraction of responses containing unsupported claims. For multi-turn eval-uation, Grounding Decay Score (GDS) measures the change in accuracy between repeated early and late probes ( ∆GA ) (Sec. 2.2). Proactive Ground-ing protocol reports ∆light and ∆heavy as defined in Section 2.3. First-Token Emission Delay (FTED) 
+
+measures the elapsed time between the end of user Model T1 ( ≈500) T2 ( ≈1k) T3 ( ≈2k) T4 ( ≈4k) T5 ( ≈8k)                                    
+
+> Cascaded 88.7 89.8 90.3 90.4 88.5
+> Gemini-Live 85.9 86.9 87.4 90.2 86.9 GPT-Realtime 88.0 86.6 87.7 88.2 85.8 MiniCPM-o 85.9 87.6 88.0 87.2 74.0 UV-32B 87.0 85.4 85.5 80.2 75.4 SALMONN 77.4 76.3 70.3 37.2 25.4 Moshi 6.8 5.9 3.2 3.2 2.4
+
+Table 3: Context Saturation, measured via Grounding Accu-racy (%), across token-length tiers. Cascaded, Gemini-Live, and GPT-Realtime stay robust throughout, while MiniCPM-o shows a sharp T5 drop; SALMONN collapses at T4 nears context capacity. Moshi never grounds. T1 T2 T3 T4 T5      
+
+> 010 20 30 40 50 60 cliff
+> Context Tier Hallucination Rate (HR %)  Hallucination Rate (%) Under Context Load
+> Cascaded GPT-RT Gemini-Live MiniCPM-o UV-32B SALMONN
+
+Figure 3: Hallucination Rate (HR) across context tiers. SALMONN’s T3 →T4 collapse coincides with rising hallu-cination, while MiniCPM-o shows a similar failure at T5. Context-capacity limits manifest as unsupported generation. 
+
+speech and the first model output token; we re-port median (p50), mean, and p95 FTED latencies. We additionally report Quality-Adjusted Latency (QAL) = FTED p50 (1 − GA T3 ), which penalizes systems that achieve low latency at the expense of grounding accuracy. See Appendix D.3 for model-specific injection procedures and prompt templates. 
+
+5 Results 
+
+Context Saturation Analysis. Table 3 and Fig-ure 3 show substantially different context-scaling behavior across architectures. Cascaded, GPT-Realtime, Gemini-Live, and MiniCPM-o remain comparatively stable through T4, achieving 90.3%, 87.7%, 87.4%, and 88.0% GA at T3, respectively. Gemini-Live remains robust across context tiers, ranging from 85.9% at T1 to 90.2% at T4 and re-taining 86.9% at T5. UV-32B degrades more grad-ually from 85.5% at T3 to 75.4% at T5, whereas SALMONN exhibits an abrupt context-capacity cliff: GA falls from 70.3% at T3 to 37.2% at T4 (−33 .1 %). MiniCPM-o shows a later drop at T5, falling from 88.0% at T3 to 74.0%. Moshi remains near floor-level grounding across all stan-dard context tiers ( ≤6.8%). Thus, increasing doc-ument length produces qualitatively different fail-ure regimes across systems rather than a common                                     
+
+> Domain Cascaded GPT-RT Gemini-L MiniCPM-o UV-32B SALMONN
+> Clinical 83.9 78.9 81.4 80.7 82.5 62.5 Earnings 93.8 89.4 88.2 91.9 91.9 70.8 FDA 510(k) 82.1 84.6 78.6 78.6 84.6 57.3 Leases 98.6 98.6 96.4 95.7 97.8 86.2 Municipal 96.1 93.3 95.0 96.1 95.0 78.2
+
+Table 4: Grounding Accuracy (%) at the 2k-token tier (T3) across professional domains. Darker red cells reflect relative domain difficulty within each model family; bold is best model for each domain. Clinical protocols and FDA 510(k) filings are most challenging domains, while leases and municipal records are most tractable.                                 
+
+> Model GA AGA BGA A′GDS
+> Gemini-Live 86.7 85.1 90.1 +3.3
+> Cascaded 86.7 86.7 86.7 +0.0 GPT-Realtime 86.7 85.0 87.0 +0.3 MiniCPM-o 83.3 86.7 81.7 −1.7 UV-32B 80.0 78.3 75.0 −5.0
+> SALMONN 76.7 65.0 72.1 −4.6 Moshi 1.7 5.0 1.3 −0.4
+
+Table 5: Grounding Decay results across controlled multi-turn conversations. GA (%) is reported for early probes ( A), intermediate probes ( B), and repeated late probes ( A′), with GDS = GA (A′)−GA (A). Gemini-Live is most robust. UV-32B exhibits most conversational forgetting ( −ve GDS). 
+
+degradation curve. 
+
+Capacity limits amplify hallucination. Ground-ing degradation is accompanied by increasing un-supported generation (Figure 3). SALMONN’s T3 →T4 accuracy collapse coincides with HR in-creasing from 30.1% to 39.8%, reaching 46.5% at T5. MiniCPM-o and UV-32B show the same pattern at T5, with HR increasing to 25.0% and 22.7%, respectively. In contrast, Cascaded, GPT-Realtime, and Gemini-Live remain comparatively stable; Gemini-Live maintains HR between 10.5% and 13.7% across all five tiers. Thus, context-capacity failures often manifest as hallucination rather than abstention. 
+
+Document domain also affects grounding. Ta-ble 4 shows that clinical trial protocols and FDA 510(k) filings are consistently the most challeng-ing due to their dense, specification-heavy content and need for fine-grained factual distinctions. In contrast, commercial leases and municipal minutes remain the most robust domains, with GA rang-ing from 93.3% to 98.6% across Cascaded, GPT-Realtime, Gemini-Live, MiniCPM-o, and UV-32B. SALMONN is weakest on FDA filings (57.3%) and clinical protocols (62.5%), but strongest on leases (86.2%). Grounding robustness depends on both context length and document domain. 
+
+Grounding Decay Analysis. Table 5 shows that strong single-turn grounding does not always per-Grounding Accuracy (%) Injection Benefit (%) Model C0 C1 C2 ∆light ∆heavy                                            
+
+> No refresh 1 refresh Multiple (C1−C0)(C2−C0)
+> GPT-Realtime 79.6 94.2 88.1 +14.6 +8.5 Cascaded 87.8 94.2 94.9 +6.4 +7.1 Gemini-Live 83.89 84.44 83.89 +0.56 0.0 MiniCPM-o 90.6 89.4 89.4 −1.1 −1.1 UV-32B 88.9 88.3 86.7 −0.6 −2.2 SALMONN 68.9 66.1 64.4 −2.8 −4.4 Moshi 5.0 3.3 1.7 −1.7 −3.3
+
+Table 6: Grounding Accuracy (GA) under Proactive Ground-ing protocol: no refresh ( C0), a single refresh ( C1), and multiple refreshes ( C2), with improvement relative to C0.Cascaded and GPT-Realtime benefit substantially from con-text re-injection, whereas repeated refreshes degrade UV-32B, MiniCPM-o, and SALMONN. Bold indicates the best GA.                                     
+
+> Model p50 (ms) ↓mean (ms) ↓p95 (ms) ↓QAL (ms) ↓
+> Cascaded 1469 8118 61563 143
+> GPT-Realtime 1214 1311 1761 150 Moshi 229 251 737 228 MiniCPM-o 2317 4566 11975 278 Gemini-Live 6806 9410 6949 856 SALMONN 3763 7665 30349 1118 UV-32B 9855 10723 21530 1036
+
+Table 7: First-Token Emission Delay (FTED) statistics and Quality-Adjusted Latency (QAL = FTED p50 ×(1 −GA@T3) )across systems. GPT-Realtime and the cascaded pipeline dom-inate the frontier. Moshi attains has lowest latency but near-zero grounding. MiniCPM-o, UV-32B, and SALMONN ex-hibit severe latency tails at higher context tiers. 
+
+sist across dialogue. Gemini-Live exhibits the strongest retention with GDS of = +3 .3% . Cas-caded remains perfectly stable at 86.7% (GDS 
+
+= 0.0 %), while GPT-Realtime changes only slightly from 86.7% to 87.0% ( +0 .3 %). In contrast, UV-32B shows the largest decay, from 80.0% to 75.0% (GDS = −5.0 %), followed by SALMONN (76.7% →72.1%, −4.6 %) and MiniCPM-o (83.3% →81.7%, −1.7 %). Moshi’s near-zero GDS ( −0.4 %) is uninformative given its near-zero initial grounding (GA A = 1 .7% ). Thus, GDS must be interpreted jointly with absolute GA: low decay indicates retention only when ground-ing is established initially. See Appendix F for conversation trajectories and failure examples. 
+
+Proactive Grounding Analysis. Table 6 shows that context re-injection has strongly architecture-dependent effects. Cascaded improves from 87.8% to 94.9% GA with multiple refreshes ( ∆heavy =+7 .1 %), while GPT-Realtime rises from 79.6% to 94.2% with one refresh ( ∆light = +14 .6 %) and remains improved with multiple refreshes (88.1%, 
+
++8 .5 %). Gemini-Live is largely insensitive to re-injection. In contrast, repeated refreshes reduce GA for UV-32B ( −2.2 %), MiniCPM-o ( −1.1 %), and SALMONN ( −4.4 %). Thus, proactive grounding       
+
+> 200 500 1000 2000 5000 10000
+> 0%
+> 20 %
+> 40 %
+> 60 %
+> 80 %
+> 100 %upper-left = better
+> Moshi GPT-Realtime Cascaded MiniCPM-o SALMONN UV-32B Gemini-Live
+> FTED p50 (ms, log scale) Grounding Accuracy — GA@T3
+
+Figure 4: Pareto frontier graph of the quality–latency trade-off in DSB-DG. 
+
+is not uniformly beneficial: its effect depends on both architecture and refresh frequency. 
+
+Quality–Latency Trade-off. Table 7 and Fig-ure 4 characterize the quality–latency trade-off across systems. Cascaded achieves the strongest grounding (90.3%) with a p50 FTED of 1469 ms and QAL of 143, while GPT-Realtime combines 87.7% GA with a p50 FTED of 1214 ms and QAL of 150. MiniCPM-o is the strongest open-weight system in grounding (88.0%) but has higher la-tency (2317 ms p50). Gemini-Live achieves sim-ilarly strong grounding (87.4%) but at substan-tially higher latency (6806 ms p50 and QAL of 856). SALMONN exhibits a heavy latency tail (3763 ms p50; 30349 ms p95), while UV-32B reaches 9855 ms p50. Moshi is fastest (229 ms p50) but provides near-zero grounding (3.2% GA). Thus, low latency alone is insufficient, while high ground-ing accuracy alone does not guarantee an effective real-time system: voice agents must be evaluated jointly on responsiveness and factual grounding. 
+
+6 Conclusion 
+
+We introduced DuplexSpeechBench-Document Grounding (DSB-DG) benchmark for evaluating document grounding in voice agents. We identify distinct failure modes under contextual and con-versational load: abrupt context-capacity collapse, multi-turn grounding decay, and increased hallu-cination as grounding deteriorates. Our findings show that conversational responsiveness alone is in-sufficient for reliable document-grounded voice in-teractions. DSB-DG provides a reproducible bench-mark for developing full-duplex voice agents that jointly optimize factual grounding and conversa-tional latency. 7 Limitations 
+
+DSB-DG is designed to isolate document ground-ing under controlled spoken interaction, and sev-eral limitations define the scope of its conclusions. First, the benchmark covers five professional do-mains and contexts up to approximately 8k tokens; substantially longer documents, other domains, and less structured knowledge sources remain outside the present evaluation. Second, user questions are rendered using standardized synthetic speech. This controls acoustic variability across systems but does not measure robustness to speaker diversity, accents, background noise, spontaneous speech, or naturally occurring disfluencies. Third, the eval-uated architectures expose different mechanisms for conditioning on external text. We use each system’s closest available context interface, but these mechanisms are not architecturally equiva-lent. The results therefore characterize complete deployed systems rather than a controlled compar-ison of language-model backbones alone. Fourth, grounding quality is evaluated primarily with an LLM-based judge. The structured judge captures factual correctness and hallucination behavior at scale, but residual errors may remain for partially correct, implicitly supported, or acoustically am-biguous responses. Finally, DSB-DG focuses on factual grounding, conversational retention, con-text re-injection, and response latency rather than the complete capability profile of production voice agents. It does not directly evaluate naturalness, emotion, speaker similarity, interruption handling, safety, or task-completion quality. These dimen-sions are complementary to document grounding and should be considered jointly in real-world de-ployment. 
+
+8 Ethics Statement 
+
+DSB-DG is designed to evaluate document ground-ing in full-duplex speech systems without rely-ing on personal or sensitive user information. The benchmark does not contain private conversa-tions, personally identifying information, or person-specific factual queries, and is not intended to re-trieve or infer sensitive attributes about individuals. Documents are used solely as grounding sources for controlled evaluation, and benchmark questions target document content rather than personal pro-filing. All user speech is synthetically generated using a fixed TTS voice, avoiding the collection or release of human voice recordings and reducing pri-vacy risks associated with speaker identity. Model outputs may nevertheless contain hallucinated or unsupported information, particularly under long-context or multi-turn conditions; the benchmark is intended to measure these failure modes rather than endorse deployment of the evaluated systems in high-stakes settings. Results should therefore not be interpreted as evidence that any evaluated sys-tem is suitable for autonomous use in domains such as healthcare, finance, legal services, or regulatory decision-making without additional safeguards and human oversight. 
+
+References       
+
+> Yushi Bai, Xin Lv, Jiajie Zhang, Hongchang Lyu, Jiankai Tang, Zhidian Huang, Zhengxiao Du, Xiao Liu, Aohan Zeng, Lei Hou, and 1 others. 2024. Long-bench: A bilingual, multitask benchmark for long context understanding. In Proceedings of the 62nd annual meeting of the association for computational linguistics (volume 1: Long papers) , pages 3119– 3137. Yew Ken Chia, Liying Cheng, Hou Pong Chan, Maojia Song, Chaoqun Liu, Mahani Aljunied, Soujanya Po-ria, and Lidong Bing. 2025. M-LongDoc: A bench-mark for multimodal super-long document under-standing and a retrieval-aware tuning framework. In
+> Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , Suzhou, China. Association for Computational Linguistics. Junbo Cui, Bokai Xu, Chongyi Wang, Tianyu Yu, Weiyue Sun, Yingjing Xu, Tianran Wang, Zhihui He, Wenshuo Ma, Tianchi Cai, and 1 others. 2026. Minicpm-o 4.5: Towards real-time full-duplex omni-modal interaction. arXiv preprint arXiv:2604.27393 .Alexandre Défossez, Laurent Mazaré, Manu Orsini, Amélie Royer, Patrick Pérez, Hervé Jégou, Edouard Grave, and Neil Zeghidour. 2024. Moshi: a speech-text foundation model for real-time dialogue. arXiv preprint arXiv:2410.00037 .Zhang He, Wenqian Cui, Haoning Xu, Xiao-Hui Li, Lei Zhu, Haoli Bai, Ma Shaohua, and Irwin King. 2026. MTR-DuplexBench: Towards a comprehensive eval-uation of multi-round conversations for full-duplex speech language models. In Findings of the Asso-ciation for Computational Linguistics: ACL 2026 .Association for Computational Linguistics. Bowen Jin, Jinsung Yoon, Jiawei Han, and Sercan Arik. 2025. Long-context llms meet rag: Overcoming challenges for long inputs in rag. In International Conference on Learning Representations , volume 2025, pages 37784–37822. Chia-Hsuan Li, Szu-Lin Wu, Chi-Liang Liu, and Hung-yi Lee. 2018. Spoken squad: A study of mitigating
+
+the impact of speech recognition errors on listening comprehension. arXiv preprint arXiv:1804.00320 .Guan-Ting Lin, Chen Chen, Zhehuai Chen, and Hung-yi Lee. 2026a. Full-duplex-bench-v3: Benchmarking tool use for full-duplex voice agents under real-world disfluency. arXiv preprint arXiv:2604.04847 .Guan-Ting Lin, Shih-Yun Shan Kuan, Jiatong Shi, Kai-Wei Chang, Siddhant Arora, Shinji Watanabe, and Hung-yi Lee. 2026b. Full-duplex-bench-v2: A multi-turn evaluation framework for duplex dialogue sys-tems with an automated examiner. In Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 2: Short Papers) ,pages 27–36. Guan-Ting Lin, Shih-Yun Shan Kuan, Qirui Wang, Ji-achen Lian, Tingle Li, Shinji Watanabe, and Hung-yi Lee. 2026c. Full-duplex-bench v1. 5: Evaluat-ing overlap handling for full-duplex speech models. In ICASSP 2026-2026 IEEE International Confer-ence on Acoustics, Speech and Signal Processing (ICASSP) , pages 19447–19451. IEEE. Guan-Ting Lin, Jiachen Lian, Tingle Li, Qirui Wang, Gopala Anumanchipalli, Alexander H Liu, and Hung-yi Lee. 2025. Full-duplex-bench: A bench-mark to evaluate full-duplex spoken dialogue mod-els on turn-taking capabilities. arXiv preprint arXiv:2503.04721 .Nelson F Liu, Kevin Lin, John Hewitt, Ashwin Paran-jape, Michele Bevilacqua, Fabio Petroni, and Percy Liang. 2024. Lost in the middle: How language mod-els use long contexts. Transactions of the association for computational linguistics , 12:157–173. Richard Yuanzhe Pang, Alicia Parrish, Nitish Joshi, Nikita Nangia, Jason Phang, Angelica Chen, Vishakh Padmakumar, Johnny Ma, Jana Thompson, He He, and 1 others. 2022. Quality: Question answering with long input texts, yes! In Proceedings of the 2022 Conference of the North American Chapter of the Association for Computational Linguistics: Hu-man Language Technologies , pages 5336–5358. Yizhou Peng, Yi-Wen Chao, Dianwen Ng, Yukun Ma, Chongjia Ni, Bin Ma, and Eng Siong Chng. 2025. Fd-bench: A full-duplex benchmarking pipeline designed for full duplex spoken dialogue systems. 
+
+arXiv preprint arXiv:2507.19040 .Zehan Qi, Rongwu Xu, Zhijiang Guo, Cunxiang Wang, Hao Zhang, and Wei Xu. 2024. long 2rag : Evaluat-ing long-context & long-form retrieval-augmented generation with key point recall. In Findings of the Association for Computational Linguistics: EMNLP 2024 , pages 4852–4872, Miami, Florida, USA. Asso-ciation for Computational Linguistics. Alec Radford, Jong Wook Kim, Tao Xu, Greg Brock-man, Christine McLeavey, and Ilya Sutskever. 2023. Robust speech recognition via large-scale weak su-pervision. In International conference on machine learning , pages 28492–28518. PMLR. Soham Ray, Keshav Dhandhania, Victor Barres, and Karthik Narasimhan. 2026. tau-voice: Benchmark-ing full-duplex voice agents on real-world domains. 
+
+arXiv preprint arXiv:2603.13686 .Uri Shaham, Elad Segal, Maor Ivgi, Avia Efrat, Ori Yoran, Adi Haviv, Ankit Gupta, Wenhan Xiong, Mor Geva, Jonathan Berant, and 1 others. 2022. Scrolls: Standardized comparison over long language sequences. In Proceedings of the 2022 Conference on Empirical Methods in Natural Language Processing ,pages 12007–12021. Wenyi Yu, Siyin Wang, Xiaoyu Yang, Xianzhao Chen, Xiaohai Tian, Jun Zhang, Guangzhi Sun, Lu Lu, Yux-uan Wang, and Chao Zhang. 2024. Salmonn-omni: A codec-free llm for full-duplex speech understanding and generation. arXiv preprint arXiv:2411.18138 .Appendix 
+
+This appendix provides additional details on benchmark construction, automatic evalua-tion, experimental configurations, evaluation protocols, and supplementary analyses for 
+
+DuplexSpeechBench-Document Grounding 
+
+(DSB-DG). 
+
+A Related Work 
+
+Real-Time Voice Agent Benchmarks. Recent benchmarks for full-duplex voice agents pri-marily evaluate conversational dynamics. The 
+
+Full-Duplex-Bench series measures turn-taking, pause and interruption handling (Lin et al., 2025), overlapping speech and backchanneling (Lin et al., 2026c), multi-turn instruction following with an automated examiner (Lin et al., 2026b), and multi-step tool use under naturalistic disfluencies (Lin et al., 2026a). MTR-DuplexBench further evaluate dialogue quality, instruction following, safety, and consistency across extended interactions (He et al., 2026). While these benchmarks provide critical frameworks for auditing the temporal fluidness and conversational mechanics of full-duplex models, they do not measure a model’s fidelity to exter-nal, long-context knowledge sources or character-ize the acoustic-modality degradation that occurs under heavy contextual load. Our proposed DSB-DG complements this line of work by evaluating whether full-duplex agents can retrieve and pre-serve document-grounded information while main-taining real-time spoken interaction. 
+
+Spoken Question Answering. Prior work at the intersection of speech processing and information retrieval has primarily focused on extractive spo-ken question answering (SQA). Datasets such as SpokenSQuAD (Li et al., 2018) and its derivatives evaluate a system’s capacity to locate exact answer spans within audio documents or automated tran-scriptions. However, these resources are fundamen-tally limited to single-turn, short-context scenarios, typically bounding the target audio to brief para-graphs or isolated audio segments. They do not account for multi-turn dialogue drift, long-range structural dependencies, or the open-weight full-duplex architectures that process continuous audio tokens natively. 
+
+Long-Context Document Grounding and RAG. 
+
+Long-context NLP benchmarks including QuAL-ITY (Pang et al., 2022), SCROLLS (Shaham et al., 2022), and LongBench (Bai et al., 2024) evaluate reasoning and information retrieval over extended textual contexts. Subsequent work has character-ized specific long-context failure modes, including “lost in the middle” effects (Liu et al., 2024) and degradation under hard negatives (Jin et al., 2025), while benchmarks such as Long 2RAG (Qi et al., 2024) and M-LongDoc (Chia et al., 2025) extend evaluation to long-form retrieval and multimodal documents. These benchmarks provide strong foun-dations for studying long-context grounding, but assume static text-based interaction and therefore do not capture the latency, conversational drift, or grounding persistence of real-time speech agents. DSB-DG lies at the intersection of these research directions. Unlike full-duplex benchmarks, it eval-uates factual fidelity to external documents; un-like SQA, it targets long-context, generative, multi-turn interaction; and unlike text-based long-context benchmarks, it evaluates grounding within a real-time voice agents loop. Its three protocols further separate failures caused by increasing document length, conversational forgetting, and context re-injection, enabling controlled analysis of document grounding in full-duplex speech systems. 
+
+B Dataset and Benchmark Construction 
+
+B.1 Document Sources and Selection 
+
+DSB-DG contains 50 professional documents, with 10 documents from each of five domains: clinical trial protocols, earnings-call transcripts, FDA 510(k) filings, commercial lease agreements, and municipal meeting minutes. Documents were obtained from the following public sources clinical trial protocols from the ClinicalTrials.gov API v2 (clinicaltrials.gov/api/v2/studies ); earnings-call transcripts from SEC EDGAR full-text search ( efts.sec.gov ); FDA 510(k) clearance summaries from the openFDA device API ( api.fda.gov/device/510k.json ); munic-ipal meeting minutes from the Legistar WebAPI for seven U.S. cities (Chicago, Seattle, Boston, Denver, Phoenix, Minneapolis, Portland); and commercial lease agreements that are synthetically generated (no external source). Documents were selected according to per-domain retrieval filters with a target of 10 documents each: sector/SIC quotas (e.g. five clinical sub-areas at 2 docs each; five FDA device sectors at 2 each), date windows (clinical from 2024-01-01; earnings and FDA 2024-01-01 to 2026-03-31; municipal from 2024-06-01), completed-study/decision-code status filters (clinical status=COMPLETED ; FDA 
+
+decision_code=SESE ), and keyword/length filters (municipal requires deliberative keywords such as “motion/vote/ayes/nays/resolution/approved” and 
+
+≥2000 characters) and excluded when a document failed these filters. For earnings, a fixed set of mega-cap tickers was explicitly excluded (AAPL, GOOGL, MSFT, AMZN, META, NVDA, TSLA). Table 8 summarizes the provenance and basic statistics of the corpus. 
+
+B.2 Document Preprocessing 
+
+Raw documents are converted to text using domain-specific parsers that retrieve structured text directly from each provider API (ClinicalTrials.gov, SEC EDGAR, openFDA, Legistar) or, for commercial leases, generate the text programmatically; no PDF rendering is involved. We remove provider API/-markup boilerplate during parsing while preserving the narrative document body used for QA genera-tion. No OCR was required (all sources provide machine-readable text). No document content is summarized or reordered before context-tier con-struction. 
+
+B.3 Context-Tier Construction 
+
+Documents are tokenized using the cl100k_base 
+
+encoding ( tiktoken 0.7.0). We construct five tar-get context tiers of approximately 500, 1k, 2k, 4k, and 8k tokens using a content-preserving budget allocation. The tiers are prefix-consistent such that information present at tier Ti remains available in all subsequent tiers. No text is reordered or sum-marized between tiers. 
+
+B.4 QA Generation 
+
+Candidate question–answer pairs are generated us-ing GPT-OSS-20B. The generation model receives only the plain text of the single assigned tiered document (no metadata, no other tiers) to pre-vent access to information outside the assigned source context. Generation uses temperature 0.7, maximum output length 4096 tokens, and a fixed JSON-only output contract. For each document-tier pair, we generate 12 candidates. Candidate questions target the following reasoning categories: 
+
+entity retrieval , numerical retrieval , procedural rea-soning , clause interpretation , and multi-hop doc-ument comprehension . The question taxonomy is encoded as grounded (subtypes direct_lookup ,
+
+multi_span , inferential ) and unanswerable (subtypes adjacent , temporal , overshoot ). The reasoning categories are classified as entity, numer-ical, clause, procedural, multi-hop). 
+
+QA Generation Prompt. The generation prompt used in our experiments is reproduced below.                                                          
+
+> [SYSTEM] You are abenchmark data construction expert. Given a document, generate QA pairs for a grounding evaluation benchmark. RULES: 1. Every answer MUST be explicitly stated — no inference, no math. 2. Copy EXACT sentences from the document as supporting_sentences. 3. Questions sound like natural spoken questions — no “According to paragraph 3” style. 4. Unanswerable questions must be genuinely unanswerable from this document. 5. Output ONLY valid JSON, no preamble, no markdown code fences. 6. Wrap the array in aJSON object: {“qa_pairs”: [...]} [USER] Document: """{document}""" Generate: -8grounded (subtype: direct_lookup |multi_span | inferential) -4unanswerable (subtype: adjacent |temporal | overshoot) JSON schema per item in the qa_pairs array: {question_text, question_type (grounded|unanswerable), question_subtype, ground_truth_answer, supporting_sentences [exact verbatim sentence from doc], is_answerable, difficulty (easy|medium|hard), document_position (early|middle|late) } Return JSON object: {“qa_pairs”: [list of QA objects]}.
+
+B.5 QA Verification Pipeline 
+
+All generated QA pairs undergo three verification stages. 
+
+Stage 1: Answerability. Each candidate is eval-uated to ensure that its reference answer is ex-plicitly supported by the assigned document con-text. Each instance is checked by an automated answerability filter following the Stage-2 deter-ministic criteria: the answer must be ≤15 words for direct_lookup items and ≥2 characters, the question must end with “?”, and at least one 
+
+supporting_sentence must match the document under whitespace-normalized exact match. A can-didate is retained when it passes all deterministic checks (automated; no voting). Domain # Docs Source Mean Tokens Token Range                     
+
+> Clinical Trials 10 ClinicalTrials.gov 2,528 1,244–8,038 Earnings Calls 10 SEC EDGAR 9,403 1,370–22,524 FDA 510(k) 10 openFDA 4,946 2,788–7,301 Commercial Leases 10 Synthetic 6,779 6,671–6,875 Municipal Minutes 10 Legistar 3,092 1,335–7,660
+
+Table 8: Document provenance and length statistics for the five DSB-DG domains. Mean/range are full-document token counts ( source_tokens , before tiering). Token counts are computed using the cl100k_base encoding (tiktoken ). 
+
+Stage 2: Ambiguity. All questions are checked for alternative plausible answers, underspecified references, and conflicting evidence. Verification is performed using GPT-OSS-120B. Unanswerable QA candidates are rejected if their keyword overlap with the evidence text exceeds 0.60 (or if it could be answered from the question alone). Questions with more than one defensible answer are removed. 
+
+Stage 3: Cross-Tier Consistency. For every QA pair assigned to Ti, we verify that all evidence re-quired for its reference answer occurs within Ti
+
+based on the location of the reference answer from the document. Prefix consistency then ensures that the question remains answerable at every subse-quent tier. The final benchmark contains 1,636 verified QA pairs (1,341 grounded and 295 unan-swerable) after automated answerability, ambiguity, and consistency checks. 
+
+B.6 Question-Type Distribution 
+
+Table 9 reports the distribution of question types across domains. 
+
+B.7 Representative QA Examples 
+
+Table 10 provides representative benchmark ex-amples covering different domains and reasoning types. 
+
+B.8 Examples Rejected During Verification 
+
+Table 11 illustrates the adversarial filtering process. 
+
+C Automatic Grounding Evaluation 
+
+C.1 Evaluation Schema 
+
+Model responses are evaluated from the system-produced audio that is converted into text tran-scripts using Whisper-large-v3. The automatic judge receives the document context, question, ref-erence answer, and response transcript. 
+
+C.2 LLM Judge Configuration 
+
+We use GPT-OSS-120B as the automatic grounding evaluator. Judge inference uses temperature 0.0, maximum output length 512 tokens, and a fixed rate limit of one request per second. Empty transcripts are flagged no_response without an LLM call, and unparseable outputs fall back to a default all-zero judgment applied to malformed outputs. 
+
+C.3 Judge Prompt 
+
+The evaluation judge prompt used in our experi-ments is reproduced below.                                                                      
+
+> [SYSTEM] You are an expert evaluation judge for aspoken-language document grounding benchmark. Your task is to assess whether a spoken model response accurately answers aquestion based solely on the provided document. SCORING RULES: 1. factual_accuracy (0|1): 1 if the core factual claim in the response matches the ground truth. 0 otherwise. 2. partial_credit (0|1|2): 2=fully correct, 1=partially correct (gets main point but misses detail or hedges unnecessarily), 0=wrong or refused when answerable. 3. hallucination_type: “none”, “intrinsic” (contradicts the document), “extrinsic” (introduces facts not in document), or “both”. 4. hallucinated_claims: list any claims not supported by the document. 5. appropriate_refusal (0|1): 1if the question is unanswerable and the model correctly refused/expressed uncertainty. 6. false_confidence (0|1): 1if the model stated something with certainty that was wrong or not in the document. 7. model_expressed_uncertainty (bool); 8. response_addresses_question (bool); 9. explanation (1–2 sentences). Be strict but fair. [USER] Document: {doc_text} Question: {question} Question Type: {question_type}; Question Subtype: {question_subtype}
+
+Domain Grounded Unanswerable Total 
+
+Clinical Trials 331 60 391 Earnings Calls 254 60 314 FDA 510(k) 233 59 292 Commercial Leases 302 56 358 Municipal Minutes 221 60 281 
+
+Total 1,341 295 1,636 
+
+Table 9: Distribution of QA question types across DSB-DG domains           
+
+> Domain Type Question Reference Answer
+> Clinical Trials grounded / di-rect_lookup How many participants were enrolled in this study? 20 participants Earnings Calls grounded / di-rect_lookup What were Southern Company’s operating revenues for the fourth quarter of 2025? $7.0 billion FDA 510(k) grounded / di-rect_lookup What is the regulation number associated with the Francisella tularensis Real-time PCR Assay? 21 CFR 866.4000 Commercial Leases grounded /multi_span Who are the landlord and tenant in this lease agreement? Landlord: Greenfield Realty Partners, LP; Tenant: David Martin Municipal Min-utes grounded / di-rect_lookup Who made the motion to approve the Febru-ary 2025 meeting minutes? Alderman James Rodriguez
+
+Table 10: Representative DSB-DG question–answer pairs. 
+
+Reference Answer: {ground_truth} Supporting Sentences: {supporting_sentences} Model Response: {model_transcript} Output a single JSON object with exactly these keys: factual_accuracy (0|1), partial_credit (0|1|2), hallucination_type (none|intrinsic|extrinsic|both), hallucinated_claims ([]), appropriate_refusal (0|1), false_confidence (0|1), model_expressed_uncertainty (bool), response_addresses_question (bool), explanation (string). 
+
+D Model Configuration and Reproducibility 
+
+D.1 System Overview 
+
+Table 13 summarizes the exact configurations used in our experiments. 
+
+D.2 Decoding Hyperparameters 
+
+Table 14 summarizes the decoding hyperparams used in our experiments. 
+
+D.3 Context Injection Across Architectures 
+
+As diverse speech LM systems expose different conditioning interfaces, we inject identical doc-ument content through each model’s native or closest available context mechanism. Cascaded, MiniCPM-o, and UV-32B receive the document through system-level text conditioning. GPT-Realtime and Gemini-Live receive the document as a system conversation item before interaction. SALMONN is similarly conditioned through its system prompt because long-context inputs can cause it to transcribe rather than answer incoming speech. Moshi provides no native text-conditioning interface, so we inject document context by pre-filling the language model’s KV cache before in-teraction. These procedures preserve each archi-tecture while providing access to the same source information. Exact prompt templates and model-specific injection procedures are provided in Ap-pendix D. 
+
+D.4 Context Injection by Architecture Cascaded. Pipeline is 3-stage: OpenAI Whisper, GPT-4o, and OpenAI TTS. This pipeline is only used as a system to be evaluated, not for any gener-ation of dataset. 
+
+GPT-Realtime. We evaluate 
+
+gpt-realtime-2025-08-28 . The document is inserted as a conversation.item.create item with role="system" sent after session.updated 
+
+and before the user question before in-teraction. Session configuration uses 
+
+modalities=["audio","text"] , temperature 0.6, PCM16 @24 kHz audio. 
+
+Gemini-Live. We evaluate Gemini-Live API using the model’s native audio-to-audio inter-face. The document is supplied through the session setup.systemInstruction using the shared preamble+document template, so ground-Domain Candidate Question Decision Reason         
+
+> FDA 510(k) What is the intended use of FMD Peripheral Guidewires? Rejected Insufficient document evidence FDA 510(k) Who is the regulatory contact for submis-sions related to the FMD Peripheral Guide Wire devices? Rejected Multiple plausible answers FDA 510(k) What is the exact submission date of the 510(k) premarket notification? Rejected “Unanswerable” but actually answerable Earnings What were Southern Company’s operating revenues for the fourth quarter of 2025? Retained Unique answer explicitly supported by context
+
+Table 11: Representative retained and rejected QA candidates from the verification pipeline. 
+
+Field Operational Definition 
+
+Factual Accuracy Binary judgment indicating whether the response is factually supported by the supplied document. Hallucination Type None ; Intrinsic , when the response contradicts information explicitly stated in the document; or Extrinsic , when the response introduces unsupported information not contained in the document. No Response The model fails to produce a scoreable answer, including silence or non-answer conversational behavior. False Refusal The model refuses to answer despite the required information being explicitly avail-able in the supplied context. Partial Credit Integer partial_credit ∈ { 0, 1, 2}: 2 = fully correct; 1 = partially correct (cap-tures the main point but misses a detail or hedges unnecessarily); 0 = wrong, or refused when the question is answerable. For multi_span items a floor of 1 is enforced when the response addresses the question and the judge’s explanation indicates at least one span was correct. Question Addressed Whether the response substantively attempts to answer the user’s question. 
+
+Table 12: Structured output schema used by the automatic grounding judge. 
+
+ing context is fixed for the entire session before any interaction. The setup requests 
+
+responseModalities=["AUDIO"] with tempera-ture 0.6, and disables server-side voice-activity de-tection so that turn boundaries are controlled explic-itly. Each question is streamed as PCM16@16kHz audio framed by activityStart /activityEnd 
+
+signals; the model responds with PCM16 @24kHz audio, which we collect until turnComplete .
+
+MiniCPM-o. We evaluate 
+
+openbmb/MiniCPM-o-4_5 . Document con-text is supplied through the system prompt. Inference uses greedy decoding ( sampling=False ,max_new_tokens 256) on a single A100-80GB. 
+
+SALMONN. We evaluate 
+
+tsinghua-ee/SALMONN-7B . Document con-text is supplied through the system prompt using the shared preamble+document template. 
+
+UV-32B. We evaluate 
+
+fixie-ai/ultravox-v0_6-qwen-3-32b .Document context is supplied using a
+
+{"role":"system","content":document} 
+
+message together with the audio user turn. Inference uses bf16 on a single A100-80GB, max_new_tokens 2048, with ⟨think ⟩ . . . ⟨/think ⟩
+
+reasoning blocks stripped before scoring. 
+
+Moshi. We evaluate 
+
+kyutai/moshiko-pytorch-bf16 . Since Moshi exposes no native text-conditioning interface, document context is introduced by pre-filling the language model KV cache: for each document token the server encodes a silent audio frame, runs lm_gen.step() , then overrides the sampled inner-monologue token with the target document token. 
+
+D.5 Context-Injection Prompts 
+
+The exact system/context templates used for each architecture is provided below. 
+
+You are a knowledgeable, concise assistant participating in a spoken conversation. Answer questions clearly and accurately. Keep responses under 60 words unless detail is explicitly requested. Do not use bullet points or headers — respond in natural spoken prose. You have been provided the following reference document. Answer all questions ONLY using information contained in this document. If the answer cannot be found in the document, say so clearly. DOCUMENT: """{document_text}""" System Checkpoint Backbone Context Interface Precision Hardware/API                               
+
+> Cascaded whisper-1 / gpt-4o-2024-11-20 / tts-1 GPT-4o System prompt –hosted OpenAI API GPT-Realtime gpt-realtime-2025-08-28 Not Public System item –hosted OpenAI Realtime API MiniCPM-o openbmb/MiniCPM-o-4_5 MiniCPM-o 4.5 System prompt bf16 1×A100-80GB ( ∼35 GB) SALMONN tsinghua-ee/SALMONN-7B Vicuna-7B-v1.5 System prompt fp16 1×A100-80GB ( ∼27 GB) UV-32B fixie-ai/ultravox-v0_6-qwen-3-32b Qwen3-32B System prompt bf16 1×A100-80GB ( ∼62 GB) Moshi kyutai/moshiko-pytorch-bf16 Moshi/Helium-7B LM + Mimi KV-cache prefill bf16 1×A100-80GB ( ∼46 GB)
+
+Table 13: Model, inference, and execution configurations used in DSB-DG. 
+
+System Temperature Top-p Max Output Seed 
+
+Cascaded 0.1 default 300 –GPT-Realtime 0.6 N/A provider default –MiniCPM-o greedy – 256 –SALMONN 1.0 0.9 150 (max_length) –UV-32B greedy – 2048 –Moshi not exposed not exposed N/A –
+
+Table 14: Decoding hyperparameters. For parameters not exposed by an API or architecture, we report “N/A” or “provider default”. 
+
+In all Proactive-Grounding conditions ( C0/C1/C2)the document is present from the start; the con-ditions differ only in whether/how often it is re-injected mid-conversation. 
+
+D.6 Audio Generation and Standardization 
+
+All benchmark user utterances are synthesized using Kokora-TTS (Apache 2.0 license) 3, with 
+
+en-US-JennyNeural voice at eval time at 16 kHz mono. Audio is encoded as 16-bit PCM WAV with 16 kHz sample rate, single channel. We ap-ply 0.3 s leading and 0.8 s trailing silence (model adapters may append additional end-of-turn silence, e.g. Moshi adds a 1.5 s tail). Identical audio files are supplied to all systems where supported. 
+
+D.7 Experimental Runs and Reproducibility 
+
+Each benchmark instance is evaluated 3 times per system and we report the median perfor-mance. Failed API/inference calls are handled us-ing exponential-backoff retries with checkpointed resumption.Open-weight models are evaluated on a server with 2 ×NVIDIA A100-SXM4-80GB, CUDA 12.x, Amazon Linux 2023, Python 3.13, per-model virtual environments (torch/transformers versions per Table 13). API experiments are con-ducted through the hosted OpenAI/Gemini APIs. 
+
+> 3
+
+https://github.com/hexgrad/kokoro 
+
+E Detailed Evaluation Protocols 
+
+E.1 Context Saturation 
+
+Each evaluation instance is an independent single-turn interaction. For a QA pair eligible at tier Ti,the identical spoken question is evaluated at every applicable context tier while conversation state is reset between runs. 
+
+Eligibility. A question first becomes eligible at the single tier it was generated from — each QA pair is generated against one specific tiered docu-ment and is evaluated only at that tier. Across all five tiers, no questions are shared across every tier, while each question is evaluated at every tier from its minimum eligible tier through T5. The num-ber of QA whose minimum eligible tier is T1–T5
+
+is 663/190/317/298/168 respectively; the number of evaluated turns per tier (all eligible questions at that tier) is larger and grows with tier. Tiers are content-preserving nested samples. 
+
+Session Reset. Between single-turn evaluations, model/session state is reset using a fully stateless per-turn protocol: each turn re-sends the system/-document context; GPT-Realtime opens a fresh WebSocket session per turn; the Moshi and local HTTP servers are stateless across turns. 
+
+Scoring and Aggregation. GA and HR are computed as micro-averages over scored turns (GA = fraction with factual_accuracy =1; HR = fraction with a non-empty transcript scored 
+
+factual_accuracy =0). Domain-level statistics use the same per-turn micro-average restricted to each domain. Turn(s) Content      
+
+> 2–4 Early document probes ( A)5–6 Domain-relevant distractors 7–9 Intermediate probes ( B)10–12 Domain-relevant distractors 13–15 Repeated probes ( A′)
+> Table 15: Turn structure of the Grounding Decay proto-col (0-indexed turn numbers). Turns 0–1 are un-probed opening turns and turn 16 is a closing turn; the probe/dis-tractor layout is identical across all 20 scripts. Each conversation is 17 turns.
+
+E.2 Grounding Decay Conversation Construction. We construct 20 controlled conversations, with four conversations for each domain. Each conversation contains 17 turns and follows a probe–distractor–repeat struc-ture (see Table 15). 
+
+Probe Construction. Each conversation contains 3 A probes, 3 B probes, and 3 repeated A′ probes. 
+
+A′ probes are verbatim-identical to the A probes — the same question strings, re-asked after interven-ing dialogue, so changes in accuracy reflect conver-sational progression rather than question variation. Intermediate B probes target different facts in the same document, so mid-dialogue grounding can be measured independently of the A/A′ facts. 
+
+Distractors. Distractor turns are generated us-ing the conversation-script generator and appear as “discussion” turns. They are constrained to (i) remain semantically related to the professional do-main, (ii) avoid requiring the facts queried by A/A ′,and (iii) avoid revealing the answers to later probes. Distractors are validated using generation-time con-straints rather than a separate post-hoc validator. 
+
+GDS Aggregation. For conversation c,
+
+GDS c = GA c(A′) − GA c(A).
+
+System-level GDS is computed using the un-weighted mean of GDS c across the 20 con-versations (all six systems are run over the same 20 scripts); GA within a probe group is the fraction of that group’s probe turns scored 
+
+factual_accuracy =1. 
+
+E.3 Representative Grounding-Decay Conversation 
+
+Table 16 provides an abbreviated representative conversation. The released benchmark contains the complete scripts. 
+
+E.4 Proactive Grounding 
+
+Each Proactive Grounding conversation reuses the corresponding 17-turn Experiment B script, with nine document-grounded probes (three A, three 
+
+B, and three repeated A′). Identical conversation scripts and factual probes are used across C0, C1,and C2; only the refresh schedule changes. 
+
+Refresh Schedule. The factual probes are the same probe turns used in Experiment B (the early 
+
+A, mid B, and repeated late A′ groups), held fixed across C0/C1/C2; only the refresh schedule changes. A refresh re-injects the T3 document using each model’s native context mechanism (Ap-pendix D) immediately before the indicated probe group. No other conversation state is altered be-tween conditions. 
+
+F Additional Results 
+
+Hallucinations. Table 19 decomposes the Hallu-cination Rate into intrinsic (contradicting the docu-ment) and extrinsic (unsupported additions) errors, and adds the false-confidence rate and the normal-ized partial-credit score (0–2). Across every model, grounding errors are dominated by intrinsic hal-lucinations (contradicting the supplied document) rather than extrinsic ones (inventing outside facts). Models are not “making things up” so much as mis-reading the document in front of them , and they do so confidently — the false-confidence rate tracks HR closely. Gemini-Live is no exception (10.0% in-trinsic vs. 2.6% extrinsic). This argues that ground-ing interventions should target document compre-hension/attention , not external-knowledge suppres-sion. 
+
+Abstention on Unanswerable Questions. The strong systems refuse unanswerable questions well (GPT-Realtime 86.6%, Gemini-Live 85.6%, Cas-caded 84.6%, UV-32B 80.3%, MiniCPM-o 77.2%), whereas SALMONN answers anyway roughly 38% of the time, often with false confidence (FCR 31.4%), and Moshi almost never abstains (NRR 12.5%, FCR 85.7%). Appropriate refusal broadly tracks grounding quality here, yet remains a dis-tinct axis: GPT-Realtime abstains slightly better than the Cascaded oracle despite lower single-turn QA accuracy. 
+
+Sensitivity to Question Difficulty and Evidence Position. Nearly every model degrades mono-tonically from easy to hard questions, and the Turn Type User Utterance                 
+
+> 2Probe AWhat is the primary purpose of the study? 4Probe AWhat imaging technique is considered the gold standard in this study? 6Distractor Do you think telemedicine is going to completely replace in-person visits someday? 7Probe BWhat is the significance of an AUC value of 0.5? 11 Distractor What are your thoughts on alternative medicine? Do you think it can really work alongside clinical treatments? 13 Probe A′What are the key takeaways from the study?
+
+Table 16: Representative probe–distractor–repeat conversation used in Experiment B (abbreviated from 
+
+clinical_001 ; 0-indexed turn numbers). The turn-13 A′ probe repeats the turn-2 A probe semantically. 
+
+Condition Initial Context Refresh Turn(s) 
+
+C0 T3 document (at start) None 
+
+C1 T3 document (at start) one, before the late ( A′) probe group 
+
+C2 T3 document (at start) two, before the mid ( B) and late ( A′) probe groups 
+
+Table 17: Context schedule for the Proactive Grounding protocol. All three conditions provide the T3 document at the start; they differ in the number of mid-conversation document re-injections (refreshes): C0 none, C1 one, C2
+
+two. 
+
+Model T1 T2 T3 T4 T5 
+
+Cascaded 12.2 10.6 9.5 9.5 12.3 GPT-Realtime 11.4 14.2 11.8 12.1 14.8 Gemini-Live 13.3 13.4 12.7 10.5 13.7 MiniCPM-o 13.9 12.7 12.3 13.1 25.0 UV-32B 13.0 11.6 11.4 10.5 12.7 SALMONN 22.6 24.4 30.1 29.8 36.5 Moshi 83.4 77.1 79.2 82.7 82.0 
+
+Table 18: Hallucination Rate (%) across context tiers (intrinsic + extrinsic, over scoreable turns). MiniCPM-o’s HR nearly doubles at T5 (12.3 →25.0), mirroring its T5 accuracy drop; SALMONN’s HR rises steadily with context. Gemini-Live’s HR stays flat and low across tiers (10.5–13.7%), with no saturation-driven rise. Moshi’s high HR reflects fluent but ungrounded speech. 
+
+gap widens for the weaker models (GPT-Realtime 
+
+89 .7 → 68 .1; SALMONN 66 .4 → 44 .0); Gemini-Live is the exception, peaking on medium ques-tions (easy 87.6, medium 89.1, hard 82.6) before the expected drop on hard. Evidence position has a smaller, less consistent effect: GPT-Realtime dips on mid/late evidence but most other models, like UV-32B, are essentially position-invariant, indicat-ing that question difficulty, not evidence placement, is the dominant factor at short context lengths; Gemini-Live is a mild outlier in the opposite direc-tion, improving as the evidence moves later (early 83.4 → late 90.4). 
+
+G Qualitative Analysis 
+
+We complement aggregate metrics with representa-tive transcripts from the model runs. The examples below are selected to illustrate grounded retrieval, 
+
+Model HR Intr. Extr. 
+
+Cascaded 10.8 8.2 2.5 MiniCPM-o 16.7 12.6 4.0 GPT-Realtime 13.1 11.4 1.7 Gemini-Live 12.6 10.0 2.6 UV-32B 11.6 10.0 1.6 SALMONN 29.5 27.7 1.8 Moshi 81.1 63.3 17.8 
+
+Table 19: Hallucination decomposition (%), pooled over tiers T1–T5 (grounded/ answered turns). Intr. /Extr. are intrinsic/extrinsic hallucination rates; Errors are over-whelmingly intrinsic (misreading the document) rather than extrinsic (inventing facts); Moshi is degenerate (GA =3.6%, fluent but ungrounded). 
+
+hallucination, context-capacity failure, multi-turn retention, and the effect of context refresh. Model responses are the normalized transcripts used for evaluation. 
+
+Grounded retrieval at long context — Cascaded 
+
+Document evidence. If Tenant fails to pay rent within 3 days after the due date, Tenant shall pay a late fee of $100. 
+
+Question. What is the late fee for rent pay-ments made after three days past the due date? 
+
+Reference. $100. 
+
+Response. “The late fee for rent payments made more than three days after the due date is $100.” 
+
+Takeaway. The cascaded system retrieves the exact numerical fact at the longest context tier, illustrating its robustness under contextual load. Model NRR (%) ↑ FCR (%) ↓              
+
+> GPT-Realtime 86.6 12.3 Gemini-Live 85.6 13.2 Cascaded 84.6 14.2 UV-32B 80.3 19.0 MiniCPM-o 77.2 21.2 SALMONN 61.7 31.4 Moshi 12.5 85.7
+
+Table 20: Behaviour on unanswerable questions: NRR = appropriate-refusal rate (higher is better), FCR = false-confidence rate (lower is better). NRR/FCR are computed from the judge fields appropriate_refusal 
+
+and false_confidence over all unanswerable turns, pooled across tiers T1–T5.                                            
+
+> Difficulty Evidence position Model Easy Med. Hard Early Mid Late Cascaded 91.1 87.4 81.9 89.5 85.5 91.2 GPT-Realtime 89.7 86.7 68.1 84.2 87.0 88.6 Gemini-Live 87.6 89.1 82.6 83.4 88.0 90.4 MiniCPM-o 86.3 80.4 73.5 85.0 80.7 84.3 UV-32B 81.5 76.4 72.7 79.1 73.0 83.2 SALMONN 66.4 51.2 44.0 62.3 60.7 59.2
+
+Table 21: Grounding accuracy (%) by annotated ques-tion difficulty and by the position of the supporting evi-dence in the document. difficulty is a QA-metadata field; evidence position is bucketed by the character offset of the first supporting sentence in the one-third splits. 
+
+> Extrinsic hallucination on a correct core answer — UV-32B
+
+Document evidence. Mayor Laura Peterson: “Any opposed? Any abstentions? Hearing none, the motion carries. The minutes from February 11, 2025, are approved.” 
+
+Question. What was the outcome of the vote on the February 2025 meeting minutes? 
+
+Reference. The motion carries. 
+
+Response. “The minutes from the February 11, 2025, meeting were approved unanimously.” 
+
+Takeaway. The core outcome is correct, but the response adds “unanimously,” which is not stated in the document. This illustrates an ex-trinsic hallucination layered onto an otherwise grounded answer. 
+
+> False confidence on an unanswerable question — GPT-Realtime
+
+Question. What is the total number of arms in this clinical trial? 
+
+Reference. Unanswerable from the supplied document.                         
+
+> Model Median Mean p95
+> Cascaded 14 17.1 43 GPT-Realtime 18 18.7 33 Gemini-Live 13 14.4 30 MiniCPM-o 14 28.4 75 UV-32B 14 17.5 43 SALMONN 15 24.5 94 Moshi 29 30.3 54
+
+Table 22: Response length in whitespace tokens (tran-scripts; ⟨think ⟩ blocks stripped and /no_think used for UV-32B). With reasoning suppressed, UV-32B is now as concise as the other systems (median 14); Gemini-Live is the most concise (median 13); Moshi is the most verbose (median 29) despite not grounding, and MiniCPM-o/SALMONN have the longest tails. 
+
+Response. “There are 15 study arms described in the document.” 
+
+Takeaway. Even a strong system can occa-sionally fabricate a specific answer instead of abstaining when the requested fact is absent from the document. 
+
+> Context-capacity cliff — SALMONN
+
+Document evidence. Southern Company also reported full-year 2025 earnings of $4.3 billion, or $3.94 per share, compared with $4.4 billion, or $4.02 per share, in 2024. 
+
+Question. Did Southern Company have a higher or lower net income in 2025 compared to 2024? 
+
+Reference. Lower. 
+
+T3 response ( ≈2k tokens). “Southern Com-pany had a lower net income in 2025 compared to 2024.” 
+
+T4 response ( ≈4k tokens). “A point 2 a point 2 a point 2. Dot a. Point 2 a. Point 2 a. Point 2. 2. 2. 2. 2. 22. 22. 2. 2. Minus 2. 8. 8. 8.” 
+
+Takeaway. SALMONN answers correctly at T3 but degenerates at T4, matching the abrupt GA drop from 70.3% to 37.2% in Context Sat-uration Protocol. 
+
+> Measurable multi-turn decay — UV-32B
+
+Document evidence. An unreversed 2-point decline is any decline of 2 points or more that had not reversed to a 1-point decline (or better) at last recorded observation. 
+
+Question. What does the term “unreversed 2-point decline” mean in the context of the study? Reference. A decline of 2 points or more that had not reversed to a 1-point decline or better at the last recorded observation. 
+
+Early probe A. “An ‘unreversed 2-point de-cline’ refers to a decrease of 2 points or more in the motor-language (ML) score that has not improved back to a 1-point decline or better by the final recorded observation.” 
+
+Repeated probe A′. “An ‘unreversed 2-point decline’ refers to a reduction of 2 points or more in the motor-language (ML) score that has not recovered to within 1 point of the origi-nal level or better. . . ” 
+
+Takeaway. The repeated answer subtly changes the document definition and is judged unsupported. 
+
+> Stable retention — Cascaded
+
+Document evidence. Primary Purpose: DIAG-NOSTIC. 
+
+Question. What is the primary purpose of the study? 
+
+Reference. DIAGNOSTIC. 
+
+Early probe A. “The primary purpose of the study is diagnostic.” 
+
+Repeated probe A′. “The primary purpose of the study is diagnostic.” 
+
+Takeaway. The cascaded system preserves the same grounded fact after intervening dialogue, consistent with its aggregate GDS of 0.0 pp. 
+
+> Turn-to-turn instability rather than monotonic decay — SALMONN
+
+Document evidence. NCT Identifier: NCT04424290. 
+
+Question. What is the NCT Identifier for the HORNBILL study? 
+
+Reference. NCT04424290. 
+
+Early probe A. “The purpose of the study de-scribed in the document is to test different doses of BI 764524 in patients who have had laser treatment for a type of diabetic eye disease. . . ” 
+
+Repeated probe A′. “The NCT Identifier for the HORNBILL study is NCT04424290.” 
+
+Takeaway. SALMONN fails the early probe but answers the repeat correctly. Its positive GDS therefore reflects turn-level instability around weaker absolute grounding rather than improving memory. 
+
+H Detailed Latency Analysis 
+
+H.1 FTED Measurement 
+
+First-Token Emission Delay (FTED) is measured from the end of the user audio segment to the first emitted model audio unit. Timing is recorded us-ing wall-clock timers in the streaming evaluation harness. Measurements include network transit time, include audio encoding/decoding, and ex-clude queuing or connection-establishment over-head. Persistent API sessions are not used for Con-text Saturation protocol — each turn opens a fresh stateless session. We report p50, mean, and p95 across turns. 
+
+Latency Measurement Environment. Open-weight latency measurements are collected on NVIDIA A100-SXM4-80GB GPUs under CUDA 12.x, using each model’s native PyTorch/trans-formers inference stack (per-model virtual envi-ronments). To reduce transient network effects, models/servers are loaded once and kept warm and turns run sequentially; Whisper-large-v3 ASR of the model’s spoken response is run on GPU where a card is free (otherwise CPU) and is not counted in FTED. 
+
+> Cascaded — grounded numerical lookup at long con-text
+
+Document context. “If Tenant fails to pay rent within 3 days after the due date, Tenant shall pay a late fee of $100.” 
+
+Question. What is the late fee for rent pay-ments made after three days past the due date? 
+
+Reference answer. $100. 
+
+Model response. “The late fee for rent pay-ments made more than three days after the due date is $100.” 
+
+Observation. The response retrieves the ex-act documented figure at the longest context tier, illustrating robust grounding under large context. 
+
+> GPT-Realtime — grounded proper-noun retrieval at long context
+
+Document context. “c/o Kelliann Payne, Part-ner, Hogan Lovells US LLP.” 
+
+Question. What organization is Kelliann Payne associated with? 
+
+Reference answer. Hogan Lovells US LLP. 
+
+Model response. “Kellyanne Payne is associ-ated with Hogan Levels US LLP, where she’s Model Tier p50 (ms) Mean (ms) p95 (ms)                                                                                                                                             
+
+> Moshi T1 229 241 768 Moshi T2 229 254 781 Moshi T3 229 267 895 Moshi T4 229 236 612 Moshi T5 229 255 712 GPT-Realtime T1 1210 1338 1851 GPT-Realtime T2 1221 1315 1675 GPT-Realtime T3 1209 1300 1728 GPT-Realtime T4 1212 1310 1732 GPT-Realtime T5 1214 1308 1817 SALMONN T1 1981 2352 5110 SALMONN T2 2476 2987 6657 SALMONN T3 3783 4307 8956 SALMONN T4 7129 16205 48850 SALMONN T5 4593 8670 32058 Cascaded T1 1228 9366 61440 Cascaded T2 1414 8845 61457 Cascaded T3 1435 8263 61594 Cascaded T4 1495 7516 61561 Cascaded T5 1588 7669 61653 MiniCPM-o T1 1412 1598 3400 MiniCPM-o T2 1602 1925 4180 MiniCPM-o T3 2011 2579 5799 MiniCPM-o T4 2774 3531 8691 MiniCPM-o T5 4068 9494 44204 UV-32B T1 6832 8405 19608 UV-32B T2 7859 8620 17918 UV-32B T3 9724 10291 19229 UV-32B T4 11804 12536 23381 UV-32B T5 12639 13291 26103 Gemini-Live T1 6395 6573 8865 Gemini-Live T2 6583 6751 9095 Gemini-Live T3 6761 6904 9318 Gemini-Live T4 6931 7026 9505 Gemini-Live T5 7034 7166 9624
+
+Table 23: FTED statistics by model and context tier. Per-tier p50/mean/p95 recomputed from the per-instance 
+
+fted_ms fields (Exp A). Latency grows with context for MiniCPM-o, SALMONN, and UV-32B, while Moshi and GPT-Realtime are essentially context-invariant; SALMONN’s high T4 p95 is driven by large-context stalls, and the cascaded mean/p95 are inflated by a long tail from occasional LLM/API stalls. Gemini-Live has a high but nearly context-invariant latency floor (p50 6.4–7.0 s). UV-32B is not real-time capable. 
+
+listed as a partner.” 
+
+Observation. The audio transcript contains minor proper-noun corruption, but the underly-ing organization is correctly grounded. 
+
+MiniCPM-o — grounded entity lookup 
+
+Document context. “Bynum Maximilian, In-ternational Business Director.” 
+
+Question. Who is the International Business Director mentioned in the document? 
+
+Reference answer. Bynum Maximilian. 
+
+Model response. “The international business director mentioned in the document is Bynum Maximilian.” 
+
+Observation. A straightforward entity lookup is answered correctly at short context. 
+
+UV-32B — grounded numerical retrieval 
+
+Document context. “... evaluate the safety, tolerability, and efficacy of BMN 190 intrac-erebroventricular (ICV) administration every other week (qow) for a period of 144 weeks, in patients with CLN2.” 
+
+Question. What is the duration of BMN 190 administration in this study? 
+
+Reference answer. 144 weeks. 
+
+Model response. “BMN 190 was adminis-tered every other week for a period of 144 weeks in this study.” 
+
+Observation. The model provides a concise, correctly grounded numerical answer. 
+
+SALMONN — grounded clause interpretation 
+
+Document context. “A positive rate of decline means that the subject declined, a negative rate of decline means that the subject improved.” Question. What is the meaning of a negative rate of decline in the ML score? 
+
+Reference answer. A negative rate of decline means that the subject improved. 
+
+Model response. “A negative rate of decline means that the subject improved.” 
+
+Observation. SALMONN can ground short contextual queries before the capacity failure observed at longer context. 
+
+> Cascaded — intrinsic hallucination on a drug name
+
+Document context. “Study Title: A Trial of 10 and 30 mg Doses of CVL-231 (Emraclidine) in Participants With Schizophrenia.” 
+
+Question. What is the name of the drug being studied in this trial? 
+
+Reference answer. CVL-231 (Emraclidine). 
+
+Model response. “The drug being studied in this trial is called CVL-231, Imraclidine.” 
+
+Observation. The response corrupts the doc-umented drug name, yielding an intrinsic fac-tual error despite the otherwise strong cascaded baseline. 
+
+> MiniCPM-o — numerical grounding error
+
+Document context. “N901 is the number of 901 subjects matched to 203 subjects (i.e. 29) and N203 is the number of 203 subjects who had matches (i.e. 12).” 
+
+Question. How many evaluable participants were in the comparator population? 
+
+Reference answer. 29. 
+
+Model response. “There were 203 evaluable participants in the comparator population.” 
+
+Observation. The model selects a salient nearby number instead of the parenthetical an-swer required by the document. 
+
+> UV-32B — extrinsic addition on a correct answer
+
+Document context. “Mayor Laura Peterson: ‘Any opposed? Any abstentions? Hearing none, the motion carries. The minutes from February 11, 2025, are approved.”’" 
+
+Question. What was the outcome of the vote on the February 2025 meeting minutes? 
+
+Reference answer. The motion carries. 
+
+Model response. “The minutes from the February 11, 2025, meeting were approved unanimously.” 
+
+Observation. The core answer is correct, but the response adds “unanimously,” which is not stated in the document. 
+
+> GPT-Realtime — false confidence on an unanswer-able question
+
+Question. What is the total number of arms in this clinical trial? 
+
+Reference. Unanswerable: the total number of study arms is not stated in the document. 
+
+Model response. “There are 15 study arms described in the document.” 
+
+Observation. The model fabricates a specific count rather than abstaining when the docu-ment does not provide the requested informa-tion. 
+
+> Cascaded — false confidence on an unanswerable question
+
+Question. How many residents spoke in fa-vor of the zoning variance during public com-ments? 
+
+Reference. Unanswerable: the number of resi-dents who spoke in favor is not stated. 
+
+Model response. “Two residents spoke in fa-vor of the zoning variants during public com-ments.” 
+
+Observation. Even the strong cascaded base-line can over-answer an unanswerable ques-tion. 
+
+> GPT-Realtime — calibrated refusal
+
+Question. What was the total amount of money appropriated by Council Bill 121182? 
+
+Reference. Unanswerable: the document mentions that the bill appropriates money to pay certain claims but does not state the total amount. 
+
+Model response. “I don’t have that infor-mation from the document. It mentions that Council Bill 121182 appropriates money to pay certain claims, but it doesn’t state the total amount.” 
+
+Observation. The response correctly refuses while identifying why the supplied document is insufficient. Moshi — fluent but document-ungrounded speech 
+
+Document context. “One (1) parking space shall be provided to Tenant for an additional monthly fee of $50, payable together with the monthly rent.” 
+
+Question. How many parking spaces are in-cluded in the lease, and what is the cost? 
+
+Reference answer. One parking space for an additional $50 monthly fee. 
+
+Model response. “Poly is just fine. It’s the dark of the holidays. There are 18 poly spaces in the league. The cost of a poly space varies depending on the team, but it is usually around $250,000.” 
+
+Observation. The response is fluent but unre-lated to the supplied document, illustrating the gap between conversational fluency and factual grounding. 
+
+> SALMONN — context-capacity cliff
+
+Question. Did Southern Company have a higher or lower net income in 2025 compared to 2024? 
+
+Reference answer. Lower. 
+
+Response at T3 ( ≈2k tokens). “Southern Company had a lower net income in 2025 com-pared to 2024.” 
+
+Response at T4 ( ≈4k tokens). “A point 2 a point 2 a point 2. Dot a. Point 2 a. Point 2 a. Point 2. 2. 2. 2. 2. 22. 22. 2. 2. Minus 2. 8. 8. 8.” 
+
+Observation. The same question is answered correctly at T3 but degenerates into token-repetition output at T4, illustrating the abrupt context-capacity failure. 
+
+> UV-32B — multi-turn grounding decay
+
+Question. What is the trial’s unique identifier? 
+
+Reference answer. NCT04424290. 
+
+Early probe A. “The identifier for the HORN-BILL study is NCT04424290.” 
+
+Late probe A′. The model produces an in-complete reasoning sequence that drifts to the trial’s enrollment count and never restates the identifier. 
+
+Observation. The model initially accesses the document correctly but fails to recover the same fact after intervening dialogue. 
+
+> Cascaded — stable grounding across dialogue
+
+Question. What is the primary purpose of the study? 
+
+Reference answer. DIAGNOSTIC. 
+
+Early probe A. “The primary purpose of the study is diagnostic.” 
+
+Late probe A′. “The primary purpose of the study is diagnostic.” 
+
+Observation. The cascaded system repro-duces the same grounded fact after intervening dialogue. 
+
+> GPT-Realtime — stable retention with correct elabo-ration
+
+Question. What is the primary purpose of the study? 
+
+Reference answer. DIAGNOSTIC. 
+
+Early probe A. “The primary purpose of the study is diagnostic.” 
+
+Late probe A′. “The primary purpose of the study is diagnostic. It’s designed to evaluate and compare imaging-based measures for coro-nary artery disease.” 
+
+Observation. The model retains the core fact and adds supporting detail consistent with the document. 
+
+> MiniCPM-o — stable grounding across dialogue
+
+Question. What imaging technique is consid-ered the gold standard in this study? 
+
+Reference answer. PET myocardial perfusion imaging (PET-MPI). 
+
+Early probe A. “The imaging technique con-sidered the gold standard in this study is PET myocardial perfusion imaging (PET-MPI).” 
+
+Late probe A′. “The imaging technique con-sidered the gold standard in this study is PET myocardial perfusion imaging (PET-MPI).” 
+
+Observation. The model retains the same document-grounded fact across intervening di-alogue. 
+
+> SALMONN — turn-to-turn grounding instability
+
+Question. What is the NCT Identifier for the HORNBILL study? 
+
+Reference answer. NCT04424290. 
+
+Early probe A. The model answers an un-related question about the study rather than providing the identifier. Late probe A′. “The NCT Identifier for the HORNBILL study is NCT04424290.” 
+
+Observation. The model is unstable across turns rather than showing a simple monotonic decay pattern. 
+
+> Moshi — isolated grounded late probe
+
+Question. Has Pfizer completed any share repurchases so far in 2024? 
+
+Reference answer. No. 
+
+Early probe A. “Yes, as of May 20, 2024, Pfizer has completed $2.5 billion of share re-purchases, representing 0.6% of the outstand-ing shares.” 
+
+Late probe A′. “Pfizer has not completed any share repurchases in 2024.” 
+
+Observation. This example illustrates that a non-zero GDS can occur even when absolute grounding remains very low. 
+
+> Gemini-Live — grounded numerical retrieval at long context
+
+Document context. “Our Surestone decking sales increased 44 percent and our traditional wood plastic composite decking increased 35 percent, both from the quarter a year ago.” 
+
+Question. How did the Surestone decking sales perform in the fourth quarter of 2025 compared to a year ago? 
+
+Reference answer. Increased 44 percent. 
+
+Model response. “Surestone decking sales increased 44 percent in the fourth quarter of 2025 compared to a year ago.” 
+
+Observation. At the longest context tier (T5) the model isolates the correct figure among adjacent distractor percentages, illustrating ro-bust numerical grounding under large context. 
+
+> Gemini-Live — calibrated refusal with justification
+
+Question. What were the locations of the study sites? 
+
+Reference. Unanswerable: the document does not list the locations of the study sites. 
+
+Model response. “I don’t have that informa-tion, as the document does not list the locations of the study sites.” 
+
+Observation. The model correctly abstains and states why the supplied document is in-sufficient, consistent with its high appropriate-refusal rate (NRR = 85 .6% ). 
+
+> Gemini-Live — stable multi-turn retention
+
+Question. What were the fourth-quarter 2025 operating revenues? 
+
+Reference answer. $7.0 billion. 
+
+Early probe A. “Fourth-quarter 2025 operat-ing revenues were $7.0 billion.” 
+
+Late probe A′. “Fourth-quarter 2025 operat-ing revenues were $7.0 billion.” 
+
+Observation. The model reproduces the iden-tical grounded figure after intervening dis-tractor dialogue, consistent with its near-zero grounding-decay score (GDS = +0 .03 ). 
+
+> Gemini-Live — intrinsic hallucination on a named entity
+
+Document context. “Contact Person: Anasta-sya Melnikov a.melnikov@diagnocat.com” 
+
+Question. Who prepared the 510(k) summary for Diagnocat? 
+
+Reference answer. Anastasya Melnikov. 
+
+Model response. “The 510(k) summary was prepared by DGNCT LLC.” 
+
+Observation. The model substitutes the ap-plicant company for the documented contact person, producing an intrinsic error that con-tradicts the supplied document rather than in-venting an outside fact. 
+
+> Gemini-Live — extrinsic addition on a correct answer
+
+Document context. “Landlord shall not be liable to Tenant for any interruption in util-ity services caused by circumstances beyond Landlord’s control, including but not limited to acts of the utility provider, weather events, or acts of God.” 
+
+Question. What is the landlord’s responsibility if a utility outage occurs? 
+
+Reference answer. Landlord shall not be li-able to Tenant for any interruption in utility ser-vices caused by circumstances beyond Land-lord’s control. 
+
+Model response. “Landlord shall not be liable for any interruption in utility services caused by circumstances beyond Landlord’s control. The tenant must promptly notify Landlord of any outage.” Observation. The core clause is grounded correctly, but the response appends a tenant-notification obligation that does not appear in the document — an extrinsic addition layered onto a correct answer. 
+
+> Gemini-Live — false confidence on an unanswerable question
+
+Question. How many people spoke during the public comment section in total? 
+
+Reference. Unanswerable: the total number of public speakers is not stated in the document. 
+
+Model response. “According to the document, 25 people spoke during the public comment section.” 
+
+Observation. Rather than abstaining, the model fabricates a specific count and attributes it to the document — the dominant failure mode on the ∼14% of unanswerable questions it does not refuse (FCR = 13 .2% ).
