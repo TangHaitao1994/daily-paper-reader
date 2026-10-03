@@ -1,0 +1,221 @@
+Title: VAmoS Part Deux: Harder, More Realistic Voice-Agent Simulation
+
+URL Source: https://arxiv.org/pdf/2609.38512v1
+
+Published Time: Thu, 01 Oct 2026 00:22:37 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+# VAmoS Part Deux: Harder, More Realistic Voice-Agent Simulation 
+
+Joshua Meyer Sahar Shayegan Ritiz Tambi Ali Khan Sun Kim Victor Shih Mehdi Jamei Andi Partovi 
+
+Veris AI 
+
+joshua@veris.ai 
+
+## Abstract 
+
+Voice agents in production must handle several requests, background speech, and customers who lose patience. We introduce VAmoS Energy, a benchmark that combines these challenges in 100 calls about utility billing and payment assistance. Each caller makes two to four requests. The agent has sixteen tools backed by a stateful Stripe billing twin and the Apache Fineract loan engine, with account access blocked until caller verification succeeds. The tasks use public household electricity data and a policy based on Pennsylvania’s residential billing rules. An LLM-as-a-verifier checks the agent’s actions and spoken figures against explicit requirements. On a calibration run, it agrees with a code verifier on 99.1% of checks. Across fourteen voice stacks and three repeats per task, completion ranges from 17.3% to 44.7%. Grok Voice leads, and Gemini 3.8 Live and GPT-Live follow at about the same cost per call. Background television reduces pooled completion from 38.7% to 8.6%. The simulated caller often accepts an incorrect result because it hears the agent’s words but cannot inspect its actions. These findings show why voice agents need evaluation across the whole call, including what they say, what they change, and how they handle competing speech. 
+
+## 1 Introduction 
+
+Calls in production can demand more than a benchmark’s single request in a quiet room. A customer may question a bill, make a payment, and change a billing preference while a television plays nearby. VAmoS Bench [Meyer et al., 2026] evaluated voice agents on credit-card support calls by grading their conversations together with their tool calls and results. The best voice agent completed 71% of calls. Its most difficult scenarios required several steps. We introduce VAmoS Energy, a benchmark for utility billing and payment assistance. Each task gives the caller two to four requests. The agent must verify the caller, consult account records in two stateful services, and follow a policy based on Pennsylvania’s residential utility regulation. Public household electricity data supplies the usage profiles. We evaluate fourteen voice stacks with calm and angry callers under four background conditions. Table 1 summarizes the changes from VAmoS Bench. The completion rates are lower, but the domains and agent configurations also differ, so this is not a controlled comparison of task difficulty alone. 
+
+Harder calls. We build tasks by combining customer requests, checking that each remains valid after the preceding actions, and using measured success rates to select difficult combinations (Sec-tion 3.3). Callers may be angry and may speak over street noise, café chatter, or television. Every stack receives the same persona and background assignment for each task and repeat. 
+
+Stateful services and restricted access. Each call gets its own copy of a consistently seeded Stripe twin and Apache Fineract instance. Tool code blocks access to customer records until verification 
+
+> Preprint. arXiv:2609.38512v1 [cs.AI] 29 Sep 2026
+
+Table 1: The two VAmoS benchmarks. Observed completion depends on both the benchmark and the evaluated configurations.                      
+
+> VAmoS Bench VAmoS Energy Backend Seeded PostgreSQL Stripe twin + Apache Fineract Agent tools 516 Verification Card digits, name, address/phone Account number, name, second factor Requests per call One, sometimes multi-step 2–4 Data Generated ResStock usage; Pennsylvania policy Caller personas Per-scenario style Calm, angry Background Clean Clean, street, café, TV Grading criteria Task-specific assertions Checks derived from account data Domain Credit-card support Utility billing and payments Completion 43.0–71.0% 17.3–44.7%
+
+succeeds. The agent must then choose and carry out actions that satisfy the customer’s request and the utility’s policy. 
+
+Checking words and actions. We use an LLM-as-a-verifier to check specified facts, including amounts, tool results, and the order of consent and action. The simulated caller is itself a voice agent and can depart from its instructions. We audit these deviations along with grading and platform errors, and exclude affected calls from the reported scores (Section 7). The verifier can inspect both words and actions; the caller can only hear what the agent says. 
+
+Findings. Agents usually respect the verification gate, but often fail to make the required account changes. Success rates fall as callers add requests. Television is the hardest background condition. Repeated trials produce different outcomes, and 54.2% of calls the simulated caller considers successful fail verification. 
+
+## 2 Related work 
+
+EVA-Bench evaluates task completion from final database state alongside faithfulness and speech fidelity, and includes accent and noise perturbations [Bogavelli et al., 2026]. τ -Voice evaluates full-duplex agents on stateful tasks and systematically varies noise, accents, and turn-taking [Ray et al., 2026]. VAmoS Bench grades conversation and execution together across production voice stacks [Meyer et al., 2026]. VAmoS Energy combines multiple requests per call, caller disposition, and background conditions in a utility domain with two vendor services. 
+
+τ -bench pairs a simulated user with domain policies and tool APIs; its reward checks final database state and required response information [Yao et al., 2025]. SWE-bench evaluates code changes through repository tests [Jimenez et al., 2024]. LLM-as-a-judge supports open-ended assessment but can show position and verbosity biases [Zheng et al., 2023]. Our verifier uses explicit task checks while relying on an LLM to interpret conversational evidence. Recursive Synthetic Terminal Tasks (RST) grows difficult tasks by extending solutions, updating instructions and verifiers, and validating each task in a sandbox before reusing it [Li et al., 2026]. We use a related recursive construction, adding valid requests to existing calls, then selecting tasks using measured difficulty. Our admission test uses an executable policy model; it does not establish solvability through a successful reference agent. The environment follows the simulation approach of RAISE [Shayegan et al., 2025], applied here to real-time voice calls. 
+
+## 3 The benchmark 
+
+3.1 Task, verification, and policy 
+
+The agent, Rory, answers a residential utility’s billing line. It can explain bills, take payments, arrange instalments, report existing arrangements, and change billing preferences. Every stack receives the same system prompt and sixteen tool definitions (Appendix G). 2Before accessing an account, the agent asks for the account number, full name, and one second factor: card last four digits, postal code, or last bill amount. The verification tool checks both services and returns whether the details match. On failure it reports the remaining attempts, without revealing account data or which detail was wrong. Three failures lock further verification. All account tools refuse access until verification succeeds; transfer to a human remains available. Later tools use the verified account rather than an account identifier supplied by the model. The prompt also forbids guessing which factor failed or offering a corrected account number. The tool prevents retrieval of those facts, but cannot prevent the model from inventing them. 
+
+Policy. Correct assistance requires more than a successful API call. The prompt tells the agent which actions it may offer and when it needs consent. For example, it must quote a payment arrangement before creating it, confirm the destination email before enabling paperless billing, and report a declined payment accurately. A promise to pay later must not become a recorded payment. These requirements determine the task’s success checks. 
+
+3.2 Stateful services and public data 
+
+Veris runs two stateful services for each simulated call: a Stripe billing twin and the actual Apache Fineract loan engine. The same account number links a Stripe customer to a Fineract client. Invoices and card payments live in Stripe; payment arrangements are zero-interest Fineract loans. The services retain changes during the call and enforce their own API rules. Fineract, for example, rejects future-dated repayments. We seed both services from one account manifest, read the records back, and check their consistency before taking a snapshot. Each call starts from a fresh clone of that snapshot, so its writes cannot affect another call. The snapshot freezes time at 2026-09-10T00:59:09Z, keeping due dates and arrears consistent across attempts. The 24 accounts in the exam use four months of modeled Pennsylvania household electricity con-sumption from ResStock 2022.1 [Wilson et al., 2021]. We aggregate 15-minute readings for June through September using actual 2018 weather, without scaling, and select profiles with each month between 150 and 1,000 kWh. The data describes simulated homes, not customer meter readings. Prices, taxes, and fixed charges are benchmark assumptions. 
+
+Policy grounded in regulation. Utility regulation constrains payment assistance and service termination. We used Pennsylvania’s Chapter 56 [Pennsylvania Public Utility Commission, n.d.] to inform the policy supplied in the system prompt, including income-dependent arrangements, winter protection, and medical certificates. The benchmark encodes a fixed, simplified policy together with authored business rules. Appendix A states the encoded terms and their limits; they should not be read as a complete statement of current law. 
+
+3.3 Building difficult tasks 
+
+We start with 112 single-request cases. To build a longer call, we append a request to an existing case and compute the expected result using an executable model of the utility policy. We keep the new task only if the request is valid on the account after the preceding actions, adds a distinct requirement, and does not follow a transfer. Accepted tasks can be extended again, up to four requests (Figure 1). This produces 2,008 eligible combinations. We then use development runs of a reference agent to estimate difficulty. Observed success falls from 94/112 for single requests to 29/39, 32/51, and 27/106 for two, three, and four requests. A model fitted to these outcomes ranks the combinations by predicted success. We select 100 difficult tasks while limiting repeated requests and accounts. Requests for successful due-date extensions are excluded because the billing service cannot perform them on finalized invoices. The final set contains 6 tasks with two requests, 30 with three, and 64 with four. An independent model reviewed all 100 against their account data and checks; the identified check defects were corrected. Selection details are in Appendix B. For example, a caller asks whether paperless billing is enabled and then asks to enable it after confirming the destination. Success requires the agent to verify the caller, report the existing setting, 3112 single-request cases Add one customer request Check policy and account state Keep valid combinations Extend again, up to four requests Use development results to estimate difficulty; select 100 tasks with diversity limits 
+
+Figure 1: Task construction and selection. The loop checks each added request against the account state left by earlier requests. Development runs inform the final selection; not every generated combination was run. read the email address aloud, wait for the caller, and change the setting. The checks cover both the spoken answer and the resulting account change. 
+
+3.4 Callers and background conditions 
+
+A Gemini Live session ( gemini-3.1-flash-live-preview ) plays the caller, using the task’s identity, private knowledge, opening line, and requests. The calm persona is concise and practical. The angry persona is terse, impatient, and more forceful when misunderstood. Both must follow the same request order, amounts, consent conditions, and refusals. The angry persona is not instructed to ask for a supervisor or add demands. The platform mixes street noise, café chatter, television speech, or no background into the caller’s outgoing audio. Non-clean conditions use the platform’s noise setting of 0.3% of a fixed reference speech energy. Each asset is scaled by its measured RMS; the setting is not an instantaneous speech-to-noise ratio. Television uses a tech-news recording with periodic gaps. Each task keeps the same persona across all three repeats, assigned using a fixed casting seed. Background assignment uses a shuffle seeded by the trial ID and rotates conditions across repeats. The saved records confirm identical assignments across all stacks for all 300 task–repeat pairs. Before exclusions, each stack receives 150 calls per persona and 75 per background condition. The utterances themselves remain stochastic. 
+
+3.5 Grading 
+
+Each task has three assertions derived from its account and intended actions: (1) no account tool use or disclosure before verification, with verification and human transfer allowed; (2) exactly the expected successful account changes, in order and with the required values; and (3) the task’s remaining requirements, such as a quoted amount or email confirmation. Spoken values are checked in the relevant part of the conversation, with stated tolerances. Repeating a fact supplied by the caller does not count as disclosing a secret. The LLM-as-a-verifier reads the transcript and recorded tool calls, arguments, and results. All three assertions must pass. Account changes are inferred from successful tool results; the verifier does not independently inspect the backend ledger on this run. The audit uses that ledger as additional evidence. This distinction matters when a trace loses or misorders a result. 
+
+## 4 LLM-as-a-verifier 
+
+A conversational check can have a precise answer while requiring flexible language interpretation. The agent might state a payment as “sixty-five fifty-two” or “sixty-five dollars and fifty-two cents.” The verifier must identify the figure, the speaker, its topic, and whether it preceded consent or action. Our code verifier used regular expressions and a spoken-number parser. Those rules sometimes confused a postal code with a quantity or a number of payments with a number of months. 4We give the LLM explicit checks specifying the value, tolerance, evidence window, and relevant topic. It returns a verdict and supporting evidence. We call this LLM-as-a-verifier to describe the constrained task; it remains fallible. The main-run assertions also allow semantic equivalents for statements such as whether an account is past due. In a separate calibration run of 97 completed attempts on this exam, we compared code and LLM judgments on the same 744 checks and evidence slices. gpt-5.6-terra agreed on 99.1% and 
+
+gpt-5.6-luna on 98.9%. At the call level, each agreed on 85 of 88 scorable attempts. Review of the combined disagreements found 7 where the LLM was right and 8 where the code was right. All code errors involved speech parsing; LLM errors included missed evidence and inconsistent verdicts. Agreement measures consistency between two fallible methods, not accuracy against ground truth. Appendix C breaks the comparison down by check. 
+
+## 5 Evaluation 
+
+We ran fourteen stacks three times on each task: 4,200 calls, with at most 5 concurrent attempts and a 900 s timeout. Six stacks use speech-to-speech models, three use bundled voice platforms, and five use assembled speech-recognition, language-model, and speech-synthesis pipelines. Appendix F lists the configurations. Six share gpt-4.1-mini ; all share Rory’s prompt and tools. The stack implementations are public at https://github.com/veris-ai/rory-agent .We exclude 402 calls affected by benchmark faults, whether they passed or failed, leaving 3,798 counted attempts. Agent-side run failures count as misses. Completion is the fraction of counted attempts passing all assertions. Assertion and transfer rates, latency, and cost use calls with verdicts and the required records; Appendix D gives those denominators. Intervals are Wilson 95% intervals over each stack’s counted attempts. Repeats change the background while retaining each task’s persona and sampling another conversation. 
+
+## 6 Results 
+
+Table 2: Completion, median response latency, and mean cost per call (Appendix D). Intervals are Wilson 95%; n is the number of counted attempts. Latency and cost use calls with verdicts. Configurations are in Appendix F.                                                                            
+
+> Stack Complete (%) 95% interval nLatency (s) Cost ($) Grok Voice 44.7 [38.8, 50.7] 264 2.64 0.210 Gemini 3.8 Live 40.1 [34.6, 45.9] 284 1.66 0.193 OpenAI GPT-Live 1 39.2 [33.5, 45.3] 260 1.62 0.192 OpenAI Realtime 2.1 37.9 [32.3, 43.8] 269 2.12 0.633 ElevenLabs 36.4 [30.9, 42.2] 275 2.18 0.272 OpenAI Realtime 33.6 [28.2, 39.5] 265 2.32 0.607 LiveKit 29.4 [24.5, 34.9] 289 2.96 0.077 Gemini 3.1 Live 25.6 [20.9, 31.0] 285 2.66 0.199 Mistral · Medium 3.5 + Voxtral 22.7 [18.1, 28.0] 269 3.75 0.279 Gradium 21.3 [16.9, 26.6] 272 2.42 0.120 Vapi 20.5 [15.6, 26.4] 210 2.08 0.271 Deepgram 19.8 [15.6, 24.8] 288 2.04 0.193 Hugging Face · gpt-oss-120b 19.0 [14.9, 23.9] 290 5.28 0.053 Pipecat · GPT-4.1 mini 17.3 [13.3, 22.1] 278 1.96 0.109
+
+Completion and account changes. Completion ranges from 17.3% to 44.7%, with a pooled rate of 29.1% (Table 2). Grok Voice leads, followed by Gemini 3.8 Live and GPT-Live; their intervals overlap. The three cost about the same per call ($0.21, $0.193, and $0.192). The cheapest stacks are the Hugging Face, LiveKit, and Pipecat cascades; the two OpenAI Realtime models are the most expensive, at about three times the leaders’ cost. The six stacks sharing gpt-4.1-mini range from 17.3% to 36.4%, showing that the language model alone does not determine performance. The verification gate passes on 99.0% of calls with verdicts, while the required account changes pass on 54.8%. The gate measures adherence to the access restriction, not successful authentication: a call 5Clean Street Café TV Grok Voice Gemini 3.8 Live OpenAI GPT-Live 1 OpenAI Realtime 2.1 ElevenLabs OpenAI Realtime LiveKit Gemini 3.1 Live Mistral Gradium Vapi Deepgram Hugging Face Pipecat Pooled                                                        
+
+> 40 56 49 34 51 53 39 15 59 45 17 36 49 56 43 438 48 41 16 49 44 39 343 44 31 037 38 26 131 42 11 222 31 22 10 36 24 24 029 22 29 037 39 1122 31 16 1
+> 39 41 27 9
+> (a) Task completion (%) by background noise 020 40 60 Calls transferred to a human (%) Grok Voice Gemini 3.8 Live OpenAI GPT-Live 1 OpenAI Realtime 2.1 ElevenLabs OpenAI Realtime LiveKit Gemini 3.1 Live Mistral Gradium Vapi Deepgram Hugging Face Pipecat
+> 2411020 34318812 4800498710 15 922 611
+> (b) Transfers by caller persona
+> Calm caller Angry caller
+
+Figure 2: (a) Completion by background condition, with 46–75 counted attempts per stack and condition. (b) Transfers to a human by persona, among calls with verdicts and traces. All exam tasks are intended to be resolved by the agent. that never verifies can still pass the gate if it discloses nothing and uses no account tool. On 44.4% of calls with verdicts, the gate passes and the account-change assertion fails. 
+
+More requests, lower success. The success rate decreases as customers make more requests: 56.3% for two, 34.9% for three, and 23.8% for four. Agents sometimes miss a confirmed action when the caller raises the next request, omit a requested figure, or state the wrong policy limit. These are different task groups, so the rates do not isolate the effect of adding a request to an otherwise identical call. 
+
+Background speech. Pooled completion is 38.7% in clean audio, 41.4% with street noise, 27.4% with café chatter, and 8.6% with television (Figure 2). Grok and GPT-Live retain the highest TV completion rates; 9 stacks complete fewer than 5% of TV calls. Traces show agents treating the broadcast as caller speech, answering it, or cancelling their own replies. Configuration matters: our Realtime bridge uses server voice-activity detection without noise reduction, and our Vapi bridge disables denoising. 
+
+Angry callers and transfers. Angry calls complete at 30.4%, compared with 27.8% for calm calls. Persona groups contain different tasks, so this does not establish that anger improves performance. Agents transfer 7.6% of angry calls and 4.1% of calm calls to humans. The persona does not request escalation, and no exam task requires a transfer. 
+
+Variation across repeats. The median stack’s completion rate has a standard deviation of 3.8 percentage points across the three repeats. For the median stack, 45 tasks have both passing and failing counted attempts. This combines variation in conversations with the intended changes in background noise. The overlapping intervals warrant caution about ranking adjacent stacks. 
+
+A satisfied caller can be wrong. The caller declares its goal met on 2,072 calls, but 1,122 of those fail verification (54.2%). The caller hears an assurance such as “your payment is recorded” without 6seeing whether a tool actually recorded the right amount. The verifier can compare that assurance with the tool result. This is why caller satisfaction alone is insufficient to score these tasks. 
+
+Three unsolved tasks. At least one stack passes 97 tasks. The remaining three require reporting an overdue arrangement instalment even though the bill balance is current. The shared account tool reports only bill arrears, returning zero; agents repeat that figure instead of checking the arrangement tool. The needed information is available, but without a successful reference solution we cannot claim to have demonstrated these three tasks are solvable. 
+
+## 7 Benchmark validity and limitations 
+
+The simulated caller is a voice agent and sometimes departs from its brief: it may skip a request, supply a figure it should ask for, or hang up while waiting. We remove 305 affected calls, 60 with confirmed incorrect verdicts, and 37 lost platform sessions. Of the 402 exclusions, 36 had passed. Removing both passes and failures avoids retaining calls made artificially easy by the benchmark. We do not change verdicts or rerun selected calls. The verdict audit covers 228 calls, using transcripts, traces, candidate logs, and backend ledgers. Errors included stale interruption markers, missing tool results, incorrect event order, and misapplied numeric tolerances. Much of the audit targeted suspected errors; its error frequency is not an unbiased estimate of verifier accuracy. Exclusions raise pooled completion from 27.2% to 29.1% and preserve the top five stacks’ order. Appendix E reports the per-stack changes. Unaudited verdicts can still be wrong, and selective exclusions may affect the task mix. The authors implemented the agent integrations. Their defects count against the candidate, including noisy-audio settings, cancelled greetings, and the misleading bill-arrears field. Shared Soundex name matching is lenient and helps some stacks more than others. Each vendor is represented by one configuration; vendor tuning could change the results. Costs exclude telephony and hosting. Cascade costs use published prices and count only the synthesized characters the caller heard. GPT-Live’s cost excludes its delegated backend model, which would add at most 17%, and Gemini 3.1 Live’s cost is estimated (Appendix D). The task set covers one utility policy and a selected range of modeled household usage. It is not representative of all utility customers or regulations. Policy-based admission and model review do not prove that every task is solvable. Two caller personas and three repeats provide limited coverage, and noise or persona comparisons remain sensitive to the task mix. 
+
+## 8 Conclusion 
+
+VAmoS Energy evaluates whether voice agents can complete several customer requests while follow-ing policy, using stateful services, and handling background speech. Across fourteen configurations, completion ranges from 17.3% to 44.7%. Television disrupts most stacks, account changes fail more often than the verification gate, and callers often accept incorrect outcomes. Evaluating both conversation and execution exposes failures that a caller’s apparent satisfaction would miss. 
+
+## Acknowledgments and Disclosure of Funding 
+
+All authors are affiliated with Veris AI, which developed the simulation platform, Stripe twin, and benchmark infrastructure. Usage profiles are from NREL ResStock 2022.1 (CC BY 4.0), aggregated and selected by the authors. The television background uses Daily Tech News Show audio (CC BY). 7References 
+
+Tara Bogavelli, Gabrielle Gauthier Melançon, Katrina Stankiewicz, Oluwanifemi Bamgbose, Fanny Riols, Hoang H. Nguyen, Raghav Mehndiratta, Lindsay Devon Brin, Hari Subramani, Joseph Marinier, Anil Madamala, Sridhar Krishna Nemala, and Srinivas Sunkara. EVA-Bench: A new end-to-end framework for evaluating voice agents. arXiv preprint arXiv:2605.13841 , 2026. URL 
+
+https://arxiv.org/abs/2605.13841 .Carlos E. Jimenez, John Yang, Alexander Wettig, Shunyu Yao, Kexin Pei, Ofir Press, and Karthik Narasimhan. SWE-bench: Can language models resolve real-world GitHub issues? In The Twelfth International Conference on Learning Representations , 2024. URL 
+
+https://openreview.net/forum?id=VTF8yNQM66 .Zhongzhi Li, Yucheng Shi, Zongxia Li, Ruhan Wang, Anhao Li, Zixun Huang, Junyao Yang, Lei Ke, Ninghao Liu, Haitao Mi, and Leowei Liang. Recursive synthesis for long-horizon terminal tasks. 
+
+arXiv preprint arXiv:2608.05466 , 2026. URL https://arxiv.org/abs/2608.05466v3 .Joshua Meyer, Sahar Shayegan, Ritiz Tambi, Ali Khan, Sun Kim, Victor Shih, Mehdi Jamei, and Andi Partovi. VAmoS Bench: Voice agent simulation bench. arXiv preprint arXiv:2607.27453 ,2026. URL https://arxiv.org/abs/2607.27453 .Pennsylvania Public Utility Commission. 52 Pa. Code Chapter 56: Standards and billing practices for residential public utility service. The Pennsylvania Code, n.d. URL 
+
+https://www.pacodeandbulletin.gov/Display/pacode?file=/secure/pacode/data/ 052/chapter56/chap56toc.html . Accessed 2026-09-29. Soham Ray, Keshav Dhandhania, Victor Barres, and Karthik Narasimhan. τ -Voice: Benchmarking full-duplex voice agents on real-world domains. In Forty-third International Conference on Machine Learning , 2026. URL https://openreview.net/forum?id=2Oj6fg0m1j .arXiv:2603.13686. Sahar Omidi Shayegan, Joshua Meyer, Victor Shih, Sebastian Sosa, Tianyi Peng, Kostis Kaffes, Eugene Wu, Andi Partovi, and Mehdi Jamei. RAISE: Reliable agent improvement via simulated experience. In NeurIPS 2025 Workshop on Scaling Environments for Agents , 2025. URL 
+
+https://openreview.net/forum?id=53oRwdZe6k .Eric Wilson, Andrew Parker, Anthony Fontanini, Elaina Present, Janet Reyna, Rajendra Adhikari, Carlo Bianchi, Christopher CaraDonna, Matthew Dahlhausen, Janghyun Kim, Amy LeBar, Lixi Liu, Marlena Praprost, Philip White, Liang Zhang, Peter DeWitt, Noel Merket, Andrew Speake, Tianzhen Hong, Han Li, Natalie Mims Frick, Zhe Wang, Aileen Blair, Henry Horsey, David Roberts, Kim Trenbath, Oluwatobi Adekanye, Eric Bonnema, Rawad El Kontar, Jonathan Gonzalez, Scott Horowitz, Dalton Jones, Ralph Muehleisen, Siby Platthotam, Matthew Reynolds, Joseph Robertson, Kevin Sayers, and Qu Li. End-use load profiles for the U.S. building stock. Open Energy Data Initiative (OEDI), National Renewable Energy Laboratory (NREL), 2021. URL 
+
+https://data.openei.org/submissions/4520 . doi: 10.25984/1876417. Data used: ResStock 2022.1 (AMY 2018, release 1). CC BY 4.0. Accessed 2026-09-08. Shunyu Yao, Noah Shinn, Pedram Razavi, and Karthik Narasimhan. τ -bench: A benchmark for tool-agent-user interaction in real-world domains. In The Thirteenth International Conference on Learning Representations , 2025. URL https://openreview.net/forum?id=roNSXZpUDN .Lianmin Zheng, Wei-Lin Chiang, Ying Sheng, Siyuan Zhuang, Zhanghao Wu, Yonghao Zhuang, Zi Lin, Zhuohan Li, Dacheng Li, Eric P. Xing, Hao Zhang, Joseph E. Gonzalez, and Ion Stoica. Judging LLM-as-a-judge with MT-Bench and Chatbot Arena. In NeurIPS 2023 Datasets and Benchmarks Track , 2023. URL https://arxiv.org/abs/2306.05685 . arXiv:2306.05685. 8A Policy encoded in the benchmark 
+
+The system prompt caps arrangements at 60, 36, 12, or 6 months for income bands at or below 150%, 151–250%, 251–300%, and above 300% of the federal poverty level. Missing income uses a six-month cap. These are the benchmark’s encoded limits. Chapter 56 governs payment arrangements but the cited chapter alone does not establish this exact cap table; the mapping needs separate legal validation. The benchmark also encodes winter termination protection from December 1 to March 31 for recorded income at or below 250%, and medical protection through the recorded certificate date. Chapter 56 includes qualifications and exceptions that the simplified task policy does not fully model [Pennsylvania Public Utility Commission, n.d.]. Authored business rules require at least $50 in arrears and a two-month minimum arrangement, a 25% down payment after a broken arrangement within twelve months, and at most one extension of 1–15 days per rolling year. Accounts with at least $500 outstanding and 60 days past due must be transferred to a person. The final exam excludes tasks requiring that transfer or a successful extension. These assumptions define the benchmark; they are not presented as statutory requirements. 
+
+## B Task selection 
+
+A combination cannot repeat a request, continue after a transfer, or add a request whose account conditions no longer hold. A refusal must also be valid on the initially seeded account, so an earlier action cannot manufacture the reason for refusal. The complete task must require more than either the preceding requests or the final request alone. The 2,008 admitted tasks contain requests from 70 of the 112 starting cases. Difficulty estimation fits one success probability per starting request by maximum likelihood on development outcomes, and predicts a combined task’s success as the product of its constituent probabilities. The 100-task selection allows one ordering per set of requests, at most five tasks per account, and at most 25 uses of a request except the common balance and paperless requests. The selected set draws on 26 starting requests across 24 accounts. Its predicted mean success was 0.27. This model ranks tasks for selection; it is not a calibrated forecast of performance across all evaluated stacks. 
+
+## C Verifier comparison 
+
+The calibration comparison used 97 completed attempts from September 14, 2026, before the main September 24–28 run and its semantic-assertion update. Only 88 had sufficient evidence for a complete code verdict. Per-check comparisons include the checks that can be scored in the remaining attempts. Table 3 reports agreement. The code verifier is a comparator, not a source of ground-truth labels. Table 3: Agreement between the code verifier and two LLM verifiers, check by check, on 97 completed attempts from a calibration run of this exam. “Reads” is the evidence a check needs; the speech rows are the ones where the code extracts values with patterns.                                                  
+
+> Check Reads Checks terra agrees luna agrees Exact world effects, in order tool results 97 96 96 No account tool before verification tool calls 97 97 97 Required tool called tool calls 20 20 20 Forbidden tool not called tool calls 34 34 34 Quote, caller turn, then create tool calls + turns 34 32 33 No secret spoken before verification speech 97 95 95 Figure stated in a clause on the topic speech 224 223 221 One of a set of phrases used speech 130 130 130 One of several figures stated speech 655Figure relayed from a tool result speech + tool results 555All checks 744 737 (99.1%) 736 (98.9%)
+
+9The prose-assertion judge agreed with code on 76 of 88 scorable calls. Asking explicit checks with matched evidence raised agreement to 85. Both the specification and evidence presentation changed, so this comparison does not isolate wording alone. Code errors included misreading spoken postal codes and confusing instalment counts with term lengths. LLM errors included missing a disable-then-enable pair, overlooking a clause, and returning a verdict inconsistent with quoted evidence. 
+
+## D Additional metrics 
+
+Completion uses all counted attempts, including agent-side run failures. Assertion rates use the 3,635 calls with verdicts; transfer rates use calls with verdicts and traces. A transfer is a call to 
+
+transfer_to_human , not a spoken promise to transfer. Response latency is the interval from caller speech ending to agent speech starting, pooled over agent turns. Cost is per call with a verdict. For the cascades it is each vendor’s published price applied to measured usage: audio minutes, call minutes, and synthesized characters. The speech-to-speech models from OpenAI and Google bill every reply for everything in the session so far, including the prompt, tool definitions, and earlier audio, so we take their cost from the vendors’ bills. Each speech-to-speech stack ran all its calls on one day, and no other trial used the same model that day; we spread each bill over the stack’s calls in proportion to call length. Gemini 3.1 Live uses the same model as the simulated caller, so its bill cannot be separated; we scale it by Gemini 3.8 Live’s ratio of bill to estimate, since the two share prices and a bridge. Cost per completed call is the total cost over passes. It is lowest for the Hugging Face and LiveKit cascades ($0.22 and $0.26), about $0.47 for the three leading stacks, and highest for the two OpenAI Realtime models ($1.62 and $1.72). Table 4 gives completion by request count, persona, and the last request’s use case. A call must satisfy all its requests, so the last request’s use case need not identify the source of failure. Table 4: Completion (%) by number of requests, caller persona, and use case of the last request. Before exclusions, each stack has 18/90/192 attempts with 2/3/4 requests, 150 per persona, and 111/189 per use case; counted denominators are smaller.                                                                                                                   
+
+> Requests Persona Use case Stack 234Calm Angry High bill Payment Grok Voice 81 46 40 39 50 40 48 Gemini 3.8 Live 56 49 34 34 46 31 45 OpenAI GPT-Live 1 65 45 34 44 34 38 40 OpenAI Realtime 2.1 67 51 28 34 41 26 45 ElevenLabs 71 38 32 31 41 35 37 OpenAI Realtime 62 37 29 34 33 27 38 LiveKit 59 41 21 30 29 22 34 Gemini 3.1 Live 56 35 18 26 25 19 29 Mistral · Medium 3.5 + Voxtral 44 26 19 20 26 22 23 Gradium 71 24 15 20 23 21 21 Vapi 18 18 22 20 21 10 27 Deepgram 41 24 16 23 17 18 21 Hugging Face · gpt-oss-120b 56 24 14 19 19 16 20 Pipecat · GPT-4.1 mini 29 25 12 15 19 15 19 Pooled 56.3 34.9 23.8 27.8 30.4 24.6 31.8
+
+## E Audit and exclusions 
+
+A stratified audit of 72 calls, three passes and three failures for each of twelve initially available stacks, found no wrong verdict. Sampling favored calls with possible evidence problems. A targeted sweep of 116 suspected errors found 43 false failures and 1 false pass. Another 40 calls yielded 1 false failure. These three groups cover 228 calls. A separate artifact-by-artifact review of 28 calls found 27 verdicts correct. 10 2 3 4 5 6Median response latency (s) 010 20 30 40 50 Task completion (%)     
+
+> LiveKit Mistral Hugging Face Grok Voice Gemini 3.8 Live OpenAI GPT-Live 1 OpenAI Realtime 2.1 ElevenLabs OpenAI Realtime Gemini 3.1 Live Gradium Vapi Deepgram Pipecat
+> 0.05 0.10 0.20 0.50 1.00 Mean cost per call (USD, log)
+> Realtime 2.1 Realtime LiveKit Gradium Hugging Face Pipecat Grok Voice Gemini 3.8 Live OpenAI GPT-Live 1 ElevenLabs Gemini 3.1 Live Mistral Vapi Deepgram
+
+Figure 3: Completion against median response latency and mean cost per call. Vertical bars are Wilson 95% intervals; the cost axis is logarithmic. The most common false-failure cause was a stale interruption marker (17 calls), followed by incorrect tolerance handling (13). Other causes included overlooked evidence, literal wording judgments, missing real tool results, and tool results timestamped before their calls. The audit used candidate logs and backend ledgers to distinguish trace defects from failed actions. The largest caller deviation affected Vapi: filler phrases while a tool ran caused the simulated caller to hang up despite instructions to wait. Caller-side exclusions remove 85 Vapi calls. Such deviations can also make a task easier by omitting a request or supplying an answer; therefore the exclusion list includes passes. Table 5 reports all exclusions and both completion rates. Table 5: Completion over all attempts and over counted attempts, with the attempts excluded and why: the simulated caller broke its script (“caller”), the verifier misjudged the call (“verifier”), or the platform lost the session (“lost”). “Passes” is the number of excluded attempts that had passed. “Soundex” is the number of passes, over all attempts, whose caller was verified only through the sound-alike name match (described below the table). Ordered by counted completion. 
+
+Stack All (%) Rank Counted (%) Rank Excluded Caller Verifier Lost Passes Soundex Grok Voice 41.0 1 44.7 1 36 25 11 0 5 43 Gemini 3.8 Live 38.0 2 40.1 2 16 11 2 3 0 25 OpenAI GPT-Live 1 37.3 3 39.2 3 40 30 10 0 10 26 OpenAI Realtime 2.1 35.0 4 37.9 4 31 23 6 2 3 28 ElevenLabs 34.3 5 36.4 5 25 13 4 8 3 28 OpenAI Realtime 30.3 6 33.6 6 35 31 4 0 2 25 LiveKit 28.7 7 29.4 7 11 6 5 0 1 32 Gemini 3.1 Live 24.7 8 25.6 8 15 14 1 0 1 16 Mistral · Medium 3.5 + Voxtral 22.0 9 22.7 9 31 9 2 20 5 17 Gradium 19.3 11 21.3 10 28 27 1 0 0 14 Vapi 14.7 14 20.5 11 90 85 2 3 1 14 Deepgram 19.7 10 19.8 12 12 11 1 0 2 27 Hugging Face · gpt-oss-120b 18.7 12 19.0 13 10 7 2 1 1 21 Pipecat · GPT-4.1 mini 16.7 13 17.3 14 22 13 9 0 2 20 
+
+The shared verification tool uses Soundex for names, retaining the first letter while allowing some spelling differences. It can accept a sound-alike name but reject “Kamila” for “Camila.” Across all attempts, including those later excluded, 1,027 calls verified only through sound-alike matching and 336 passing calls depend on it. These counts describe the original run and use raw denominators. All stacks use the same matcher, but its benefit differs with their transcriptions. 11 F Voice stacks 
+
+Table 6: The fourteen stacks in this run, in order of observed completion. Every stack runs the same prompt, tool declarations, and dispatcher from the shared core. Models are as recorded in the candidate logs and the implementations’ configuration. 
+
+Stack Class Models (as run) Grok Voice Speech-to-speech grok-voice-think-fast-2.0 , voice eve 
+
+Gemini 3.8 Live Speech-to-speech gemini-3.8-live , same bridge as Gemini 3.1 Live OpenAI GPT-Live 1 Speech-to-speech gpt-live-1 , tool use delegated to gpt-5.6-terra ,voice marin 
+
+OpenAI Realtime 2.1 Speech-to-speech gpt-realtime-2.1 , same bridge as OpenAI Realtime ElevenLabs Bundled platform Conversational AI: ElevenLabs ASR → gpt-4.1-mini 
+
+→ eleven_flash_v2 
+
+OpenAI Realtime Speech-to-speech gpt-realtime-2 , voice alloy , server VAD (threshold 0.5) LiveKit Assembled cascade LiveKit Agents: Deepgram nova-3 → gpt-4.1-mini 
+
+→ ElevenLabs eleven_flash_v2 , Silero VAD Gemini 3.1 Live Speech-to-speech gemini-3.1-flash-live-preview 
+
+Mistral Assembled cascade Voxtral realtime STT → mistral-medium-2604 →
+
+Voxtral TTS, Silero VAD Gradium Assembled cascade gradbot engine: Gradium STT → gpt-4.1-mini →
+
+Gradium TTS Vapi Bundled platform Hosted orchestrator: Deepgram → gpt-4.1-mini →
+
+ElevenLabs; tools as server tools Deepgram Bundled platform Voice Agent API: nova-3 → gpt-4.1-mini → Aura-2 Hugging Face Assembled cascade Whisper large-v3 → gpt-oss-120b (via the Hugging Face router) → Kokoro-82M, Silero VAD Pipecat Assembled cascade Pipecat: Deepgram nova-3 → gpt-4.1-mini →
+
+ElevenLabs eleven_flash_v2 
+
+## G Tools 
+
+verify_caller , get_account , list_bills , get_bill , explain_bill , compare_bills ,
+
+get_payment_history , make_payment , quote_payment_arrangement ,
+
+create_payment_arrangement , get_payment_arrangement ,
+
+modify_payment_arrangement , request_due_date_extension , set_paperless_billing ,
+
+get_supplier_info , transfer_to_human . The five world-changing tools are make_payment ,
+
+create_payment_arrangement , modify_payment_arrangement ,
+
+request_due_date_extension , and set_paperless_billing .12 H Requests in the exam 
+
+Table 7: The requests the 100 tasks draw on, with the number of tasks that include each. 
+
+Request Tasks Enable paperless after confirming the email 73 Report the current balance and delinquency status 50 Reject a one-month arrangement 25 Record the caller’s exact partial instalment 25 Record a payment made today 25 Quote before creating an arrangement 22 Redirect a second-plan request to the active plan 21 Create an eligible arrangement after informed consent 14 Refuse a second concurrent arrangement 13 Do not silently shorten an over-limit request 8Reject a zero-day extension 8Refuse a sixteen-day extension 7Refuse a second extension within twelve months 5Cap the term by income tier (four income groups: ≤150%, 151–250%, 251–300%, >300%) 20 Do not assume an income tier that is not on record 5Reject a thirteen-month arrangement 5Do not record a future promise as a payment 5Reject an explicitly future-dated instalment 5Report active arrangement status 5Identify an overdue arrangement instalment 5Explain the existing instalment schedule 5Distinguish bill payments from plan instalments 5Report current paperless status 2
+
+13

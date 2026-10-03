@@ -1,0 +1,3645 @@
+DataMagic: Authoring Data Videos through Declarative Multi-Agent
+Orchestration
+Yupeng Xie
+, Zhenyang Wang
+, Liangwei Wang
+, Jiayi Zhu
+, Zhouan Shen
+, and Yuyu Luo
+Abstract—Data videos communicate data insights through dynamic charts, voice narration, and synchronized animations, and have
+become a widely adopted form of data storytelling. However, their production requires multidisciplinary expertise spanning data
+analysis, narrative design, and video editing. Static visualization tools lack narrative and animation capabilities; authoring tools rely on
+pre-prepared charts rather than raw data; and pixel-level generation models, while capable of end-to-end synthesis, cannot guarantee
+data accuracy or provenance. End-to-end automatic generation faces two core challenges: how to uniformly represent charts, narration,
+and animations together with their temporal relationships, and how to efficiently search a vast design space for narrative-coherent
+compositions. We present DATAMAGIC, a system that authors data videos from raw tabular data through declarative multi-agent
+orchestration, built on two core designs. First, the declarative specification DVSPEC unifies charts, narration, and animations with
+data-bound references and declarative synchronization, ensuring data provenance and automatic audio-visual alignment. Second,
+a “Generate-then-Orchestrate” multi-agent strategy generates candidate scenes in parallel and then optimizes narrative coherence
+through global orchestration. DVSPEC further serves as a shared state supporting three complementary interaction modes, bridging
+full automation with fine-grained human control. Evaluations on 109 real-world samples show that even the most advanced LLM
+(e.g., GPT-5) achieves only 2.13/5 with execution success rates between 48.62% and 86.24%; DATAMAGIC improves quality to 3.89
+(+83%) with success rates above 95%, with the most significant gains in animation and narrative dimensions. A user study further
+demonstrates that, compared to a conversational LLM workflow, DATAMAGIC significantly improves creation efficiency (79.7% reduction
+in task time) and reduces perceived cognitive load. Source code is available at https://github.com/HKUSTDial/DataMagic.
+Index Terms—data video generation, data storytelling, multi-agent system, declarative specification, visualization
+1
+INTRODUCTION
+Data videos combine dynamic charts, voice narration, and animation ef-
+fects into coherent temporal narratives, and have been widely adopted in
+business reporting, journalism, and education [1,22,43,44]. Compared
+with static charts or dashboards, data videos guide audiences along a cu-
+rated narrative path to understand data, offering significant advantages
+in communication efficiency and audience engagement [1]. However,
+producing a high-quality data video requires multidisciplinary expertise
+spanning data analysis, narrative design, and video editing, resulting in
+high production costs and long cycles that severely limit the scalability
+of this medium.
+Existing approaches simplify parts of this workflow but none
+achieves end-to-end automation from raw data to a complete video.
+Static visualization tools (e.g., DeepEye [30,31], HAIChart [70], Deep-
+VIS [54]) automate chart generation but lack narrative logic and an-
+imation, producing isolated static graphics. Authoring tools (e.g.,
+WonderFlow [66], Data Playwright [41]) introduce narrative-centered
+paradigms that allow users to add animations and narration to indi-
+vidual charts, but they take pre-made visualizations as their starting
+point, cannot extract insights from raw data, and do not support multi-
+scene narrative orchestration. Pixel-level video generation models (e.g.,
+Sora [26], Veo3 [12]) can generate videos end-to-end, but their black-
+box nature frequently produces numerical hallucinations and cannot
+trace visual elements back to underlying data records. In summary,
+existing approaches struggle to simultaneously achieve data fidelity,
+narrative coherence, and end-to-end automation.
+Our key observation is that effective data videos are fundamen-
+tally structured narratives rather than simple assemblies of visual el-
+• Yupeng Xie, Zhenyang Wang, Liangwei Wang, Jiayi Zhu, Zhouan Shen, and
+Yuyu Luo are with The Hong Kong University of Science and Technology
+(Guangzhou), Guangzhou, China. E-mail: yxie740@connect.hkust-gz.edu.cn,
+wwwangzhenyang@gmail.com, lwang344@connect.hkust-gz.edu.cn,
+jzhu351@connect.hkust-gz.edu.cn, zshen575@connect.hkust-gz.edu.cn, and
+yuyuluo@hkust-gz.edu.cn. Yuyu Luo is the corresponding author.
+Manuscript received xx xxx. 202x; accepted xx xxx. 202x. Date of Publication
+xx xxx. 202x; date of current version xx xxx. 202x. For information on
+obtaining reprints of this article, please send e-mail to: reprints@ieee.org.
+Digital Object Identifier: xx.xxxx/TVCG.202x.xxxxxxx
+ements [43]. A well-crafted data video typically consists of multiple
+scenes, each organized around a distinct analytical insight with coordi-
+nated charts, narration, and animations; scenes follow narrative logic
+such as macro-to-micro or phenomenon-before-cause. This inspires us
+to model end-to-end generation as a hierarchical content orchestration
+problem: starting from a user query, the system makes decisions at the
+level of macro narrative structure, scene-level content, and micro ani-
+mation details. This modeling introduces two core challenges: (1) how
+to design a unified intermediate representation that precisely describes
+charts, narration, animations, and their temporal relationships while
+ensuring data provenance; (2) how to efficiently search the vast design
+space of insights, chart types, and narrative paths for globally coherent
+compositions across multiple scenes.
+To address these challenges, we propose DATAMAGIC, which au-
+thors data videos through declarative multi-agent orchestration that
+combines a declarative specification for unified audio-visual representa-
+tion with a multi-agent pipeline for narrative-coherent scene generation.
+For challenge (1), we design DVSPEC (Data Video Specification), a
+declarative specification that decomposes data videos into an ordered
+scene sequence, where each scene contains content, narration, and ani-
+mation components. DVSPEC binds visual and animation elements to
+underlying data fields through data-driven semantic references, and re-
+places manual timestamps with narration-indexed triggering to achieve
+declarative audio-visual synchronization (Section 4). For challenge (2),
+we propose a “Generate-then-Orchestrate” multi-agent strategy: in the
+generation stage, agents with distinct roles collaborate in parallel to
+produce diverse candidate scenes; in the orchestration stage, scenes
+are globally selected and ordered based on insight value and query
+coverage, with context-aware narration generated to ensure narrative
+coherence. DVSPEC further serves as a shared editable state supporting
+three interaction modes (canvas manipulation, script editing, and nat-
+ural language commands), bridging full automation with fine-grained
+human control (Section 5).
+We evaluate DATAMAGIC on 109 real-world samples across five
+quality dimensions and conduct a within-subjects user study. Results
+show that even the most advanced LLM (GPT-5) achieves only 2.13/5
+with execution success rates between 48.62% and 86.24%; DATAM-
+AGIC improves quality to 3.89 (+83%) with success rates above 95%.
+The user study further confirms that, compared to a conversational
+LLM workflow, DATAMAGIC significantly improves creation efficiency
+arXiv:2609.33403v1  [cs.HC]  27 Sep 2026
+
+
+(79.7% reduction in task time) and reduces perceived cognitive load.
+The main contributions of this paper include: (1) DVSPEC: a declar-
+ative specification for data videos that unifies charts, narration, and
+animations with their temporal relationships through semantic refer-
+ences and narration-indexed triggering; (2) Multi-agent framework: a
+“Generate-then-Orchestrate” two-stage strategy for parallel candidate
+scene generation and global narrative orchestration; (3) Interactive
+system: a complete web-based system supporting three complementary
+interaction modes over a shared DVSPEC state; and (4) Comprehen-
+sive evaluation: systematic experiments on 109 real-world samples
+and a within-subjects user study (N = 12) confirming practical utility.
+2
+RELATED WORK
+2.1
+Data Video Authoring
+Prior research has established theoretical foundations for data video
+creation from perspectives including narrative structure [1], anima-
+tion design primitives [61], and motion design space [52], among
+others [73]. Building on these foundations, various authoring tools
+have been developed to lower production barriers. Guided by Chen et
+al.’s automation-level taxonomy of narrative visualization tools [6], we
+focus on two categories most relevant to data-video creation: human-
+in-the-loop authoring and automated generation.
+Human-in-the-loop authoring and animation-design approaches
+retain substantial user control while reducing manual effort: Data-
+Clips [2] lets users compose, edit, and assemble clips from a reusable
+data-driven library to form complete data-video sequences; VisCom-
+mentator [8] supports rapid prototyping of augmented sports videos
+by combining machine-learning-based data extraction with visualiza-
+tion recommendations; WonderFlow [66] and Data Playwright [41]
+provide narration-centric workflows for linking narration with visual
+elements and authoring instructions; Shen et al. [49] further support
+authoring data-driven chart animations through direct manipulation;
+Kineticharts [18] presents an affective animation design scheme for
+enhancing the expressiveness of charts in data stories; and Gemini2 [17]
+supports keyframe-oriented chart-animation authoring by generating
+transitions between statistical graphics; see Section 2.3.
+Automated-generation systems automate larger parts of the produc-
+tion workflow: InfoMotion [65] automatically generates animated
+presentations from static infographics; AutoClips [50] generates data
+videos from a tabular dataset and a pre-specified sequence of data
+facts by selecting, arranging, and configuring animated clips; Data
+Player [47] takes an existing visualization and text input, establishes
+semantic links between narration and visual elements with LLMs,
+and plans animation sequences through constraint solving; Narrative
+Player [40] takes a pre-written narrative paragraph paired with a cor-
+responding data table and generates a coherent visualization sequence
+with transition animations and audio narration; and Shen et al. [42]
+explore multi-agent workflows for automatic data-video creation.
+These systems differ in their input assumptions and design focus:
+some begin from existing visual artifacts, narration scripts, or pre-
+extracted data facts; others emphasize agentic generation workflows
+rather than an explicit shared declarative representation for cross-scene
+coordination. Recent empirical work [46] further examines how em-
+pirical findings have informed data-video creation tools, motivating
+the need to ground tool design in authors’ workflows and creation
+needs. DATAMAGIC complements these approaches by starting from
+raw tabular data, jointly selecting and ordering scenes through multi-
+agent orchestration, and binding charts, narration, and animations in a
+shared declarative representation that makes cross-scene coherence and
+localized interactive editing explicit.
+2.2
+Automated Data Storytelling
+Automated data storytelling seeks to turn a data table into a narrative
+woven from data facts. Most existing work follows a data-fact-driven
+route: it extracts statistical facts from the table and then uses rules or
+search to select, order, and compose them into a story. DataShot [67] ag-
+gregates facts into fact sheets, Calliope [51] uses a logic-oriented search
+to find a coherent fact sequence, CoInsight [24] organizes connected
+insights in hierarchical tables, and Erato [56] interpolates between
+user-specified facts to support collaborative editing. With the rise of
+large language models, recent work instead uses LLMs to generate
+the narrative and its visualizations directly; He et al. [13] survey how
+foundation models are applied across the stages of narrative visual-
+ization. For instance, DataNarrative [15] pairs a generator with an
+evaluator to produce stories that interleave text and visualizations, and
+InReAcTable [3] turns this construction into an interactive process.
+Both lines of work, however, produce static output (fact sheets, docu-
+ments, or chart sequences) that conveys insight through still graphics
+rather than motion and voice. DATAMAGIC targets a different medium:
+starting from raw tabular data, it decides which facts to tell and how to
+arrange them, and further produces multi-scene data videos that unify
+animation, narration, and temporal synchronization through a shared
+declarative representation.
+2.3
+Declarative Visualization and Animation Specifications
+Declarative specifications have achieved widespread success in the
+visualization field by decoupling logical description from rendering
+implementation [7,32,45]. D3 [5] pioneered the data-driven documents
+paradigm, while Vega-Lite [39] provides a concise grammar for interac-
+tive graphics. In the animation domain, Canis [11] designed a high-level
+language for chart animations, Gemini [16] provides a recommender
+system for animated transitions, and its successor Gemini2 [17] further
+automates transition generation, Animated Vega-Lite [77] unifies ani-
+mation with the grammar of interactive graphics, and CAST [10] and
+Data Animator [62] support animation authoring through keyframes.
+These specifications excel at describing individual charts and chart
+animations, including transitions between chart states, but do not cover
+the multi-modal, multi-scene requirements of data videos that integrate
+charts, narration, and synchronized animation. DVSPEC extends them
+with data-driven semantic references for robustness and provenance,
+narration-indexed triggers for declarative audio-visual synchronization,
+and scene-level organization for multi-scene narratives.
+3
+DESIGN REQUIREMENTS
+Automatic data video generation requires coordinating data process-
+ing, visualization design, narration authoring, and animation config-
+uration into coherent narrative sequences. Prior work on data video
+authoring workflows [1, 47] and tool design [43] reveals several re-
+curring difficulties: cross-modal references that break upon content
+changes, narration–animation synchronization that depends on manual
+time alignment, the absence of scene-level structural organization, and
+the lack of systematic global narrative orchestration.
+In this work, we focus on multi-scene data videos generated from
+tabular data, in which insights are communicated through data-bound
+charts, narration, and synchronized animation. To clarify the practical
+scope of the system, we make explicit several design aspects: the chart
+forms available in the current implementation, the narrative structures
+that guide scene sequencing and script generation, and the shared visual
+settings and scene-specific layouts used across different scene types.
+Building on these observations and an analysis of the capability bound-
+aries of existing tools, we derive four design requirements organized
+from lower-level representation to higher-level interaction.
+DR1: Scene-driven modular organization. Prior research shows
+that effective data videos are typically composed of multiple seman-
+tically independent scenes, each conveying a distinct analytical in-
+sight [1,71]. Workflow studies further indicate that authors naturally
+organize and edit content at the scene level during production [47].
+However, pixel-level generation methods treat a video as a continuous
+stream of frames, with no explicit scene boundaries: intermediate re-
+sults are opaque, and local edits require regenerating the entire video.
+The system should therefore treat scenes as the primary semantic unit
+of content organization, enabling each scene to be independently gener-
+ated, rendered, and edited, thereby providing a foundation for modular
+content production and flexible narrative composition.
+DR2: Data-bound declarative audio-visual synchronization. Pro-
+ducing data videos requires establishing semantic references among
+narration, charts, and animated visual elements to maintain cross-
+modal consistency [9,63]. Existing tools rely on manually specified
+
+
+Scene Sequence S
+[s1,s2,...,sn]
+DVSpec Structural Components
+Scene Unit si
+Content
+Narration
+[n1,n2,...,nk]
+Animation
+[a1,a2,...,ak]
+chart, 
+stat_cards...
+chart type, 
+data, style...
+Type
+Specify & Construct
+{
+  "meta": { Meta Config (M) },
+  "scenes": [
+    {
+      "id": "scene_1",
+      "type": "opening",
+      "content": { Title, Background, Style },
+      "narration": [ { Narration Unit 1 } ],
+      "animations": [ ]
+    },
+    {
+      "id": "scene_2",
+      "type": "chart",
+      "content": { Chart Type, Data, Binding, Style },
+      "narration": [ { Narration Unit 1 },
+                            { Narration Unit 2 },  ],
+      "animations": [ { Entrance Anim },
+        { Emphasis Anim (Target: "MQ")},
+        { Emphasis Anim (Target: "AA")}, ]
+    },
+    // ... more scenes (e.g. stat_cards, closing) ...
+  ]
+}
+Scene2
+Scene1
+Language-Specific Converters
+Visualization
+Vega-Lite
+ECharts 
+D3.js 
+...
+Rendered Video
+...
+Animation
+GSAP
+Anime.js
+Remotion
+...
+(a) Declarative Grammar for Data Videos
+(b) Composition & Rendering Flow
+Fig. 1. DVSPEC structure and rendering flow.
+DOM identifiers and absolute timestamps to implement such bind-
+ings [11,41,47]; these hard-coded references are fragile and break when
+data is updated, chart types are changed, or narration text is revised,
+leading to substantial rework. The system therefore needs a unified
+intermediate representation that (1) references visual elements by data
+attribute values rather than rendering identifiers, ensuring references
+remain valid across data and chart changes while guaranteeing that ev-
+ery visual element is traceable to the underlying data; and (2) replaces
+absolute timestamps with a declarative trigger mechanism, deferring
+temporal alignment to the render stage rather than requiring manual
+computation during authoring.
+DR3: Global narrative orchestration. Existing AI-assisted data
+video tools primarily support the generation of individual components
+(e.g., charts or scripts) while providing limited support for organizing
+multiple scenes into globally coherent narratives [43]. High-quality
+data videos require accurate per-scene content and coherent narrative
+logic across scenes, such as a progression from macro to micro or from
+phenomenon to cause [1,73]. Greedy scene-by-scene generation easily
+produces information redundancy or narrative discontinuities. The
+system should therefore support global optimization over a candidate
+scene pool: selecting a scene subset based on insight value and query
+coverage, planning the playback order, and generating context-aware
+narration to ensure smooth and coherent scene transitions.
+DR4: Human-in-the-loop refinement via multi-modal interac-
+tion. Fully automated generation cannot anticipate all user preferences
+regarding visual style, narration tone, and analytical focus [58–60].
+Prior work on visualization and data-video authoring highlights that iter-
+ative refinement is central to real-world creation workflows [43,47,48].
+Moreover, different users favor different interaction modalities: some
+prefer direct manipulation of visual elements [28, 29], others prefer
+editing structured scripts [55], and still others prefer issuing natural
+language commands [21,69]. The system should support complemen-
+tary editing modalities over a shared representation, enabling users to
+switch among them without losing context and bridge full automation
+with fine-grained human control throughout the authoring process.
+4
+DVSPEC:
+A DECLARATIVE SPECIFICATION
+FOR DATA
+VIDEOS
+Existing declarative visualization specifications (e.g., Vega-Lite [39],
+Canis [11]) perform well for static charts or single-chart animations,
+but have not been extended to the unified description of cross-modal
+content and temporal coordination required for multi-scene data videos.
+To fill this gap, we propose DVSPEC (Data Video Specification), a
+declarative specification for data videos. Drawing on declarative design
+principles from the visualization grammar field [5,39,47,53], DVSPEC
+decouples logical description from rendering implementation to provide
+a unified intermediate representation.
+DVSPEC takes scenes as its core organizational unit, decompos-
+ing a video into a self-contained scene sequence; within each scene,
+data-driven semantic references bind visual and animation elements
+to underlying data fields; animation trigger timing is declared through
+narration indices and resolved automatically at render time. As shown
+in Figure 1, DVSPEC encodes the video as a JSON object compiled by
+a language-agnostic renderer.
+4.1
+Task Definition
+We define data video generation as a mapping function from structured
+data to audiovisual narrative: V = F(D,Q), where D represents the
+dataset, Q represents the user query, and V is the generated data video.
+This task requires the system to understand the analytical intent in Q,
+extract data insights from D, and transform them into visual charts,
+narration scripts, and synchronized animations, ultimately composing
+coherent audiovisual content.
+To address the temporal complexity of video generation, we rep-
+resent the temporal content of V as an ordered sequence of scenes:
+S = [s1,s2,...,sn]. Each scene si is a self-contained semantic unit,
+formalized as a 5-tuple:
+si := (id,type,content,narration,animation)
+where id is a unique identifier, type defines the scene type (e.g.,
+chart, opening, stat_cards, closing), content encapsulates the
+visualization configuration, narration is a sequence of narration seg-
+ments, and animation is a list of animation effects. This definition
+forms the basis for the three mechanisms described below.
+4.2
+Scene-Driven Organization
+DVSPEC formalizes a data video as a structure containing metadata
+and a scene sequence: V := (M,S). The metadata M defines the global
+properties of the video (e.g., title, resolution), while S is the ordered
+scene sequence defined in Section 4.1, with each scene following the
+structure specified above. At the video level, metadata provides global
+presentation settings shared across scenes; at the scene level, style
+and layout parameters in content express local visual organization
+matched to each scene’s role. Together, these fields support a coherent
+visual identity across the video while allowing different scene roles,
+such as chart, opening, stat-card, and closing scenes, to use role-specific
+forms.
+Taking the “Daily Revenue Trend” scene in Figure 2 as an example,
+its content field (①) encapsulates the complete chart configuration,
+including the chart type (line_chart), data binding rules (date on
+x-axis, revenue on y-axis), a data slice with 30 data points (②), and
+visual style and layout parameters.
+The narration field of a scene is an ordered list of narration seg-
+ments [n0,n1,...,nk−1] (③in the figure). After text-to-speech (TTS)
+processing [36], each narration segment n j is assigned text content and
+a precise time range, formalized as:
+nj := (text,time_start,time_end)
+The animation field of a scene is a list of animation effects
+[a0,a1,...,am−1]. Each animation effect aℓis formalized as a 4-tuple:
+aℓ:= (type,target_data,trigger,style)
+where type is the animation type (e.g., emphasis), target_data is
+a semantic reference, trigger is the trigger timing index, and style
+contains animation style parameters.
+This scene-driven organization provides a modular and extensible
+foundation. By combining different scene types, the system can con-
+struct diverse narrative structures, while the self-contained nature of
+scenes facilitates parallel processing and independent rendering.
+4.3
+Data-Driven Semantic Referencing
+In data videos, animation effects must precisely target specific visual
+elements, such as highlighting a data point on a particular date or
+emphasizing a specific bar. Traditional approaches use hard-coded
+
+
+4
+4
+Highlight peak revenue on Jan 30th
+2
+1
+Build line chart for revenue trend
+3
+Narrate fluctuating revenue with audio
+2
+Supply daily revenue data points
+3
+1
+Fig. 2. A DVSPEC specification example for one scene, where the num-
+bered markers (1–4) link each declarative field (chart, data, narration,
+and emphasis animation) to its effect in the rendered scene.
+rendering identifiers (e.g., DOM IDs) for this purpose. While workable
+in static settings, this is fragile in automated generation: changes in
+data ordering, chart type (e.g., from line to bar), or datasets may cause
+identifiers to point to wrong elements or become invalid.
+DVSPEC adopts a semantic referencing mechanism based on data
+attribute values. Each animation’s target_data field specifies a set of
+key-value pairs (e.g., {"sale_date": "2025-01-30"}) rather than
+rendering-layer identifiers. At render time, the system retrieves all
+records satisfying these conditions from the scene’s dataset and binds
+the animation to the corresponding chart nodes.
+As shown in Figure 2 (④), the animation references the January 30
+data point via {"sale_date": "2025-01-30"}. Regardless of data
+ordering or chart type changes, this reference always resolves to the
+correct visual element as long as the data structure is preserved. This
+mechanism provides two benefits: referencing robustness, as the logical
+description is fully decoupled from rendering implementation without
+requiring the generation stage to anticipate rendering details; and data
+provenance, as every visual element can be precisely traced back to
+its underlying data record, providing a structured foundation for the
+provenance-based interaction described in Section 5.
+4.4
+Narration-Indexed Declarative Triggering
+Audio-visual synchronization is the defining characteristic that distin-
+guishes data videos from static visualizations. Traditional approaches
+require creators to manually specify an absolute timestamp for each
+animation. When narration text is revised or speaking rate changes,
+every timestamp must be recalculated, which is prohibitively costly in
+automated generation and iterative editing.
+DVSPEC replaces absolute timestamps with declarative trig-
+ger relations.
+Given a scene’s narration sequence Narration =
+[n0,n1,...,nk−1], each animation’s trigger field specifies the index
+of the narration segment that fires it (trigger ∈[0,k −1]∪{null}). If
+trigger is null, the animation executes at scene start; otherwise, it
+fires when the specified segment plays. At render time, the system
+automatically computes the precise trigger moment from the actual
+audio duration produced by TTS [36].
+As shown in Figure 2 (④), trigger: 1 fires the animation when
+the second narration sentence (③) plays. When the user revises the
+narration text, TTS regenerates the audio and trigger timing updates
+automatically, with no manual adjustment required.
+This declarative mechanism separates the logical intent of “when to
+trigger” (expressed via narration index) from the physical computation
+of the exact trigger moment (resolved by the renderer). For automated
+generation, the multi-agent system only needs to specify the logical
+correspondence between animations and narration segments, without
+predicting final audio durations. For interactive editing, synchronization
+is automatically maintained after narration changes, eliminating the
+burden of manual timeline adjustment.
+Together, the three mechanisms form the complete design of
+DVSPEC, providing a unified intermediate representation for both
+automated generation and interactive editing.
+5
+SYSTEM FRAMEWORK
+The generation of data videos involves complex dependencies among
+data processing, visual design, and narrative logic. Single-stage ap-
+proaches struggle to ensure both per-scene accuracy and overall nar-
+rative coherence: sequential scene-by-scene generation locks in early
+decisions based on local information, leading to narrative repetition
+or coverage gaps; attempting to generate the full video at once faces
+combinatorial explosion in the design space.
+Our core insight is that video generation can be decoupled into
+two relatively independent subproblems: scene content generation,
+which focuses on accurately expressing individual analytical tasks, and
+global sequence orchestration, which focuses on logical flow and tem-
+poral alignment across scenes. The orchestration targets video quality
+across five dimensions (Intent, Insight, Narrative, Animation, Aesthetic)
+subject to default constraints on total duration (60–120 seconds) and
+initial scene count (k ≤7) [1]. Based on this, DATAMAGIC adopts a
+“Generate-then-Orchestrate” strategy implemented through two collab-
+orative phases, as shown in Figure 3 and Algorithm 1. In the candidate
+scene generation phase, the Story Planner, Data Manager, and Visual
+Designer collaborate to produce diverse candidate scenes in parallel. In
+the global narrative orchestration phase, the Narration Director and An-
+imation Coordinator handle scene selection, ordering, and audio-visual
+synchronization. All agents collaborate through DVSPEC as a unified
+interface; detailed agent prompts are provided in Appendix C.
+5.1
+Candidate Scene Generation
+The goal of this stage is to generate a diverse candidate pool covering
+multiple analysis dimensions.
+Task Decomposition. The Story Planner hierarchically decomposes
+the user query Q (Algorithm 1, Line 2), identifying key analytical di-
+mensions from the dataset’s field characteristics (e.g., temporal trends,
+categorical comparisons, geographic distributions) and splitting the
+high-level query into independent subtasks {qi}. For example, the
+query “analyze sales performance” might be decomposed into “revenue
+trend analysis,” “regional comparison,” and “product profit contribu-
+tion.” The decomposition follows an orthogonality principle: each
+subtask corresponds to an independent analytical perspective, maximiz-
+ing the diversity of candidate scenes.
+Data Extraction. For each subtask qi, the Data Manager plans a
+data processing workflow and automatically generates Python code
+to extract, filter, and aggregate relevant data from the source table,
+producing a micro-dataset Di targeted at that analytical objective
+(Line 6) [14, 20, 23]. Separating data extraction from visualization
+design allows the data processing logic to be independently veri-
+fied [75,76], and the same data slice can support exploration of multiple
+visualization schemes.
+Visualization Design. The Visual Designer designs the visualiza-
+tion scheme based on Di (Line 7), selecting a chart type matched
+to the analytical task and data characteristics, configuring data bind-
+ings and style parameters, and extracting key statistical insights (e.g.,
+extrema, trend directions, notable differences) [27, 33, 34, 37]. The
+current implementation centers on common data-bound statistical chart
+families, such as bar, line, area, scatter, pie, and heatmap charts; the
+
+
+DVSPEC
+Stage 1: Candidate Scene  Generation
+Story Planner
+Data Manager
+Data Processing Planning
+Task Decomposition
+Parallel Execution
+Candidate Scenes
+S1
+S1
+subquery
+analytic type
+data field
+type
+priority
+...
+Sn
+Sn
+Stage 2:  Global Narrative Orchestration 
+Animation Coordinator
+Narration Director
+title
+narration
+Narration-Synchronized Animation
+Scene Re-rank
+Marketing Spend vs. Return Rate by Region
+...we examine how our regional marketing 
+spend drives performance results.
+Narration Generation
+entrance
+emphasize
+leave
+Input
+Data
+Query
+“Analyze Q4 revenue 
+peaks, regional 
+marketing efficiency, and 
+top product profit 
+contributors ....”
+Visual Designer
+Chart Specification
+Insight Summary
+chart type style
+data binding insight
+S2
+...
+S2
+...
+Python/Pandas
+We start by identifying our 
+core profit drivers among our 
+product lineup.
+Laptop Pro X ... 55% of total 
+... 4K Monitor ... around 20%. 
+The other three together ...
+Script Editing
+NL Command
+What can I do for you?
+DVSpec field
+DVSpec fields  DVSpec field
+......
+Swap scene 2 and 3
+Interactive Refinement
+Direct Manipulation
+Output
+Data Video
+Fig. 3. System architecture of DATAMAGIC.
+Algorithm 1 DATAMAGIC Generation Process
+Require: Query Q, Dataset D
+Ensure: Video V
+1: // Candidate Scene Generation
+2: tasks ←Planner.Decompose(Q,D)
+3: pool ←[]
+4: for each q ∈tasks do
+5:
+s ←InitScene(q)
+6:
+s.data ←DataManager.Extract(q,D)
+7:
+s.visual ←Designer.Design(s.data)
+8:
+pool.add(s)
+9: end for
+10: // Global Narrative Orchestration
+11: (S∗,π∗) ←Director.Select(pool,Q)
+12: V ←InitVideo()
+13: for j = 1 to |S∗| do
+14:
+s ←S∗[π∗[j]]
+15:
+ctx ←BuildContext(S∗,π∗, j)
+16:
+s.narration ←Director.Narrate(s,ctx)
+17:
+s.animation ←Animator.Sync(s.vis,s.narr)
+18:
+V.scenes.append(s)
+19: end for
+20: return V
+available range is jointly shaped by the agent prompts, underlying
+model capabilities, and implemented rendering components, and can
+be broadened by extending the corresponding rendering components
+and generation rules. These chart specifications and scene-level visual
+configurations are written into DVSPEC’s type and content fields.
+Notably, the narration and animation fields are intentionally left
+unfilled at this stage, keeping visualization generation decoupled from
+narrative construction; narration and animation require global context
+and are handled in the orchestration phase.
+All candidate scenes are collected into the candidate pool (Line 8)
+for global optimization.
+5.2
+Global Narrative Orchestration
+The candidate generation stage produces a pool of scenes that are in-
+dividually coherent but narratively independent. This stage organizes
+the discrete candidate materials into a coherent audio-visual narra-
+tive through three steps: scene selection and ordering, context-aware
+narration generation, and audio-visual synchronization binding.
+Scene Selection and Ordering. The Narration Director selects a
+subset S∗from the candidate pool and plans the playback order π∗(Al-
+gorithm 1, Line 11). Selection is guided by two criteria: insight value
+(whether the scene reveals a meaningful pattern in the data) and query
+coverage (whether the selected scenes collectively address all aspects
+of the user query). Ordering and script generation follow a narrative
+pattern matched to the shape of the data story. The pattern guides scene
+ordering, climax placement, pacing, and transition style: Freytag’s Pyra-
+mid by default and otherwise an inverted-pyramid, comparison-driven,
+time-driven, or drill-down structure. These patterns are consistent with
+the narrative structures studied in data storytelling [1,73].
+Context-Aware Narration Generation. With the scene sequence
+and narrative pattern determined, the Director generates the opening,
+scene narrations, optional stat cards, and closing for the video (Line 16).
+Rather than generating each scene’s narration in isolation, the system
+uses a sliding window mechanism: the BuildContext() function
+constructs context from the current scene’s position in the sequence
+(Line 15), incorporating the content and insights of adjacent scenes
+into the prompt. This allows the Director to generate narration that
+naturally bridges scenes. For example, when the preceding scene
+analyzed overall revenue trends, the next scene’s narration can open
+with “Let us now examine regional performance in detail” rather than
+reintroducing background context. This mechanism helps maintain
+narrative continuity across scene transitions.
+Audio-Visual Synchronization Binding. The Animation Coor-
+dinator handles final audio-visual alignment (Line 17). It analyzes
+data entities mentioned in each narration segment (e.g., specific prod-
+uct names, dates, or values), uses DVSPEC’s semantic referencing
+to bind these entities to corresponding visual elements, and specifies
+trigger timing via narration indices. For example, when the narration
+states “Laptop Pro X contributed 55% of revenue,” the Coordinator gen-
+erates an emphasis animation targeting {"product": "Laptop Pro
+X"} with its trigger set to the index of that narration segment. The
+visual highlight and voice narration are thus logically bound at the
+declarative level; the precise timestamp is automatically computed by
+the renderer from the TTS audio duration.
+The complete DVSPEC configuration is compiled by the rendering
+engine into the final video, with narration text synthesized into speech
+via TTS [36]. The system adopts a model-agnostic design supporting
+different LLM backends.
+
+
+A
+B
+PREVIEW
+video
+script
+export
+Analyze Q4 revenue peaks, regional marketing efficiency, and top pro...
+C SCENE TIMELINE STRIP
+0s
+Total Revenue by Product... 54s-1:05
+1:30
+4
+Total Revenue by Product (Q4 Performance)
+bar chart ·
+40s-52s
+NARRATION
+Finally, we look at total revenue to confirm our peak Q4 performance leaders.
+grow bars ·
+-- Bar chart entrance
+grow bars
+The Laptop Pro X remains the clear revenue leader.
+pulse
+-- Highlight Laptop Pro X
+fade in
+scale in
+Product_name
+Total_amount
+sequential
+Laptop Pro X
+754320
+ask AI
+4K Monitor
+269920
++ 3 more rows
+D
+Al Edit
+Natural language
+@Scene 4. change to tree
+map and highlight top
+product
+Done. Scene 4 updated to 
+treemap. Laptop Pro X 
+highlighted in blue.
+Which product has the 
+highest Q3 to Q4 growth 
+rate?
+Analysis ·  7 steps. 
+Done
+4K Monitor: +52.5% 1
+Runner-up: Laptop Pro X 
++52.2%
+Add a new scene 
+showing monthly 
+revenue trend for the 
+top 2 growth products
+New scene generated
+and inserted as Scene 8.
+@Scene 4 · chart 
+D1
+CANVAS
+MANIPULATION
+Style Editing
+D2
+DATA-DRIVEN Q&A
+Analysis · 7 steps
+Done
+Bound dataset:
+Resolve DVSpec binding: columns
+product_name
+GROUP BY
+product_name
+SUM
+2025, quarter ∈ {3, 4}
+CONCLUSION
+Highest Q3→Q4 revenue growth 
+(2025): 4K
+
+Monitor at +52.5% ($177K → $270K).
+Runner-up: Laptop Pro X at +52.2% 
+($496K → $754K).
+
+Source:  sales with_products.csv  --
+Data Q&A
+D3
+SCENE
+GENERATION
+Scene Generation
+Conceptual roll-up (same logic as code):
+, 
+calendar_quarter(                       )
+sale_date
+→
+(                            ); filter year = 
+total_amount
+Fig. 4. DATAMAGIC web interface, showing (A–D) the main UI components and (D1–D3) three key interaction flows.
+5.3
+Interactive System
+Built upon the generation framework above, we implement DATAM-
+AGIC as a complete web-based interactive system (Figure 4), developed
+with React [35] and Remotion [38]. The core design goal is to support
+human-in-the-loop refinement (DR4): users can inspect, understand,
+and selectively refine the generated video through a shared declarative
+DVSPEC state, without regenerating the entire video. DVSPEC orga-
+nizes the video into self-contained scenes, allowing each interaction to
+be localized to a target scene and resolved within it without disturbing
+the rest of the video.
+The interface consists of four functional areas: the Data & History
+Panel (A) for dataset upload and history browsing; the Preview &
+Script Area (B) offering video preview, structured DVSPEC view, and
+export modes; the Scene Timeline & Narration Editor (C) for direct
+narration and animation editing (with timing automatically re-aligned
+via DVSPEC’s narration-indexed triggering); and the AI Edit Panel (D)
+providing a natural language interface. We first describe the design
+considerations and assumptions of the interactive system, and then the
+three interaction modes.
+Design Considerations and Assumptions. The interactive system
+follows a principle of scoped refinement: each user request is interpreted
+as an update with an explicit scope over DVSPEC, rather than an
+uncontrolled rerun of the entire video-generation workflow. For within-
+scene changes, such as adjustments to chart type, data bindings, style
+parameters, narration, or animation triggers, the system updates the
+relevant DVSPEC fields in the target scene and re-renders only that
+scene, without rerunning the generation pipeline or automatically re-
+orchestrating the global narrative. Requests to reorder scenes or perform
+irreversible operations are first presented to the user for confirmation
+rather than applied silently. Users can express such requests through
+natural-language commands, structured script editing, or canvas actions;
+the system maps them to scoped modifications without requiring direct
+manipulation of the underlying grammar. By making the affected
+state and cross-modal bindings explicit and controllable (DR4), the
+system enables generated results to be refined in a predictable and
+user-steerable manner.
+Canvas Manipulation (D1). Users issue natural language instruc-
+tions
+(e.g.,
+@Scene 4:
+change to treemap and highlight
+top product) or click directly on the canvas to modify chart styles
+and data bindings. The system resolves such operations as a scoped
+modification of the target scene with incremental re-rendering, with-
+out full video regeneration; following the scoped-refinement principle
+above, the modification is confined within that scene and does not affect
+any other scene’s configuration.
+Data-Driven Q&A (D2). Users can pose data queries about the
+video content (e.g., “Which product has the highest Q3 to Q4 growth
+rate?”). Rather than inferring answers from pixels, DATAMAGIC lever-
+ages DVSPEC’s data provenance to enable structured queries. Specifi-
+cally, the system first uses an LLM to parse the semantic intent of the
+question, then locates relevant data binding fields in the current scene’s
+DVSPEC configuration, constructs structured query operations (e.g.,
+filtering, aggregation, extremum retrieval), and executes them directly
+against the underlying tabular data. Results are returned with a full
+reasoning trace that records the data columns, filter conditions, and ag-
+gregation operations used, enabling verifiable and traceable responses.
+Scene Generation (D3). Insights surfaced through Q&A can be
+directly converted into new scenes (e.g., “Add a scene showing the
+monthly revenue trend for the top 2 growth products”). The system
+automatically generates the corresponding DVSPEC configuration and
+inserts the new scene into the existing sequence, closing the loop from
+data exploration to narrative extension and transforming the data video
+from a one-way medium into an explorable interactive data interface.
+6
+EXPERIMENTS
+6.1
+Experimental Setup
+Evaluation Datasets. We collected evaluation data from two repre-
+sentative benchmarks: DAComp-DA [19] contains real enterprise data
+from business scenarios such as sales and HR, while T2R-bench [74]
+provides public statistics from 19 domains including environmental re-
+sources and public management. We selected single-table datasets and
+refined queries to suit video generation requirements. The final dataset
+consists of 60 datasets (36 from T2R-bench, 24 from DAComp-DA)
+with 109 samples. The data scale distribution includes small (<100
+rows, 6 datasets), medium (100–1000 rows, 21 datasets), and large
+(>1000 rows, 33 datasets, up to 150,000 rows). The queries cover trend
+analysis, comparison, association, and distribution patterns. Detailed
+statistics are provided in Appendix B.
+Baselines. We establish two baseline categories: (1) Direct Genera-
+tion, where GPT-5, Claude-Sonnet-4, Gemini-2.5-Pro, and DeepSeek-
+V3.2 each generate complete Remotion rendering code, including chart
+bindings, narration scripts, and animation configurations, through a
+single inference call, without any intermediate representation or multi-
+
+
+Table 1. End-to-End Video Generation Performance Comparison.
+Evaluation Dimensions
+Method
+Exec Rate (%)
+Intent
+Insight
+Narrative
+Animation
+Aesthetic
+Avg. Score
+Direct Generation Methods
+DeepSeek-V3.2
+48.62%
+1.95
+1.98
+1.88
+1.65
+2.09
+1.91
+Gemini-2.5-Pro
+66.06%
+2.38
+2.25
+2.07
+1.94
+2.44
+2.22
+GPT-5
+86.24%
+2.36
+2.22
+2.05
+1.84
+2.17
+2.13
+Claude-Sonnet-4
+84.40%
+2.28
+2.01
+1.98
+1.91
+2.71
+2.18
+DATAMAGIC with Different Base Models
+DATAMAGIC (DeepSeek-V3.2)
+96.33%
+3.21
+2.95
+3.16
+4.05
+3.84
+3.44
+DATAMAGIC (Gemini-2.5-Pro)
+97.25%
+3.28
+3.17
+3.56
+3.89
+3.44
+3.47
+DATAMAGIC (GPT-5)
+95.41%
+3.26
+3.16
+3.16
+3.79
+3.53
+3.38
+DATAMAGIC (Claude-Sonnet-4)
+98.17%
+3.79
+3.37
+3.84
+4.39
+4.05
+3.89
+Table 2. Ablation study of DATAMAGIC variants.
+Variant
+Intent
+Insight
+Narrative
+Animation
+Aesthetic
+Avg. Score
+DATAMAGIC (Full)
+3.79
+3.37
+3.84
+4.39
+4.05
+3.89
+w/o Story Planner
+3.42
+3.16
+3.26
+3.79
+3.58
+3.44
+w/o Orchestration
+3.32
+3.21
+3.42
+3.95
+3.79
+3.54
+stage decomposition; (2) DATAMAGIC Variants, where the same
+LLMs are integrated into our framework to verify model-agnosticism.
+We exclude general video generators (e.g., Sora, Runway) as they can-
+not ensure the numerical accuracy and logical traceability required for
+data storytelling. Both direct generation baselines and DATAMAGIC
+variants use identical retry policies.
+Evaluation Metrics. We establish a two-tier evaluation framework:
+(1) Coarse-grained metrics include Execution Rate (Exec Rate) to
+assess system robustness; (2) Fine-grained metrics evaluate video
+quality across five dimensions on a 1–5 scale: Intent, Insight, Narrative,
+Animation, and Aesthetic [4,57,72]. We employ Gemini-2.5-Pro as an
+automated evaluator. To validate its reliability, we performed stratified
+sampling of 60 videos and invited 3 experts with data video research
+backgrounds to independently score them using a unified rubric (1–
+5 scale), with averaged expert scores as ground truth. Automated
+scores exhibit strong positive correlation with expert scores overall
+(Pearson r = 0.91, p < 0.001; MAE = 0.38), with all dimension-level
+correlations exceeding 0.75. Detailed scoring prompts are provided in
+Appendix D.1, and dimension-level consistency results together with
+details of the expert-validation interface and procedure are provided in
+Appendix E.
+6.2
+End-to-End Video Generation Performance
+As shown in Table 1, DATAMAGIC significantly outperforms direct
+generation methods across all evaluation dimensions, with consistent
+improvements across different base models.
+Quality Improvement. Direct generation methods achieve average
+scores between 1.91 and 2.22; DATAMAGIC improves these to 3.38–
+3.89. The two most significant gains are in Animation and Narrative.
+Animation scores increase from an average of 1.84 to 4.03 (+120%):
+direct generation methods lack structured audio-visual alignment mech-
+anisms, causing animation triggers to frequently desynchronize from
+narration content; DVSPEC’s narration-indexed triggering resolves
+this at the declarative level. Narrative scores improve from 2.00 to
+3.43 (+72%): without global narrative planning, direct generation pro-
+duces scenes with logical discontinuities or information repetition; the
+Generate-then-Orchestrate strategy substantially improves coherence
+through global orchestration. Intent and Aesthetic dimensions also
+improve by more than 50%, while Insight improves by 49.5%.
+Execution Stability. Direct generation methods show high variance
+in execution rates (48.62%–86.24%), as errors at any stage cause com-
+plete generation failure. DATAMAGIC stabilizes execution rates above
+95% through its decoupled design. Notably, DeepSeek-V3.2 improves
+its execution rate from 48.62% to 96.33%, with its average score (3.44)
+surpassing the best-performing direct generation model, validating the
+framework’s model-agnosticism.
+Efficiency Trade-off. Direct generation methods average approx-
+imately 57 seconds, while DATAMAGIC’s two-stage process totals
+approximately 176 seconds (60 seconds for configuration generation
+and 116 seconds for video rendering with parallelism set to 3), which
+can be further reduced by increasing parallelism. Although DATA-
+MAGIC takes roughly three times longer, this results in significantly
+higher execution rates (95%+ vs. 49%–86%) and quality (3.89 vs.
+2.22), reflecting a deliberate trade-off of time for quality and robustness.
+Training a dedicated data-video model offers a potential path to reduc-
+ing this additional overhead and reliance on external APIs [25,68,72].
+6.3
+Ablation Study
+To validate the effectiveness of key modules, we conducted ablation
+experiments using Claude-Sonnet-4 as the base model. We ablate
+the Story Planner and Orchestration module, the core designs that
+distinguish DATAMAGIC from direct generation, while excluding the
+Data Manager and Visual Designer, whose removal causes pipeline
+failure rather than measurable quality degradation.
+As shown in Table 2, removing the Story Planner reduces the av-
+erage score from 3.89 to 3.44 (11.6% decrease), with Narrative and
+Animation showing the most significant drops (15.1% and 13.7%).
+This indicates that the Story Planner’s role goes beyond query decom-
+position: without it, the system tends to generate candidate scenes
+with limited analytical diversity, compressing the optimization space
+available to the orchestration stage.
+Removing the Orchestration module has a greater impact, reduc-
+ing the average score to 3.54 (9.0% decrease). Intent is most affected
+(12.4% decrease) and Narrative also drops significantly (10.9%), indi-
+cating that without global orchestration the system degrades to greedy
+scene-by-scene generation, making it difficult to ensure overall query
+coverage and cross-scene logical coherence.
+Notably, even without Orchestration, the Animation dimension main-
+tains a relatively high score (3.95, only 10.0% decrease). This validates
+the robustness of DVSPEC’s narration-indexed triggering: audio-visual
+synchronization is guaranteed at the declarative level by DVSPEC and
+does not depend on global orchestration. Together, the two ablations
+confirm the necessity of both Generate-then-Orchestrate stages.
+6.4
+Error Pattern Analysis of Direct Generation
+To understand why direct generation methods perform poorly on the
+data video task, we systematically analyze their outputs and identify
+three categories of core error patterns.
+Visual Rendering Failures. This is the most severe error category,
+representing a fundamental breakdown where the video stream degener-
+ates into a prolonged pure-color background and no longer conveys any
+data or narrative information. For instance, DeepSeek-V3.2’s output
+turned completely white after 17 seconds. The root cause is execu-
+tion failure in the code generation stage: rendering code produced by
+the model contains syntax errors or runtime exceptions that prevent
+visualization from being displayed.
+
+
+Visualization Design Defects. Even when content is successfully
+rendered, outputs frequently violate established visualization guide-
+lines. The most prevalent issue is truncation and cropping: models
+fail to adapt visual elements to canvas boundaries, causing titles or
+axis labels to be cut off, as observed in GPT-5’s outputs. Element
+overlap also occurs frequently, with text annotations or UI components
+occluding critical data points in violation of the non-occlusion principle.
+Additionally, models exhibit failed narrative animation: rather than
+leveraging the temporal dimension of video to show trends or process
+evolution, they revert to static images, reducing data storytelling to
+decorative slideshows.
+Audio-Visual Consistency Errors. The third category concerns
+semantic and temporal misalignment between visual and auditory chan-
+nels. A recurring issue is temporal misalignment: the narrator analyzes
+a trend while the screen remains black or lags on the previous scene,
+producing a “blind narration” effect observed in Gemini-2.5-Pro’s out-
+puts. The root cause is that direct generation methods lack explicit
+audio-visual binding mechanisms: narration and visual content are
+generated in a single inference pass, but the model cannot precisely
+control their temporal correspondence. DATAMAGIC eliminates this
+problem by design through DVSPEC’s declarative triggering.
+These three error patterns share a common underlying cause: end-
+to-end data video generation requires cross-modal coordination that
+exceeds the capability of current LLMs in a single inference pass. Ap-
+pendix A provides qualitative case studies, covering a cross-method
+comparison of these error patterns (Appendix A.1), high-quality DATA-
+MAGIC generations (Appendix A.2), and low-quality examples that
+analyze typical failure cases (Appendix A.3).
+7
+USER STUDY
+To evaluate the practical utility of DATAMAGIC in real-world data video
+creation workflows, we conducted a within-subjects user study follow-
+ing the evaluation paradigm of recent HCI system research [41,64]. The
+study had two evaluation goals: first, to assess whether DATAMAGIC
+improves video creation efficiency and reduces cognitive load relative
+to a conversational LLM workflow; and second, to understand how
+users perceive its usability and interactive editing capabilities.
+7.1
+Study Design
+Conditions. Each participant completed one task under each of two
+conditions, with condition order counterbalanced: (1) DATAMAGIC:
+participants used the web-based system proposed in this paper, trigger-
+ing the multi-agent generation pipeline via a natural language query
+and iteratively editing the output using the three interaction modes
+described in Section 5; (2) Conversational LLM workflow (baseline):
+participants used the same underlying LLM (Claude Sonnet 4.5) to
+perform data analysis, narration scripting, and visualization code gen-
+eration through multi-turn dialogue, then rendered the video using a
+pre-configured Remotion environment. We chose this baseline over
+existing authoring tools (e.g., DataClips [2], Data Player [47]), which
+require pre-prepared visualizations and thus cannot support our end-to-
+end, raw-data-to-video evaluation setting. The baseline shares the same
+technology stack as DATAMAGIC (Claude Sonnet 4.5 and Remotion);
+the key difference is the absence of DVSPEC’s structural constraints
+and the multi-agent orchestration layer, requiring participants to coor-
+dinate each step manually and manage audio-visual synchronization
+by hand. Both conditions had a 40-minute target duration to simulate a
+time-pressured creation environment [64]. Participants who exceeded
+this target duration were allowed to continue until completion, and their
+actual completion times were recorded.
+Participants. We recruited 12 participants (5 male, 7 female; aged
+21–29) through an open call at a local university (P1–P12). Participants
+were Master’s or junior Ph.D. students from diverse fields (computer
+science, data science, finance, business analytics), all with data analysis
+experience. Based on self-reported experience with data video creation,
+we divided them into two groups: 6 novices with limited experience in
+video editing or data storytelling, and 6 experts with prior experience
+creating data visualizations or videos. All participants were fluent in
+English and provided written informed consent before participating
+in the study. The study was approved by the HKUST Human and
+Artefacts Research Ethics Committee (No. HKUST(GZ)-HSP-2026-
+0196). Upon completion, each participant received cash compensation
+equivalent to USD 10 for their time.
+Tasks. To cover representative data video scenarios and enhance
+ecological validity, we designed three types of narrative tasks: (1) At-
+tribution: explain the key drivers behind a metric change; (2) Evolu-
+tion: analyze temporal trends and inflection points in a time series;
+(3) Comparison: evaluate differences across multiple entities on var-
+ious dimensions. Each participant was assigned different task types
+across the two rounds. Every task covered the full creation workflow,
+including data analysis, visualization design, narration writing, and
+animation configuration, and required at least one editing operation to
+assess interactive editing capability.
+Ordering and Procedure. We used a Balanced Latin Square design
+to ensure that task type, condition, and presentation order were evenly
+distributed across participants, with expertise level and condition order
+counterbalanced within each group. Each session lasted approximately
+90–110 minutes and consisted of four phases: (1) introduction and
+training (∼10 min); (2) first trial (40-min target duration) followed
+immediately by post-condition questionnaires; (3) second trial under
+the other condition and task type; (4) semi-structured interview (∼10
+min).
+Measures. We collected three types of data: (1) Objective: task
+completion time per condition; (2) Subjective: the Raw NASA-TLX to
+assess perceived cognitive load, and the System Usability Scale (SUS)
+item set to assess perceived usability, both administered on a 7-point
+Likert scale immediately after each trial to minimize recall bias; after
+reverse-coding negatively worded items, we report the mean per-item
+usability rating across the ten SUS items (1–7, higher is better), rather
+than the canonical 0–100 SUS composite; (3) Task-specific feedback:
+a custom 5-item, 7-point Likert questionnaire covering visual quality
+(Q1), animation effectiveness (Q2), narrative coherence (Q3), control-
+lability (Q4), and overall satisfaction (Q5). As questionnaire data did
+not satisfy normality assumptions, all subjective measures were ana-
+lyzed using Wilcoxon signed-rank tests, with effect sizes reported as
+r = z/
+√
+N (N = 12).
+7.2
+Quantitative Results
+Overall, DATAMAGIC shows significant gains in task time, perceived
+usability, and most workload dimensions, providing converging evi-
+dence for both evaluation goals.
+Task Completion Time. As shown in Figure 5(1), DATAMAGIC
+significantly reduced task completion time (Wilcoxon z = −3.06, p <
+.001, r = 0.88). Average completion time decreased from 39.2 minutes
+under the baseline to 8.0 minutes with DATAMAGIC, an improvement
+of approximately 79.7%. Notably, 7 participants (58.3%) exceeded the
+40-minute target duration under the baseline condition, while all 12
+participants completed the DATAMAGIC condition within the target
+duration, indicating more predictable task completion.
+System Usability. Using the SUS item set administered on a 7-point
+Likert scale, with negatively worded items reverse-coded, DATAMAGIC
+achieved a significantly higher mean per-item usability rating (M =
+5.97, SD = 0.35) than the baseline (M = 3.22, SD = 0.91; p < .001).
+Ratings range from 1 to 7, with higher values indicating better perceived
+usability for the authoring workflow.
+Cognitive Load. As shown in Figure 5(2), DATAMAGIC signifi-
+cantly reduced perceived load on five of the six NASA-TLX dimensions
+(Mental Demand, Physical Demand, Temporal Demand, Effort, and
+Frustration; all p < .001), while Performance showed no significant
+difference (p = .34), indicating that the reduction in workload was not
+accompanied by a detectable difference in participants’ self-rated task
+performance between conditions.
+Task-Specific Feedback. DATAMAGIC outperformed the baseline
+on all five Likert dimensions. The largest gaps were in narrative co-
+herence (6.6 vs. 2.8) and animation effectiveness (6.3 vs. 3.0), directly
+corroborating the quantitative improvements in Animation and Nar-
+rative reported in Section 6. Visual quality also showed a substantial
+gap (6.3 vs. 3.2), and overall satisfaction was significantly higher (6.4
+
+
+Overall
+0
+20
+40
+Time (min)
+(1) Time
+***
+Mental
+Demand
+Physical
+Demand
+Temporal
+Demand
+Performance
+Effort
+Frustration
+1
+2
+3
+4
+5
+6
+7
+Score (1-7)
+(2) NASA-TLX
+***
+***
+***
+***
+***
+DataMagic
+Baseline
+Fig. 5. User-study results (N = 12). DATAMAGIC reduced task time from 39.2 to 8.0 min (79.7%) and lowered ratings on five NASA-TLX workload
+dimensions, with no significant Performance difference. Error bars: 95% CIs; Wilcoxon signed-rank tests: ∗p < .05, ∗∗p < .01, ∗∗∗p < .001.
+vs. 3.2). The controllability dimension showed the smallest differ-
+ence (6.2 vs. 3.7), as the baseline’s multi-turn dialogue itself provides
+considerable interaction flexibility.
+7.3
+Qualitative Feedback
+Interview feedback revealed four themes consistent with the quantita-
+tive results.
+End-to-end automation eliminates workflow fragmentation. Un-
+der the baseline, each step required a separate dialogue round with
+manual handoff to the next. P3 noted: “It took me several rounds
+of chatting to get a usable chart, but then for narration and anima-
+tion I had to start all over again.” P7 similarly found that modifying
+chart data bindings required tediously re-synchronizing narration and
+animation by hand.
+Audio-visual synchronization becomes automatic. Multiple par-
+ticipants (P2, P5, P7, P9) identified timeline alignment as the most
+difficult aspect of the baseline. DVSPEC’s narration-indexed triggering
+was seen as fundamentally resolving this. P9 noted: “The narration
+and animation just naturally fit together—I didn’t have to align the
+timing myself.”
+Interactive editing is effective and alleviates trust concerns about
+automation. In the DATAMAGIC condition, each participant completed
+at least one intended edit; all 12 successfully applied their requested
+changes within the target scene without disturbing the rest of the video.
+This editability also reshaped attitudes toward automation: participants
+(P1, P4, P10) initially had reservations about automated outputs, but
+the three interaction modes effectively resolved their concerns. P11
+commented: “Knowing I can still go in and adjust things actually
+made me more comfortable letting it generate automatically.” Novices
+preferred natural language commands while experts favored direct
+script editing, confirming that the modes accommodate different user
+experience levels.
+Suggestions for improvement. Participants suggested a scene tem-
+plate library (P6) and support for brand visual guidelines in export
+(P12), providing directions for future iterations.
+8
+DISCUSSION
+Expressiveness and practical scope. Although DVSPEC organizes
+charts, narration, animation, and scene structure within a unified speci-
+fication, DATAMAGIC is designed to be extensible beyond its current
+set of chart and narrative forms. Its practical expressive range is jointly
+determined by the visual vocabulary implemented by the rendering
+engine and the analytical capabilities of the underlying models. Both
+layers can evolve: new visual forms can be incorporated by extending
+the rendering components, while stronger models can support more
+complex analyses. DATAMAGIC’s practical expressiveness can there-
+fore grow as these layers improve, while DVSPEC remains a stable
+core abstraction. This design helps preserve reliable chart rendering
+and traceability of visualized values to source data, while leaving room
+for future capability expansion.
+Designing for user intervention. Fully automated generation can-
+not always anticipate users’ analytical focus, visual style, or narration
+tone. DATAMAGIC therefore exposes DVSPEC as a shared, inspectable
+state rather than treating generation as a black box, enabling refinement
+through natural-language commands, structured script editing, and can-
+vas actions. We adopt scoped refinement: an edit updates only the
+relevant fields of its target scene and re-renders that scene, preserving
+cross-modal bindings without rerunning the full pipeline or silently
+altering user-authored decisions in other scenes. Because DVSPEC
+separates logical description from rendering implementation, these
+updates remain renderer-agnostic while keeping the specification and
+rendered output synchronized. This intervention, however, still occurs
+after generation. A promising next step is to present the analysis plan
+before full synthesis so users can confirm or adjust early decisions
+about analytical direction or audience framing before they propagate
+through the video.
+Balancing animation reliability and creative diversity. DATAM-
+AGIC uses structured animation patterns in the agent prompts, such
+as entrance effects and narration-triggered emphasis effects, to keep
+animations aligned with chart semantics and synchronized with the
+narration. This keeps the animation stable, legible, and in service of
+the data narrative. The same reliability, however, comes at the cost of
+diversity: the guidelines steer the system toward a conservative mo-
+tion language and may suppress the more expressive animations an
+unconstrained model might attempt. Guideline-free prompting could
+yield more creative videos, but at present it would make legibility, pac-
+ing, and alignment with the narration harder to control consistently. A
+promising direction is to treat the guidelines as soft constraints that a
+model may depart from when it can justify the outcome, or to learn
+animation styles from curated exemplars.
+Limitations and future work. The discussion so far has centered
+on DATAMAGIC’s capabilities and design trade-offs; beyond these, the
+system has several concrete limitations, each pointing to a clear future
+direction. On the data side, DATAMAGIC targets single-table inputs,
+which already cover most data-storytelling scenarios; supporting multi-
+table joins and richer relational data would broaden its applicability.
+On the visual side, integrating image-generation models could supply
+non-data assets such as custom illustrations and further enrich the visu-
+als. On evaluation, the data-video field still lacks a commonly accepted
+benchmark; building public benchmarks for reproducible cross-system
+comparison is an important step for the area as a whole. On rendering,
+DATAMAGIC currently binds DVSPEC to a single renderer; generaliz-
+ing specification–rendering synchronization across different backends
+would let the renderer-agnostic specification drive diverse renderers
+and support rendering-specific edits.
+9
+CONCLUSION
+This paper presents DATAMAGIC, an end-to-end system that generates
+data videos from raw tabular data through declarative multi-agent or-
+chestration. DVSPEC provides a shared state for agent collaboration
+and user editing while organizing charts, narration, and animation; the
+“Generate-then-Orchestrate” strategy decouples local scene generation
+from global narrative organization. Quantitative evaluations show that,
+compared with direct generation baselines, DATAMAGIC improves
+video quality and execution stability; the user study further shows that
+it increases authoring efficiency and reduces cognitive load. These
+results suggest that declarative representations can serve not only as
+output descriptions but also as an intermediate layer coordinating au-
+tomated generation, data traceability, and fine-grained human control,
+thereby supporting structured and controllable authoring workflows.
+
+
+ACKNOWLEDGMENTS
+This paper was supported by the National Science and Technology
+Major Project (2025ZD0619402); the NSF of China (62402409); Youth
+S&T Talent Support Programme of Guangdong Provincial Association
+for Science and Technology (SKXRC2025461); the Young Talent Sup-
+port Project of Guangzhou Association for Science and Technology
+(QT-2025-001); Guangzhou Basic and Applied Basic Research Foun-
+dation (2026A1515010269, 2025A04J3935, 2023A1515110545); and
+Guangzhou-HKUST(GZ) Joint Funding Program (2025A03J3714).
+SUPPLEMENTAL MATERIALS
+The supplemental materials include an appendix with qualitative
+cases, dataset statistics, agent prompts, evaluation criteria, and expert-
+validation procedures; a system demonstration video showing the end-
+to-end data-video authoring and interactive refinement workflow; and
+representative generated outputs that illustrate the quality and diversity
+of DATAMAGIC across different datasets and queries.
+REFERENCES
+[1] F. Amini, N. Henry Riche, B. Lee, C. Hurter, and P. Irani. Understanding
+data videos: Looking at narrative visualization through the cinematography
+lens. In Proc. CHI, pp. 1459–1468. ACM, New York, 2015. doi: 10.1145/
+2702123.2702431 1, 2, 3, 4, 5
+[2] F. Amini, N. H. Riche, B. Lee, A. Monroy-Hernandez, and P. Irani. Author-
+ing data-driven videos with DataClips. IEEE Trans. Vis. Comput. Graph.,
+23(1):501–510, 2017. doi: 10.1109/TVCG.2016.2598647 2, 8
+[3] G. Aodeng, G. Li, Y. Feng, Q. Chen, Y. Zhang, and C. H. Liu. InRe-
+AcTable: LLM-powered interactive visual data story construction from
+tabular data. In Proc. UIST, pp. 139:1–139:16. ACM, New York, 2025.
+doi: 10.1145/3746059.3747719 2
+[4] Y. Bian, X. Lin, Y. Xie, T. Liu, M. Zhuge, S. Lu et al. You don’t know until
+you click:automated gui testing for production-ready software evaluation.
+arXiv preprint arXiv:2508.14104, 2025. doi: 10.48550/arXiv.2508.14104
+7
+[5] M. Bostock, V. Ogievetsky, and J. Heer. D3: Data-driven documents.
+IEEE Trans. Vis. Comput. Graph., 17(12):2301–2309, 2011. doi: 10.1109/
+TVCG.2011.185 2, 3
+[6] Q. Chen, S. Cao, J. Wang, and N. Cao. How does automation shape
+the process of narrative visualization: A survey of tools. IEEE Trans.
+Vis. Comput. Graph., 30(8):4429–4448, 2024. doi: 10.1109/TVCG.2023.
+3261320 2
+[7] Y. Chen, Y. Wu, S. Shen, Y. Xie, L. Shen, H. Xiong et al. Chartmark:
+A structured grammar for chart annotation. In Proceedings of the IEEE
+Visualization Conference, pp. 311–315. IEEE, Piscataway, 2025. doi: 10.
+1109/VIS60296.2025.00068 2
+[8] Z.-t. Chen, S. Ye, X. Chu, H. Xia, H. Zhang, H. Qu et al. Augmenting
+sports videos with viscommentator. IEEE Trans. Vis. Comput. Graph.,
+28(1):824–834, 2022. doi: 10.1109/TVCG.2021.3114806 2
+[9] H. Cheng, J. Wang, Y. Wang, B. Lee, H. Zhang, and D. Zhang. Investi-
+gating the role and interplay of narrations and animations in data videos.
+Comput. Graph. Forum, 41(3):527–539, 2022. doi: 10.1111/cgf.14560 2
+[10] T. Ge, B. Lee, and Y. Wang. CAST: Authoring data-driven chart anima-
+tions. In Proc. CHI, pp. 24:1–24:15. ACM, New York, 2021. doi: 10.
+1145/3411764.3445452 2
+[11] T. Ge, Y. Zhao, B. Lee, D. Ren, B. Chen, and Y. Wang. Canis: A high-
+level language for data-driven chart animations. Comput. Graph. Forum,
+39(3):607–617, 2020. doi: 10.1111/cgf.14005 2, 3
+[12] Google
+DeepMind.
+Veo
+3.
+https://deepmind.google/
+technologies/veo/, 2025. Accessed: 2026. 1
+[13] Y. He, K. Xu, S. Cao, Y. Shi, Q. Chen, and N. Cao. Leveraging foundation
+models for crafting narrative visualization: A survey. IEEE Trans. Vis.
+Comput. Graph., 31(10):9303–9323, 2025. doi: 10.1109/TVCG.2025.
+3542504 2
+[14] S. Hong, Y. Lin, B. Liu, B. Liu, B. Wu, C. Zhang et al. Data interpreter:
+An LLM agent for data science. In Findings of Proc. ACL, pp. 19796–
+19821. Association for Computational Linguistics, Vienna, 2025. doi: 10.
+18653/v1/2025.findings-acl.1016 4
+[15] M. S. Islam, M. T. R. Laskar, M. R. Parvez, E. Hoque, and S. Joty. Data-
+Narrative: Automated data-driven storytelling with visualizations and
+texts. In Proc. EMNLP, pp. 19253–19286. Association for Computational
+Linguistics, Miami, 2024. doi: 10.18653/v1/2024.emnlp-main.1073 2
+[16] Y. Kim and J. Heer. Gemini: A grammar and recommender system for
+animated transitions in statistical graphics. IEEE Trans. Vis. Comput.
+Graph., 27(2):485–494, 2021. doi: 10.1109/TVCG.2020.3030360 2
+[17] Y. Kim and J. Heer. Gemini2: Generating keyframe-oriented animated
+transitions between statistical graphics. In Proc. IEEE VIS, pp. 201–205.
+IEEE, Piscataway, 2021. doi: 10.1109/VIS49827.2021.9623291 2
+[18] X. Lan, Y. Shi, Y. Wu, X. Jiao, and N. Cao. Kineticharts: Augmenting
+affective expressiveness of charts in data stories with animation design.
+IEEE Trans. Vis. Comput. Graph., 28(1):933–943, 2022. doi: 10.1109/
+TVCG.2021.3114775 2
+[19] F. Lei, J. Meng, Y. Huang, J. Zhao, Y. Zhang, J. Luo et al. DAComp:
+Benchmarking data agents across the full data intelligence lifecycle. arXiv
+preprint arXiv:2512.04324, 2025. doi: 10.48550/ARXIV.2512.04324 6,
+12
+[20] B. Li, Z. Liang, Y. Xie, X. Lin, T. Luo, X. Liu et al.
+DataSpace:
+Benchmarking data agents for verifiable analytics over heterogeneous
+workspaces. arXiv preprint arXiv:2608.03451, 2026. doi: 10.48550/arXiv
+.2608.03451 4
+[21] B. Li, Y. Luo, C. Chai, G. Li, and N. Tang. The dawn of natural language
+to SQL: Are we fully ready? Proc. VLDB Endow., 17(11):3318–3331,
+2024. doi: 10.14778/3681954.3682003 3
+[22] B. Li, Y. Peng, Y. Xie, S. Lu, Y. Zhu, X. Mu et al. Deepeye: A steerable
+self-driving data agent system. In Companion of the International Confer-
+ence on Management of Data, pp. 74–77. ACM, New York, 2026. doi: 10.
+1145/3788853.3801612 1
+[23] B. Li, Y. Peng, Y. Xie, S. Lu, Y. Zhu, X. Mu et al. DeepEye: A workflow-
+centric agentic data system for steerable data analytics. In Proceedings
+of the 1st International Workshop on Agentic Data Systems and the 3rd
+International Workshop on Data-Centric AI (ADS/DATAI), co-located with
+VLDB, 2026. 4
+[24] G. Li, R. Li, Y. Feng, Y. Zhang, Y. Luo, and C. H. Liu. CoInsight: Visual
+storytelling for hierarchical tables with connected insights. IEEE Trans.
+Vis. Comput. Graph., 30(6):3049–3061, 2024. doi: 10.1109/TVCG.2024.
+3388553 2
+[25] X. Lin, Y. Qi, Y. Zhu, T. Palpanas, C. Chai, N. Tang et al. LEAD: Iterative
+data selection for efficient LLM instruction tuning. Proc. VLDB Endow.,
+19(3):426–439, 2025. doi: 10.14778/3778092.3778103 7
+[26] Y. Liu, K. Zhang, Y. Li, Z. Yan, C. Gao, R. Chen et al. Sora: A review
+on background, technology, limitations, and opportunities of large vision
+models. arXiv preprint arXiv:2402.17177, 2024. doi: 10.48550/ARXIV.
+2402.17177 1
+[27] T. Luo, C. Huang, L. Shen, B. Li, S. Shen, W. Zeng et al. nvBench 2.0:
+Resolving ambiguity in text-to-visualization through stepwise reasoning.
+In Proc. NeurIPS, vol. 38, pp. 138749–138786. Curran Associates, Inc.,
+Red Hook, 2025. doi: 10.52202/085713-4172 4
+[28] Y. Luo, C. Chai, X. Qin, N. Tang, and G. Li. Interactive cleaning for
+progressive visualization through composite questions. In Proc. ICDE, pp.
+733–744. IEEE, Dallas, 2020. doi: 10.1109/ICDE48307.2020.00069 3
+[29] Y. Luo, C. Chai, X. Qin, N. Tang, and G. Li. VisClean: Interactive cleaning
+for progressive visualization. Proc. VLDB Endow., 13(12):2821–2824,
+2020. doi: 10.14778/3415478.3415484 3
+[30] Y. Luo, X. Qin, C. Chai, N. Tang, G. Li, and W. Li. Steerable self-
+driving data visualization. IEEE Transactions on Knowledge and Data
+Engineering, 34(1):475–490, 2022. doi: 10.1109/TKDE.2020.2981464 1
+[31] Y. Luo, X. Qin, N. Tang, and G. Li. Deepeye: Towards automatic data
+visualization. In IEEE International Conference on Data Engineering, pp.
+101–112. IEEE, Piscataway, 2018. doi: 10.1109/ICDE.2018.00019 1
+[32] Y. Luo, X. Qin, Y. Xie, and G. Li. Intelligent data visualization analysis
+techniques: A survey. Journal of Software, 35(1):356–404, 2024. doi: 10.
+13328/j.cnki.jos.006911 2
+[33] Y. Luo, N. Tang, G. Li, C. Chai, W. Li, and X. Qin. Synthesizing natural
+language to visualization (NL2VIS) benchmarks from NL2SQL bench-
+marks. In Proc. SIGMOD, pp. 1235–1247. ACM, New York, 2021. doi:
+10.1145/3448016.3457261 4
+[34] Y. Luo, N. Tang, G. Li, J. Tang, C. Chai, and X. Qin. Natural language
+to visualization by neural machine translation. IEEE Trans. Vis. Comput.
+Graph., 28(1):217–226, 2022. doi: 10.1109/TVCG.2021.3114848 4
+[35] Meta. React. https://react.dev/, 2026. Accessed: 2026. 6
+[36] Microsoft. Azure TTS. https://azure.microsoft.com/services/
+cognitive-services/text-to-speech, 2026. Accessed: 2026. 3, 4,
+5
+[37] X. Qin, Y. Luo, N. Tang, and G. Li. Making data visualization more
+efficient and effective: A survey. The VLDB Journal, 29(1):93–117, 2020.
+
+
+doi: 10.1007/s00778-019-00588-3 4
+[38] Remotion. Remotion. https://www.remotion.dev/, 2026. Accessed:
+2026. 6
+[39] A. Satyanarayan, D. Moritz, K. Wongsuphasawat, and J. Heer. Vega-Lite:
+A grammar of interactive graphics. IEEE Trans. Vis. Comput. Graph.,
+23(1):341–350, 2017. doi: 10.1109/TVCG.2016.2599030 2, 3
+[40] Z. Shao, L. Shen, H. Li, Y. Shan, H. Qu, Y. Wang et al. Narrative player:
+Reviving data narratives with visuals. IEEE Trans. Vis. Comput. Graph.,
+31(10):6781–6795, 2025. doi: 10.1109/TVCG.2025.3530512 2
+[41] L. Shen, H. Li, Y. Wang, T. Luo, Y. Luo, and H. Qu. Data playwright:
+Authoring data videos with annotated narration. IEEE Trans. Vis. Comput.
+Graph., 31(9):5884–5897, 2025. doi: 10.1109/TVCG.2024.3477926 1, 2,
+3, 8
+[42] L. Shen, H. Li, Y. Wang, and H. Qu. From data to story: Towards automatic
+animated data video creation with llm-based multi-agent systems. In IEEE
+VIS Workshop on Data Storytelling in an Era of Generative AI (GEN4DS),
+pp. 20–27. IEEE, Piscataway, 2024. doi: 10.1109/GEN4DS63889.2024.
+00008 2
+[43] L. Shen, H. Li, Y. Wang, and H. Qu. Reflecting on design paradigms of
+animated data video tools. In Proc. CHI, pp. 190:1–190:21. ACM, New
+York, 2025. doi: 10.1145/3706598.3713449 1, 2, 3
+[44] L. Shen, E. Shen, Y. Luo, X. Yang, X. Hu, X. Zhang et al. Towards
+natural language interfaces for data visualization: A survey. IEEE Trans.
+Vis. Comput. Graph., 29(6):3121–3144, 2023. doi: 10.1109/TVCG.2022.
+3148007 1
+[45] L. Shen, E. Shen, Z. Tai, Y. Wang, Y. Luo, and J. Wang. GALVIS: Visual-
+ization construction through example-powered declarative programming.
+In Proceedings of the 31st ACM International Conference on Information
+& Knowledge Management, pp. 4975–4979. ACM, New York, 2022. doi:
+10.1145/3511808.3557159 2
+[46] L. Shen, L. Yang, H. Li, Y. Wang, Y. Luo, and H. Qu. How does empirical
+research facilitate creation tool design? A data video perspective. arXiv
+preprint arXiv:2507.15244, 2025. doi: 10.48550/ARXIV.2507.15244 2
+[47] L. Shen, Y. Zhang, H. Zhang, and Y. Wang. Data player: Automatic
+generation of data videos with narration-animation interplay. IEEE Trans.
+Vis. Comput. Graph., 30(1):109–119, 2024. doi: 10.1109/TVCG.2023.
+3327197 2, 3, 8
+[48] S. Shen, S. Lu, L. Shen, and Y. Luo. Debugging defective visualizations:
+Empirical insights informing a human-ai Co-Debugging system. In Proc.
+CHI, pp. 889:1–889:24. ACM, New York, 2026. doi: 10.1145/3772318.
+3791441 3
+[49] Y. Shen, Y. Zhao, Y. Wang, T. Ge, H. Shi, and B. Lee.
+Authoring
+data-driven chart animations through direct manipulation. IEEE Trans.
+Vis. Comput. Graph., 31(2):1613–1630, 2025. doi: 10.1109/TVCG.2024.
+3491504 2
+[50] D. Shi, F. Sun, X. Xu, X. Lan, D. Gotz, and N. Cao. AutoClips: An
+automatic approach to video generation from data facts. Comput. Graph.
+Forum, 40(3):495–505, 2021. doi: 10.1111/cgf.14324 2
+[51] D. Shi, X. Xu, F. Sun, Y. Shi, and N. Cao. Calliope: Automatic visual data
+story generation from a spreadsheet. IEEE Trans. Vis. Comput. Graph.,
+27(2):453–463, 2021. doi: 10.1109/TVCG.2020.3030403 2
+[52] Y. Shi, X. Lan, J. Li, Z. Li, and N. Cao. Communicating with motion:
+A design space for animated visual narratives in data videos. In Proc.
+CHI, pp. 605:1–605:13. ACM, New York, 2021. doi: 10.1145/3411764.
+3445337 2
+[53] Y. Shi, B. Li, Y. Luo, L. Chen, and N. Tang. Augmenting realistic charts
+with virtual overlays. In Proc. CHI, pp. 619:1–619:23. ACM, New York,
+2025. doi: 10.1145/3706598.3714320 3
+[54] Z. Shuai, B. Li, S. Yan, Y. Luo, and W. Yang. DeepVIS: Bridging natural
+language and data visualization through step-wise reasoning. IEEE Trans.
+Vis. Comput. Graph., 32(1):868–878, 2026. doi: 10.1109/TVCG.2025.
+3634645 1
+[55] X. Su, P. Dong, Z. Tang, S. Tang, Y. Zhai, K. Lin et al. VCG-Bench:
+Towards a unified visual-centric benchmark for structured generation and
+editing. arXiv preprint arXiv:2605.15677, 2026. doi: 10.48550/arXiv.
+2605.15677 3
+[56] M. Sun, L. Cai, W. Cui, Y. Wu, Y. Shi, and N. Cao. Erato: Cooperative
+data story editing via fact interpolation. IEEE Trans. Vis. Comput. Graph.,
+29(1):983–993, 2023. doi: 10.1109/TVCG.2022.3209428 2
+[57] Y. Tang, X. Liu, B. Zhang, T. Lan, Y. Xie, J. Lao et al. IGenBench:
+Benchmarking the reliability of text-to-infographic generation. arXiv
+preprint arXiv:2601.04498, 2026. doi: 10.48550/ARXIV.2601.04498 7
+[58] Y. Tang, Y. Xie, Y. Feng, T. Lan, and W. Chen. Demonstrating ViviDoc:
+Generating interactive documents through human-agent collaboration. In
+Proc. ACL, pp. 804–811. Association for Computational Linguistics, San
+Diego, 2026. doi: 10.18653/v1/2026.acl-demo.79 3
+[59] Y. Tang, Y. Xie, Y. Feng, T. Lan, J. Lao, and W. Chen. sketch-plot:
+Progressive editing for Text-to-Image academic figures. arXiv preprint
+arXiv:2606.09171, 2026. doi: 10.48550/arXiv.2606.09171 3
+[60] Y. Tang, Y. Xie, Y. Feng, J. Lao, T. Lan, and W. Chen. Demonstrating
+chart-plot: Closing the last mile of academic chart generation. arXiv
+preprint arXiv:2606.09174, 2026. doi: 10.48550/arXiv.2606.09174 3
+[61] J. Thompson, Z. Liu, W. Li, and J. Stasko. Understanding the design space
+and authoring paradigms for animated data graphics. Comput. Graph.
+Forum, 39(3):207–218, 2020. doi: 10.1111/CGF.13974 2
+[62] J. R. Thompson, Z. Liu, and J. Stasko. Data animator: Authoring expres-
+sive animated data graphics. In Proc. CHI, pp. 15:1–15:18. ACM, New
+York, 2021. doi: 10.1145/3411764.3445747 2
+[63] L. Wang, Z. Wang, S. Xiao, L. Liu, F. Tsung, and W. Zeng. VizTA: En-
+hancing comprehension of distributional visualization with visual-lexical
+fused conversational interface. Comput. Graph. Forum, 44(3):e70110,
+2025. doi: 10.1111/cgf.70110 2
+[64] L. Wang, Z. Zhang, Y. Cao, F. Tsung, and Y. Luo. Tabletale: Reviving the
+narrative interplay between data tables and text in scientific papers. In Proc.
+CHI, pp. 329:1–329:17. ACM, New York, 2026. doi: 10.1145/3772318.
+3791534 8
+[65] Y. Wang, Y. Gao, R. Huang, W. Cui, H. Zhang, and D. Zhang. Animated
+presentation of static infographics with infomotion.
+Comput. Graph.
+Forum, 40(3):507–518, 2021. doi: 10.1111/cgf.14325 2
+[66] Y. Wang, L. Shen, Z. You, X. Shu, B. Lee, J. Thompson et al. Wonderflow:
+Narration-centric design of animated data videos. IEEE Trans. Vis. Comput.
+Graph., 31(9):4638–4654, 2025. doi: 10.1109/TVCG.2024.3411575 1, 2
+[67] Y. Wang, Z. Sun, H. Zhang, W. Cui, K. Xu, X. Ma et al. DataShot: Auto-
+matic generation of fact sheets from tabular data. IEEE Trans. Vis. Comput.
+Graph., 26(1):895–905, 2020. doi: 10.1109/TVCG.2019.2934398 2
+[68] Y. Wu, Y. Peng, Y. Chen, J. Ruan, Z. Zhuang, C. Yang et al. AutoWeb-
+World: Synthesizing infinite verifiable web environments via finite state
+machines. arXiv preprint arXiv:2602.14296, 2026. doi: 10.48550/arXiv.
+2602.14296 7
+[69] Y. Wu, L. Yan, L. Shen, Y. Wang, N. Tang, and Y. Luo. ChartInsights: Eval-
+uating multimodal large language models for Low-Level chart question
+answering. In Findings of Proc. EMNLP, pp. 12174–12200. Associa-
+tion for Computational Linguistics, Miami, 2024. doi: 10.18653/v1/2024.
+findings-emnlp.710 3
+[70] Y. Xie, Y. Luo, G. Li, and N. Tang. HAIChart: Human and AI paired
+visualization system. Proc. VLDB Endow., 17(11):3178–3191, 2024. doi:
+10.14778/3681954.3681992 1
+[71] Y. Xie, C. Ma, Z. Wang, L. Wang, J. Zhu, C. Zeng et al.
+DataM-
+agic: Transforming tabular data into data insight video. arXiv preprint
+arXiv:2606.20388, 2026. doi: 10.48550/arXiv.2606.20388 2
+[72] Y. Xie, Z. Zhang, Y. Wu, S. Lu, J. Zhang, Z. Yu et al.
+Visjudge-
+bench: Aesthetics and quality assessment of visualizations. arXiv preprint
+arXiv:2510.22373, 2025. doi: 10.48550/ARXIV.2510.22373 7
+[73] L. Yang, X. Xu, X. Lan, Z. Liu, S. Guo, Y. Shi et al. A design space
+for applying the freytag’s pyramid structure to data stories. IEEE Trans.
+Vis. Comput. Graph., 28(1):922–932, 2022. doi: 10.1109/TVCG.2021.
+3114774 2, 3, 5
+[74] J. Zhang, C. Pan, K. Wei, S. Xiong, Y. Zhao, X. Li et al. T2R-bench: A
+benchmark for generating article-level reports from real world industrial
+tables. arXiv preprint arXiv:2508.19813, 2025. doi: 10.48550/ARXIV.
+2508.19813 6, 12
+[75] Z. Zhang, Z. Liang, J. Chen, H. Wang, and N. Tang.
+Document-to-
+database: Extraction meets relational semantics. Proc. VLDB Endow.,
+19(9):2522–2535, 2026. doi: 10.14778/3819518.3819568 4
+[76] Z. Zhang, Z. Liang, H. Wang, and N. Tang. DataMosaic: An interactive
+demonstration of constraint-driven document-to-database construction.
+Proc. VLDB Endow., 19(12):4570–4573, 2026. doi: 10.14778/3827998.
+3828068 4
+[77] J. Zong, J. Pollock, D. Wootton, and A. Satyanarayan. Animated Vega-
+Lite: Unifying animation with a grammar of interactive graphics. IEEE
+Trans. Vis. Comput. Graph., 29(1):149–159, 2023. doi: 10.1109/TVCG.
+2022.3209369 2
+
+
+A
+CASE STUDIES
+This appendix presents representative qualitative cases for DATAM-
+AGIC and direct-generation baselines, covering cross-method com-
+parisons, high-quality generations, and failure-mode analyses across
+complex data storytelling scenarios such as agriculture, environmental
+science, business analytics, energy, and gender-based compensation.
+A.1
+Cross-Method Comparison
+Comparative Case. As shown in Figure 6, using the same input condi-
+tions (Q4 2025 revenue analysis query and transaction dataset), direct
+generation methods frequently exhibit all three error categories: empty
+scenes or missing charts (visual rendering failures), visual element
+overlap (design defects), and narration–visual content or timing mis-
+matches (audio-visual errors). In contrast, DATAMAGIC generates
+well-structured videos with precise audio-visual alignment, achieving
+an average score of 4.2 (vs. 1.5 for direct generation) with consistent
+improvements across all evaluation dimensions.
+A.2
+High-Quality Generations
+Representative Agriculture Case. Figure 7 presents a representative
+high-quality generation on a real-world agriculture dataset (overall
+score: 4.6). Given the query “Evaluate the relationship between di-
+verse irrigation techniques and wheat productivity throughout Punjab,
+with particular attention to crop residue management practices and
+their economic repercussions,” DATAMAGIC constructs a coherent four-
+scene narrative: an overview introduction, followed by wheat-yield
+comparisons across irrigation methods (0’08s), residue-disposal dis-
+tributions (0’30s), and industry-level price disparities (0’48s). Within
+the residue-disposal scene, when the narrator states “animal fodder
+dominates at 74.1%,” the corresponding pie-chart segment is high-
+lighted simultaneously, demonstrating narration-synchronized cross-
+modal alignment without manual timeline adjustment. Both narrative
+quality and animation effectiveness score 5/5.
+Additional Cross-Domain Examples. Figures 8 and 9 provide two fur-
+ther high-quality cases from environmental science and gender-based
+compensation, illustrating DATAMAGIC’s ability to preserve numeri-
+cal fidelity, convey fine-grained comparisons, and maintain coherent
+narration–visual coordination across domains.
+Numerical Accuracy in Scientific Data (Environmental Science).
+The sensitivity to data fluctuations is evident in the environmental
+science case (Figure 8). When analyzing meteorological data from May
+2016, the system correctly identifies the temperature peak of 12.8°C
+on May 28th and synchronizes the visualization of solar radiation as it
+recovers from 106.2 W/m² to 326.0 W/m² within two days. Through
+the logical progression in Charts 3 and 4, the system reveals the inverse
+relationship between variables, such as radiation dropping to near zero
+when humidity exceeds 90%, and radiation increasing to 9.4 W/m² as
+temperatures cool to 2.7°C overnight.
+Representation of Fine-Grained Disparities (Gender-based Com-
+pensation). Furthermore, the gender-based compensation case (Fig-
+ure 9) validates the ability of the system to represent fine-grained
+compensation disparities. In Chart 2, the visual output effectively sup-
+ports the narrative’s finding that female employees earn an average of
+$70,582, surpassing males by $7,232. To provide deeper insights, Chart
+3 identifies the highest salary point for EX1 level females at $236,000,
+while Chart 4 utilizes departmental comparisons to clarify the distribu-
+tion of gender pay gaps across administration and operational divisions.
+A.3
+Analysis of Low-Quality Generations
+Despite the robustness of DATAMAGIC, certain limitations persist
+when dealing with extreme data distributions or complex multi-modal
+instructions.
+Analysis of DATAMAGIC Limitations (Agriculture). In the agricul-
+ture case shown in Figure 10, extreme disparities in input values cause
+the visualization elements in Chart 2 to fail to adapt to the preset lay-
+out, resulting in Viewport Clipping [1] where the pie chart is partially
+truncated. This instability is also reflected in cross-modal consistency;
+for instance, a Cross-modal Hallucination [2-a] occurs where the audio
+narration mentions a value of 40.6% while the visual label displays
+Table 3. Dataset sources and scale distribution.
+Source
+Datasets
+Samples
+Small
+(<100 rows)
+Med.
+(100-1K)
+Large
+(>1K rows)
+T2R-bench
+36
+85
+4
+14
+18
+DAComp-DA
+24
+24
+2
+7
+15
+Total
+60
+109
+6
+21
+33
+Table 4. Dataset dimension statistics.
+Dimension
+Min
+Median
+Max
+Mean
+Rows
+23
+1,436
+150,000
+17,065.58
+Columns
+3
+16
+555
+32.42
+Numeric columns
+1
+8
+552
+24.25
+Categorical columns
+0
+7
+57
+8.17
+40.9%. Additionally, Chart 4 reveals a Semantic Gap [2-b] where the
+visual content focuses on land ownership and fertilizer use despite the
+query specifically requesting an analysis of cotton yields, indicating a
+failure to fully address the user’s analytical intent.
+Analysis of Baseline Limitations (Energy). By comparison, the lim-
+itations of the baseline model (based on Claude-Sonnet-4) are more
+pronounced in the energy analysis case (Figure 11). The baseline fails
+in Chart 1 due to Missing Visual Evidence [1], where the bar chart
+is not rendered, accompanied by severe Temporal Asynchrony [2-a]
+where the text lags behind the audio. In Charts 2 and 3, a lack of
+layout logic leads to significant Visual Occlusion, characterized by the
+erroneous stacking of multiple charts [3-a] and overlapping text blocks
+for strategic solutions [3-b], rendering the information illegible. Finally,
+persistent Temporal Asynchrony [2-b] in Chart 4 results in a complete
+disconnect between the captions and the narration, hindering the overall
+coherence of the information delivery.
+B
+EVALUATION DATASET STATISTICS
+We build our evaluation set based on two representative benchmark
+datasets: T2R-bench [74] and DAComp-DA [19]. The final evaluation
+set contains 60 datasets and 109 test samples, covering diverse data
+scales, query types, and application domains.
+B.1
+Dataset Scale Distribution and Dimensions
+The dataset sources and scale statistics are shown in Table 3. Overall,
+our evaluation set covers a broad range of dataset sizes, from fewer
+than 100 rows (Small) to more than 1K rows (Large), sufficient for
+evaluating DATAMAGIC across different data volumes. Table 4 further
+summarizes the physical dimensions of the 60 datasets: the largest
+dataset contains 150,000 rows, and some tables contain up to 555
+columns, with numeric columns dominating (up to 552) and categorical
+columns contributing additional semantic signals (up to 57).
+B.2
+Query Type Analysis
+The query type distribution of the 109 test samples is summarized
+in Table 5, showing a broad coverage of data analysis tasks from
+multiple perspectives. The comprehensive analysis represents more
+than one quarter of the samples, which increases the complexity and
+difficulty of the task. Meanwhile, correlation analysis, trend analysis,
+comparative analysis, and distribution analysis provide a balanced
+task structure, ensuring that the evaluation set can thoroughly assess
+DATAMAGIC’s logical reasoning and narrative quality in diverse data
+video composition scenarios.
+B.3
+Domain and subdomain of evaluation data
+By combining real-world industrial data from T2R-bench with enter-
+prise business data from DAComp-DA, we summarize the evaluation
+set into 6 domains and 22 sub-domains, as shown in Table 6. This
+setting provides broad domain coverage and matches real-world appli-
+cation needs.
+
+
+Claude-Sonnet-4
+DeepSeek-V3.2
+Gemini-2.5-pro
+GPT-5
+...
+...
+...
+...
+DataMagic (Ours)
+00:07s
+00:20s
+00:45s
+01:05s
+...
+Text-Chart Overlap
+Clipping
+Misaligned (content)
+Misaligned (content)
+High quality
+Empty scene
+Text-Chart Overlap
+Chart-Chart Overlap
+Missing chart
+High quality
+Visual Integrity
+Layout & Rendering
+Cross-modal Alignment (content / timing) 
+High Quality
+✓
+Text-Chart Overlap
+Chart-Chart Overlap
+Text-Chart Overlap
+Missing chart
+High quality
+Misaligned (timing)
+Misaligned (timing)
+Misaligned (timing)
+Misaligned (timing)
+High quality
+Doesn’t align with the audio
+Doesn’t align with the audio
+This premium electronic...
+Our data reveals fascinating ...
+Audio-visual mismatch 
+(missing scene)
+Audio-visual mismatch 
+(missing scene)
+Audio-visual mismatch 
+(missing scene)
+Audio-visual mismatch 
+(missing scene)
+Fig. 6. Comparative Analysis of Video Generation Quality Across Different Methods
+Example: [Topic: Agriculture & Forestry, Datasets: pakistan_biomass_field_survey] (Overall Score: 4.6, Generated by DataMagic)
+Query: "Evaluate the relationship between diverse irrigation techniques and wheat productivity throughout Punjab, with particular 
+attention to crop residue management practices and their economic repercussions."
+timestamp: 0’01s
+Let's explore how irrigation methods 
+and residue managgement impact 
+wheat productivity in Punjab.
+timestamp: 0’08s
+Let's start by examining wheat yields 
+across different irrigation methods in 
+Punjab.
+timestamp: 0’30s
+Animal fodder dominates at 74.1 
+percent, while field burning accounts 
+fo 14.3 percent of residue disposal.
+timestamp: 0’48s
+Brick kilns offer the highest price at 
+7,873 rupees per ton, while paper 
+imills pay only 1,750 rupees.
+comment:
+Evaluation Score: intent fulfillment: 4, data insights: 4, narrative quality: 5, animation effectiveness: 5, aesthetic quality: 5
+Well-produced with a structured narrative and professional aesthetics that enhance information delivery. Despite a slight numerical error, the 
+video effectively addresses the query with high-quality insights.
+....
+Fig. 7. A representative high-quality case generated by DATAMAGIC (Agriculture, overall score: 4.6). Four key frames are shown with their
+corresponding narration (italicized). Underlined spans in the narration are the index triggers in DVSPEC that fire the co-occurring visual highlights,
+demonstrating precise audio-visual synchronization without manual timeline adjustment.
+C
+AGENT PROMPTS
+DATAMAGIC ’s multi-agent framework relies on carefully crafted sys-
+tem prompts to enforce clear boundaries of responsibility, standardized
+input–output formats, and explicit collaboration protocols across agents.
+In this appendix, we present the prompt structure and core instructions
+for the key agents.
+There are two stages in the pipeline. The first stage is to gener-
+ate configuration files for the video. The second stage is to generate
+executable files based on the configuration files generated in the first
+stage.
+Note: In the following prompts, metadata refers to the summary of
+the dataset structure, not the full data.
+
+
+Case 1: [Topic: Environmental Protection, Datasets: Environmental_Weather_Radiation_Data] (Overall Score: 4.6, Generated by DataMagic)
+Query: "Examine the interrelationship between temperature and solar radiation for May 2016, placing emphasis on trends and insights 
+gleaned from changes over time in atmospheric conditions."
+timestamp: 0’01s
+Let's explore how temperature and 
+solar radiation interact throughout 
+May 2016.
+timestamp: 0’15s
+timestamp: 1’09s
+timestamp: 1’26s
+Temperature peaked at 12.8°C on May 28th 
+while solar radiation showed dramatic swings, 
+dropping to 106.2 W/m2 on the 24th before 
+recovering to 326.0W/m2 two days later.
+We see a strong negative correlatio -- 
+when humidity exceeds 90%, solar 
+radiation drops to near zero, while lower 
+humidity allows values up to 1,041.2 W/m2.
+On May 20th, temperature cooled to 
+2.7°C overnight before solar radiation 
+rapidly increased to 9.4 W/m2 at sunrise, 
+showing the inverse relationship.
+comment:
+Evaluation Score: intent fulfillment: 4, data insights: 4, narrative quality: 5, animation effectiveness: 5, aesthetic quality: 5
+Professionally produced with clear logic and high-quality visuals, this video delivers impactful insights. A minor numerical discrepancy exists, 
+yet it does not detract from the overall clarity or core message.
+....
+Fig. 8. High-quality Case 1 (Environmental Science): High-fidelity tracking of meteorological fluctuations and solar radiation swings.
+Case 2: [Topic: Food & Beverage, Datasets: 2023_Employee_Salaries_Data] (Overall Score: 4.4, Generated by DataMagic)
+Query: "Examine discrepancies in compensation by gender within the Alcohol Beverage Services sector, analyzing trends and insights 
+across diverse ranks and functions, as highlighted in the dataset."
+timestamp: 0’01s
+Let's examine compensation 
+disparities between genders in the 
+Alcohol Beverage Services sector.
+timestamp: 0’14s
+Female employees earn an average of 
+seventy thousand five hundred eighty-two
+dollars, outpacing males by seven thousand 
+two hundred thirty-two dollars.
+timestamp: 0’26s
+Executive level EX1 females earn the 
+highest salary at two hundred thirty-six
+thousand dollars, while gender gaps vary 
+significantly across different grades.
+timestamp: 0’45s
+Males earn significantly more in 
+Administration, while females lead in 
+the Director's Office and several 
+operational divisions.
+comment:
+Evaluation Score: intent fulfillment: 4, data insights: 4, narrative quality: 5, animation effectiveness: 5, aesthetic quality: 4
+This high-quality video features a logical narrative and precise animations that clarify complex data. Despite a minor overlap in X-axis labels, it 
+delivers deep insights and addresses the query effectively.
+....
+Fig. 9. High-quality Case 2 (Gender-based Compensation): Visualization of complex gender-based compensation disparities across divisions.
+Table 5. Query type distribution of the sample dataset.
+Query Type
+Count
+Percentage
+Typical Patterns
+Trend analysis
+12
+11.0%
+Time-series changes;
+Periodic patterns
+Comparative analysis
+15
+13.8%
+Cross-category comparison;
+Ranking analysis
+Distribution analysis
+18
+16.5%
+Value distribution;
+Proportion
+Correlation analysis
+33
+30.2%
+Variable relationships;
+Correlation
+Comprehensive analysis
+31
+28.4%
+Multi-dimensional analysis
+Total
+109
+100.0%
+–
+C.1
+Scene Planner Agent
+Prompt Template: Scene Planner Agent
+You are a data analysis planner specializing in planning
+visualization analyses.
+Task: Based on the user’s query and dataset summary, plan
+what data analyses are needed to answer the query.
+Input
+• User Query: {query}
+• Dataset Summary: {metadata}
+Your Role
+Plan the material list - what analyses/visualizations should
+be created. Think like a photographer planning what shots to
+take, NOT like a director planning the final edit sequence.
+Output Format (JSON)
+{
+"narrative_pattern": "freytag_default",
+"scenes": [
+
+
+Query: "Explore the relationship between land tenure and cotton yields in Sindh, highlighting practices in residue management and the 
+propensity of farmers towards collaborative initiatives."
+Case 1: [Topic: Agriculture & Forestry, Datasets: pakistan_biomass_field_survey] (Overall Score: 3.0, Generated by DataMagic)
+timestamp: 0’15s
+timestamp: 0’01s
+timestamp: 0’32s
+timestamp: 0’43s
+....
+Exactly 2,384 farmers show universal engage-
+ment across cooperative harvesting, bargaining 
+representation, and biomass baling opportunities.
+Field burning dominates at 40.6 
+percent, while sustainable fertilizer use 
+remains minimal at just 1.8 percent.
+Let's explore how cotton farmers in Sindh 
+manage residues and approach 
+collaborative farming initiatives.
+Most farmers are complete landowners, 
+yet residue fertilizer adoption remains 
+extremely low regardless of tenure status.
+Evaluation Score: intent fulfillment: 3, data insights: 2, narrative quality: 3, animation effectiveness: 4, aesthetic quality: 3
+The video is well-structured and the animation quality is good. However, its value is severely hampered by a major analytical flaw (a key 
+insight contradicts the visual data) and a failure to address the core part of the user query (cotton production).
+Viewport Clipping: The pie chart is partially cut off due to layout miscalculations; visual data is incomplete.
+comment:
+humans 
+comment:
+1
+1
+1
+2-a
+2-a
+2-b
+2
+2-b 
+Cross-modal Hallucination: Factual conflict between the audio narration (40.6%) and the on-screen visual label (40.9%).
+Semantic Gap: Visual content (Fertilizer Use) fails to align with the analytical query (Cotton Yields).
+Visual Integrity and Continuity
+Correctness and Cross-modal Alignment
+Fig. 10. Low-quality Case 1 (Agriculture): Analysis of layout truncation and numerical discrepancies in DATAMAGIC under extreme data distributions.
+Visual Integrity and Continuity
+Correctness and Cross-modal Alignment
+Layout Logic and Rendering Quality
+2
+1
+3
+Case 2: [Topic: Energy & Power, Datasets: malawi_energy_access_survey_data] (Overall Score: 2.0, Generated by claude-sonnet-4)
+Query: "Assess the effects of mobile phone charging expenses on electricity consumption across diverse districts, and offer a detailed 
+exposition evaluating the advantages and obstacles of augmenting charging stations within a 500-meter vicinity of residential areas."
+3-b
+3-a
+1
+2-a
+on electricity consumption...
+timestamp: 0’02s
+Our analysis of 71 households reveals 
+striking patterns in charging costs and 
+energy usage
+timestamp: 0’16s
+However, they experience frequent 
+interruptions lasting 3 to 7 hours.
+timestamp: 0’26s
+Solar-powered charging stations offer a 
+strategic solution.
+2-b
+many still charge outside...
+timestamp: 0’43s
+Strategic placement and improved grid 
+reliability can maximize benefits while 
+minimizing costs.
+comment:
+Evaluation Score: intent fulfillment: 2, data insights: 2, narrative quality: 2, animation effectiveness: 2, aesthetic quality: 2
+The video fails in intent fulfillment. Despite detailed narration, the visuals are disconnected and contradictory. Coupled with overlapping text 
+and missing animations, these flaws result in poor credibility and significant confusion.
+humans 
+comment:
+1
+Missing Visual Evidence: The bar chart failed to render, leaving the analytical section without visual grounding.
+2-a Temporal Asynchrony: The on-screen text lags behind the narration, creating a timing mismatch between audio and visual channels.
+3-a Visual Occlusion (Charts): Bar chart, pie chart, and headers are erroneously stacked, rendering the data visualization illegible.
+Visual Occlusion (Text): Multiple text blocks directly overlap, causing severe information clutter.
+3-b
+Temporal Asynchrony: Persistent audio-visual misalignment where narrative content fails to synchronize with displayed captions.
+2-b
+....
+Fig. 11. Low-quality Case 2 (Energy): Analysis of systemic failures in baseline models across layout logic and cross-modal alignment.
+{
+"id": "unique_id",
+"type": "chart",
+"query": "Specific query with column names",
+"analysis_type": "primary_intent",
+"intent": ["intent1", "intent2"],
+"priority": 0.0-1.0,
+"context": "Why this analysis matters",
+"required_fields": ["field1", "field2"]
+}
+]
+}
+Analysis Types
+trend, composition, comparison, distribution, correlation,
+find_extremum, rank, summary, magnitude.
+Narrative Pattern
+Choose one pattern that best fits the shape of the
+story, used later by the Narrative Director to sequence
+
+
+Table 6. Domains and sub-domains.
+Domains
+Sub-domains
+Technology and
+Engineering
+Electronics and Automation Manufacturing;
+Academic Research;
+Energy Production and Power Systems;
+Automotive Industry
+Environmental
+Management
+Environmental Protection;
+Agriculture and Forestry;
+Resource Management
+Transportation
+Logistics
+Communication and Digital Infrastructure;
+Transportation Networks and Logistics Management
+Social Policy
+Administration
+Education Policy and Public Education;
+Government Administration and Public Sector Services;
+Labor and Employment Administration;
+Healthcare Systems and Public Health;
+Demographics and Social Development
+Commercial Services
+and Markets
+Retail Trade and E-commerce Platforms;
+Tourism and Hospitality Services;
+Digital Entertainment and Gaming;
+Food and Beverage Services;
+Real Estate and Housing Market;
+Business Management and Supply Chain
+Financial Economics
+Economic Development and International Trade;
+Banking and Financial Services
+scenes:
+freytag_default (general-purpose, single dra-
+matic peak; the default), hook_then_evidence (news-
+style inverted pyramid:
+the most striking finding stated
+first), comparison_driven (A-vs-B contrasts dominate),
+time_driven (chronological progression), drill_down
+(overview to segments to individual drivers).
+Critical Rules
+• Plan ONLY “chart” type scenes (stat_cards generated
+automatically later)
+• Each scene must have specific, executable query with
+explicit column names
+• Use priority (0.0-1.0): 1.0 = main query answer, 0.8-0.9
+= key supporting, 0.6-0.7 = context, 0.4-0.5 = details,
+0.2-0.3 = optional
+• Provide context explaining why each analysis matters
+• Focus on WHAT to analyze, not HOW to visualize
+• Select 2-4 distinct angles, ensure adjacent scenes have
+different intent lists
+• Avoid redundant scenes or multiple scenes showing same
+data from nearly identical angles
+• Output a top-level narrative_pattern (one of the five
+values above) based on the shape of the story
+• DO NOT include: opening/closing scenes, stat cards,
+strict scene order, narration text, chart type specifications
+Examples
+{example}
+Final Instruction
+Now create the analysis plan. Return ONLY the JSON, noth-
+ing else.
+Example: The following demonstrates a concrete example of the
+Scene Planner Agent’s output format and decision-making process.
+This example illustrates how to structure the analysis plan based on a
+user query.
+C.1.1
+Scene Planner Agent Example
+Query: “Compare flight delays across carriers and desti-
+nations in 2015”
+"scenes": [
+{
+"id": "analysis_carrier_comparison",
+"type": "chart",
+"query": "Group by carrier column, calculate average
+of depdelay column",
+"analysis_type": "comparison",
+"priority": 1.0,
+"context": "Primary analysis: carrier performance
+comparison"
+},
+{
+"id": "analysis_destination_delays",
+"type": "chart",
+"query": "Group by destcity column, calculate average
+of arrdelay column",
+"analysis_type": "distribution",
+"priority": 0.9,
+"context": "Primary analysis: destination city delays"
+}
+]
+Note: No stat_cards needed - charts clearly show the compar-
+isons requested.
+C.2
+Data Preparation Agent
+Prompt Template: Data Preparation Agent
+You are a data transformation planner.
+Task: Analyze the sub-query and determine what data trans-
+formations are needed to prepare the data for visualization.
+Input
+• Sub-Query: {sub_query}
+• Analysis Type: {analysis_type}
+• Required Fields: {required_fields}
+• Dataset Metadata: {metadata}
+Transformation Types
+• group_by_aggregate:
+Comparisons, distributions,
+part-to-whole, overall statistics, or 2D heatmap (use
+TWO fields in group_by_fields)
+• time_series_aggregate: Trends over time
+• top_n: Finding extremes, rankings
+• correlation_data:
+Correlation analysis, scatter
+plots (ALWAYS use this for
+correlation,
+NOT
+filter_and_select)
+• filter_and_select: Simple filtering and field selec-
+tion
+• sample_representative: General analysis when no
+specific aggregation needed
+Output Format (JSON)
+{
+"transformation_type":"group_by_aggregate|
+time_series_aggregate|filter_and_select|top_n|
+correlation_data|sample_representative",
+
+
+"group_by_fields": ["field1"],
+"aggregate_fields": {"field2": "avg", "field3": "sum"},
+"time_field": "date",
+"time_grouping": "month",
+"x_field": "field1",
+"y_field": "field2",
+"derived_fields": {"new_field": "field1 / field2"},
+"filter": {"field": "value", "field2": "not null"},
+"select_fields": ["field1", "field2"],
+"sort_by": "avg_field2",
+"sort_order": "desc",
+"limit": 10,
+"sample_size": 20,
+"description": "Brief description of what this
+transformation does"
+}
+Critical Rules
+• Use ONLY existing fields from the dataset metadata
+• Determine ALL necessary filters from sub-query (scope,
+quality, logical)
+• For overall statistics: use group_by_aggregate with
+empty group_by_fields
+• Keep filters minimal - only add what’s explicitly required
+• Use actual values in filters, NO placeholders
+• If query mentions specific location, ALWAYS include
+filter field
+• Always include a clear description
+• Return a SINGLE JSON OBJECT, NOT an array
+Examples
+{example}
+Final Instruction
+Now plan the transformation. Return ONLY the JSON object,
+nothing else.
+Example: The following demonstrates a concrete example of the
+Data Preparation Agent’s transformation planning process. This exam-
+ple shows how to analyze a sub-query and determine the appropriate
+data transformation with filters and aggregation.
+C.2.1
+Data Preparation Agent Example
+Comparison with Scope Filter
+Sub-query:“Compare wheat yield across different irrigation
+methods in Punjab province”
+Analysis Type: comparison
+Required Fields: ["Province", "Crop", "Method of irrigation",
+"Yield, maund"]
+Output:
+{
+"transformation_type": "group_by_aggregate",
+"group_by_fields": ["Method of irrigation"],
+"aggregate_fields": {
+"Yield, maund": "avg"
+},
+"filter": {
+"Province": "Punjab",
+"Crop": "Wheat",
+"Yield, maund": "not null",
+"Method of irrigation": "not null"
+},
+"sort_by": "avg_Yield, maund",
+"sort_order": "desc",
+"description": "Filter to Punjab wheat data, group by
+irrigation method, calculate average yield
+excluding null values"
+}
+C.3
+Visual Designer Agent
+Prompt Template: Visual Designer Agent
+You are a professional data visualization designer specializing
+in chart configuration.
+Task: Generate a chart visualization configuration based on
+the query and data. DO NOT write narration - only provide a
+brief insight summary.
+Input
+• Sub-Query: {query}
+• Analysis Type: {analysis_type}
+• Planned Scene Type: {planned_type} (MUST follow
+this type)
+• Processed Data: {data}
+Chart Selection & Data Requirements
+• Select appropriate chart type based on analysis type and
+data characteristics:
+– comparison/magnitude
+→
+bar_chart,
+grouped_bar_chart (≥2 data points)
+– trend/change_over_time
+→
+line_chart,
+area_chart (≥3 time points)
+– part_to_whole/proportion
+→
+pie_chart,
+donut_chart (≥2 categories)
+– hierarchical/composition →treemap, sun-
+burst (≥3 hierarchical nodes)
+– correlation/distribution →scatter_chart,
+bubble_chart (≥3 data points)
+– 2D distribution/density →heatmap, con-
+tour_plot (≥4 data points)
+– ranking/ordered_comparison
+→
+horizon-
+tal_bar_chart, lollipop_chart
+• Note: The chart types above represent commonly used
+configurations. The declarative specification framework
+supports additional visualization types through the ex-
+tensible rendering engine.
+• If insufficient data for charts, create stat_cards instead
+• For “stat_cards” scenes: Generate 2-4 key metrics
+(maximum 4)
+Output Format (JSON)
+{
+"scenes": [
+{
+"id": "scene_chart_1",
+"type": "chart",
+"content": {
+"chart_type": "bar_chart",
+"title": "Short, descriptive title",
+"data": [...],
+"data_binding": {
+
+
+"x_axis": {"field": "category", "label":
+"Category"},
+"y_axis": {"field": "value", "label": "Value"}
+},
+"style": {
+"background_color": "{background_color}",
+"container_background": "{container_background}",
+"bar_color": "#5b8ff9",
+"text_color": "#e8eaed",
+"grid_color": "#2a3f5f",
+"axis_color": "#8c98a4"
+},
+"layout": {
+"margin": {"top": 80, "right": 60, "bottom": 100,
+"left": 100},
+"chart_area": {"width": 1120, "height": 540}
+}
+},
+"insight_summary": "Brief summary of what this chart
+shows (1-2 sentences)"
+}
+]
+}
+Critical Rules
+• MUST follow planned_type (chart or stat_cards)
+• MUST use ONLY provided data - all numbers must
+match exactly, convert wide to long format for bar_chart
+• Chart type must match analysis type and have sufficient
+data points
+• Include ALL query-requested dimensions/categories
+(even if zero/small)
+• Title: clear and descriptive; insight_summary: describe
+KEY finding visible in visualization
+• Theme consistency (soft constraint): Prefer using
+the provided theme tokens (e.g., background_color,
+container_background) for a coherent overall look.
+You MAY introduce subtle per-scene variation (e.g.,
+slight lightness/opacity changes or a gentle gradient)
+as long as readability and overall theme consistency are
+preserved.
+• DO NOT include:
+“narration” field, timing fields
+(time_range, time_start, time_end)
+• DO NOT omit dimensions mentioned in query, generate,
+estimate, or invent data values
+Examples
+{example}
+Final Instruction
+Now generate the visualization configuration. Return ONLY
+the JSON, nothing else.
+Example: The following demonstrates examples of good and bad
+insight summaries for the Visual Designer Agent. These examples
+illustrate how to write effective insight summaries that highlight key
+findings from the visualization.
+C.3.1
+Visual Designer Agent Example
+Example Insight Summary
+• Good: “Q3 sales surged 50% above Q2, marking the
+strongest quarterly growth of the year.”
+• Good: “San Francisco experiences the highest delay
+rate at 35 minutes, significantly worse than Boston’s 12
+minutes.”
+• Bad: “This chart shows sales data.” (too vague)
+• Bad: “The analysis indicates variations.” (not specific)
+C.4
+Narrative Director Agent
+Prompt Template: Narrative Director Agent
+You are a professional video director and scriptwriter
+specializing in data visualization videos.
+Task: Given all generated visualization scenes and the cho-
+sen narrative_pattern, arrange them into a dramatically
+coherent order, write a complete script (opening, scene narra-
+tions, closing), and optionally generate a stat_cards scene that
+summarizes key metrics from the chart data.
+Input
+• User Query: {query}
+• Narrative Pattern: {narrative_pattern}
+• Generated Scenes (complete scene configurations):
+{scenes_info}
+Narrative Pattern Strategy
+The narrative_pattern guides scene ordering, climax
+placement, pacing, and transition style:
+• freytag_default: Setting →Rising →Climax →
+Resolution; build toward one main finding.
+• hook_then_evidence: lead with the most striking
+finding, then provide supporting evidence.
+• comparison_driven: keep contrasting scenes adjacent
+and make transitions explicitly signal the contrast.
+• time_driven: preserve chronological order and use
+temporal transitions.
+• drill_down: move from overview to segments to
+drivers, using zoom-in transitions.
+Your Tasks
+1. Arrange Scene Order (pattern-driven): Order scenes
+by the narrative_pattern from the Scene Plan-
+ner.
+By default (freytag_default), follow Frey-
+tag’s Pyramid:
+Setting (context/overview) →Ris-
+ing (build evidence) →Climax (the single most im-
+portant finding) →Resolution (recap), and emit the
+stage assignment as narrative_arc. Alternative pat-
+terns (hook_then_evidence, comparison_driven,
+time_driven, drill_down) override this default or-
+dering. Stat cards, if generated, belong in the Resolution
+stage.
+2. Generate Opening Scene: Title (max 8-10 words), Sub-
+title (5-10 words), Narration (1 sentence, 12-18 words)
+introducing topic.
+
+
+3. Write Scene Narrations: For EACH scene, write 1-2
+sentences (10-15 words each), describe chart and high-
+light key insight, connect with transition phrases for
+continuous story flow.
+4. Generate Stat Cards Scene (Optional): When query
+asks for “key metrics”/“summary statistics” or summa-
+rizing enhances narrative. Extract metrics DIRECTLY
+from chart scenes’ data, create 2-4 cards (max 4). Prefer
+the same theme tokens as chart scenes; you MAY apply
+subtle per-scene background variation while preserving
+readability and overall theme consistency.
+5. Generate Closing Scene: Title “Thank You” or brief
+message (max 5 words), Narration (1 sentence, 15-20
+words) summarizing KEY findings from ALL scenes.
+Output Format (JSON)
+{
+"narrative_arc": {
+"setting": ["scene_id1"],
+"rising": ["scene_id2"],
+"climax": "scene_id3",
+"resolution": ["scene_stats"]
+},
+"scene_order": ["scene_id1", "scene_id2", "scene_id3"],
+"opening": {
+"id": "scene_opening",
+"type": "opening",
+"content": {
+"title": "Title",
+"subtitle": "Subtitle",
+"style": {
+"text_color": "#ffffff",
+"subtitle_color": "#e0e0e0"
+}
+},
+"narration": [{"text": "Opening narration"}]
+},
+"scene_narrations": {
+"scene_id1": [{"text": "First narration line"},
+{"text": "Second line"}]
+},
+"stat_cards": {
+"id": "scene_stats",
+"type": "stat_cards",
+"content": {
+"title": "Key Metrics Summary",
+"cards": [
+{
+"title": "Metric Name",
+"value": "Formatted Value",
+"subtitle": "Unit/Description",
+"color": "#hexcode"
+}
+],
+"style": {
+"background_color": "#0f1419",
+"container_background": "#0f1419",
+"card_background": "#1a2332",
+"text_color": "#e8eaed",
+"accent_color": "#5b8ff9",
+"border_color": "#2a3f5f"
+}
+},
+"narration": [{"text": "Stat cards narration"}]
+},
+"closing": {
+"id": "scene_closing",
+"type": "closing",
+"content": {
+"title": "Thank You",
+"style": {
+"text_color": "#ffffff",
+"subtitle_color": "#e0e0e0"
+}
+},
+"narration": [{"text": "Closing narration summarizing
+key findings"}]
+}
+}
+Critical Requirements:
+1. Data and Format Rules
+• Number
+Formatting:
+≥1M:
+“X.X
+mil-
+lion”/“X.XM”, ≥1K: “X.X thousand”/“X.XK”,
+<1K: exact number,
+proportions:
+convert
+to percentage (1 decimal, e.g., 0.944444 →
+“94.4%”)
+• Year/Time Accuracy: When mentioning specific
+year/time, MUST use data value for THAT EX-
+ACT year, not peak values from other time points
+• Multiple Y-Axis: If data_binding.y_axis is array,
+mention all relevant metrics in narration
+• Stat Cards Values:
+Must match EXACTLY
+what’s shown in chart scenes’ data
+2. Structure and Narration Rules
+• scene_order must include ALL scene IDs from
+input; if generating stat_cards, add “scene_stats”
+to scene_order (typically after chart scenes)
+• Always emit narrative_arc (Setting/Rising/Cli-
+max/Resolution), assigning every chart scene to
+exactly one stage
+• Narration lengths: Opening 1 sentence (12-18
+words), Scene 1-2 sentences (10-15 words each),
+Closing 1 sentence (15-20 words)
+• Narration must flow as continuous story with tran-
+sitions, reference specific data/insights from in-
+sight_summary
+• Use consistent background colors: “#0f1419”,
+“#1a2332”
+• DO NOT include:
+timing fields (time_range,
+time_start, time_end, audio_file), verbose narra-
+tion, stat_cards with mismatched values, data from
+wrong time points
+Examples
+{example}
+Final Instruction
+Now generate the scene order and complete script. Return
+ONLY the JSON, nothing else.
+Example: The following demonstrates a concrete example of good
+narration with smooth transitions between scenes. This example illus-
+trates how to write coherent scene narrations that flow as a continuous
+story.
+
+
+C.4.1
+Narrative Director Agent Example
+Good Narration with a Freytag Arc (Setting, Rising, Cli-
+max, Resolution)
+• (Setting) Scene 1: “First, the overall landscape. Total
+revenue reached 4.2 billion across all regions.”
+• (Rising) Scene 2: “But not all regions grew equally.
+Europe and the Americas averaged 12 percent.”
+• (Climax) Scene 3: “Asia surged 58 percent, three times
+faster than any other region.”
+• (Resolution) Closing: “Across all regions, growth aver-
+aged 18 percent year over year.”
+C.5
+Scene Animation Generator Agent
+Prompt Template: Scene Animation Generator Agent
+You are an animation designer for data videos following the
+“narration-animation interplay” approach.
+Task: Add entrance and emphasis animations for ONE scene
+that sync with narration timing.
+Critical Requirement: One narration can have multiple em-
+phasis animations - create one animation for EACH entity
+mentioned in the narration.
+Input
+• Current
+Scene
+(complete
+information):
+{cur-
+rent_scene}
+• Context: {context}
+• Position: {position} of {total_scenes} (1-based)
+Process
+1. Read narration text carefully, identify ALL entity names
+(companies, products, categories, data points)
+2. Create ONE entrance animation:
+bind to trig-
+ger_narration: 0, auto-select effect based on chart_type
+3. Create ONE emphasis animation for EACH entity: bind
+to trigger_narration: <index> where entity is first men-
+tioned, use “pulse” effect with intensity 0.1, extract
+data_filter from entity name
+Animation Effects Guidelines
+• Select entrance and emphasis animations appropriate for
+the chart type:
+– Bar/Column Charts:
+entrance grow_bars,
+slide_in; emphasis pulse, highlight
+– Line/Area
+Charts:
+entrance
+draw_line,
+fade_in; emphasis pulse, glow
+– Pie/Donut Charts:
+entrance grow_slices,
+rotate_in; emphasis pulse, expand
+– Treemap/Hierarchical:
+entrance
+zoom_in,
+cascade; emphasis pulse, border_highlight
+– Scatter/Bubble Charts:
+entrance fade_in,
+sequential,
+scale_in;
+emphasis
+pulse,
+enlarge
+– Heatmap: entrance fade_in, cell_by_cell;
+emphasis pulse, intensity_boost
+– Stat Cards: entrance fade_in, slide_up; em-
+phasis pulse, glow
+– Opening/Closing: entrance/exit fade_in/out,
+slide_in/out, zoom
+• Note: The animation effects above represent commonly
+used patterns. The system supports custom animation
+sequences through the declarative synchronization mech-
+anism.
+• Common emphasis effect: pulse with intensity 0.1 for
+most chart types
+Output Format (JSON)
+{
+"animations": [
+{
+"id": "entrance_anim",
+"type": "entrance",
+"effect": "grow_bars",
+"trigger_narration": 0,
+"description": "Chart entrance animation"
+},
+{
+"id": "emphasis_entity",
+"type": "emphasis",
+"effect": "pulse",
+"trigger_narration": 1,
+"target_data": {"data_filter": {"field": "value"}},
+"style": {"intensity": 0.1},
+"description": "Highlight entity when mentioned"
+}
+]
+}
+Critical Rules
+• Include 1 entrance animation (trigger_narration: 0)
+• For each entity mentioned in narration, create 1 emphasis
+animation with correct trigger_narration index (must not
+exceed number of narrations)
+• Do NOT manually set time_start or duration - use trig-
+ger_narration for timing synchronization
+• Keep all existing configuration fields unchanged, use
+consistent animation effects across scenes
+Final Instruction
+Now generate animations for this scene. Return ONLY the
+JSON with animations array, nothing else.
+C.6
+TSX Static Component Agent
+C.6.1
+Static Charts Scene
+Prompt Template: Static Charts
+You are creating a CLEAN, MINIMAL infographic for data
+video narration following ChartGalaxy design principles: SIM-
+PLE, CLEAR, DATA-FOCUSED.
+CRITICAL CONTEXT:
+• Current Scene: scene_index of total_scenes
+• A global theme is provided in JSON config (e.g.,
+background_color, container_background). Pre-
+fer using it to keep the UI coherent across scenes.
+• You MAY introduce subtle per-scene background varia-
+tion (small lightness/opacity shifts or gentle gradients)
+while keeping overall theme consistency and strong tex-
+t/axis contrast.
+
+
+• Each scene MUST have a UNIQUE visual identity
+CORE PRINCIPLES:
+• CLEAN & MINIMAL - No clutter, no excessive decora-
+tion
+• DATA FIRST - Information clarity >visual effects
+• SUBTITLE-FRIENDLY - Reserve top 80px for subtitle
+overlay, bottom 180px for subtitle display
+• VISUAL CONSISTENCY - Keep typography, spacing,
+and overall theme coherent across scenes (background
+may vary subtly)
+• JSX SAFETY - Escape special characters in JSX text
+Data to Visualize:
+Title: "chart_title"
+Type: chart_type
+Canvas:
+video_meta.get(’width’,
+1280)xvideo_meta.get(’height’, 720)px
+Data Binding:
+json.dumps(data_binding, indent=2, en-
+sure_ascii=False)
+Multiple Y-Axis Support:
+• If y_axis is an ARRAY →Create GROUPED BAR
+CHART
+• If y_axis is a DICT →Create standard single bar chart
+CRITICAL RULES:
+• Use theme tokens from JSON config as defaults
+(background_color:
+background_color,
+con-
+tainer_background:
+container_background).
+You
+MAY adjust them slightly per scene (e.g., light-
+ness/opacity/gradient) as long as the overall theme
+remains consistent and the chart remains highly legible.
+• Reserve bottom 180px for subtitle display
+• Match
+colors
+to
+data
+meaning
+(gold=money,
+red=problem, green=growth)
+• Highlight key data IN THE CHART ITSELF with size/-
+color/stroke
+• Chart height: ∼350−400px, X-axis labels at y ≤360−
+370
+• Escape JSX special characters (<, >, &)
+• DO NOT add redundant information cards or tooltip
+boxes
+• DO NOT use the same color scheme for consecutive
+scenes
+OUTPUT: Generate ONLY the complete TypeScript code -
+NO markdown blocks, NO explanations.
+C.6.2
+Opening, Closing, Stat_cards Scene
+Prompt Template: Opening/Closing/Stat Cards Scene
+You are creating an OPENING/CLOSING/STAT CARDS
+SCENE for a data video.
+VIDEO CONTEXT:
+• Video Title: "{video_meta.get(’title’, ’Data Insights’)}"
+• Scene {scene_index} of {total_scenes}
+• Duration: {duration} seconds
+SCENE CONTENT:
+• Main Title: "{title}"
+• Subtitle: "{subtitle}" (for Opening scene only)
+• Cards Data: {cards_str} (for Stat Cards scene only)
+• Narration: "{narration_text}"
+COMMON DESIGN REQUIREMENTS:
+• Background:
+Use background color from config
+({bg_color})
+• Typography: Modern sans-serif font (e.g., ’Inter’, ’Hel-
+vetica’, ’Arial’)
+• Title: Large, bold (font-size: 56-72px, font-weight: 700-
+900), color: {text_color}
+• Subtitle: Smaller text (font-size: 24-32px, font-weight:
+400-500), color: {subtitle_color}
+• NO ANIMATIONS: All elements at full opacity and
+final positions (animations added later)
+• Subtitle Space: Reserve BOTTOM 80-130px for narra-
+tion subtitles
+SCENE-SPECIFIC REQUIREMENTS:
+• Opening: Centered title and subtitle, spacing 20-30px
+between them
+• Closing: Centered title, optional tagline below (font-
+size: 20-24px)
+• Stat Cards:
+Cards in SINGLE ROW (flexWrap:
+’nowrap’), flex: ’1 1 0%’, width: 0 on each card. Each
+card: border 2px, padding 28px 20px, number font-size
+52px, label font-size 15px. Reserve bottom 130px for
+subtitles.
+OUTPUT: Generate complete TSX component. See exam-
+ples: {Opening_Example C.6.3}, {Closing_Example C.6.3},
+{Stat_Card_Example C.6.3}
+CRITICAL:
+• Replace [ComponentName] with actual component
+name
+• Keep structure clean and simple
+• All styles inline for easy animation later
+• DO NOT add animation logic
+• Return ONLY complete TSX code, no explanation
+Example: The following demonstrates concrete examples of TSX
+static component code for different scene types (Opening, Closing,
+and Stat Cards). These examples illustrate the expected component
+structure, styling, and layout patterns.
+C.6.3
+TSX Static Component Agent Example
+Opening/Closing Scene Example
+import React from ’react’;
+import { AbsoluteFill } from ’remotion’;
+interface SceneProps {
+sceneStartOffset?: number;
+narrations?: Array<{text: string; time_start: number;
+time_end: number}>;
+}
+export const [ComponentName]: React.FC<SceneProps> = ({
+sceneStartOffset = 0 }) => {
+
+
+return (
+<AbsoluteFill style={{...containerStyle}}>
+<div style={{...titleStyle}}>{title}</div>
+{/* Opening: subtitle with fontSize: 28 */}
+{/* Closing: optional summary text with fontSize: 22,
+opacity: 0.9 */}
+</AbsoluteFill>
+);
+};
+Stat Card Example
+import React from ’react’;
+import { AbsoluteFill } from ’remotion’;
+interface StatCard { number: string; label: string; color:
+string; }
+interface SceneProps {
+sceneStartOffset?: number;
+narrations?: Array<{text: string; time_start: number;
+time_end: number}>;
+title?: string;
+}
+export const [ComponentName]: React.FC<SceneProps> = ({
+sceneStartOffset = 0,
+title = "{title}"
+}) => {
+const cards: StatCard[] = {cards_json};
+return (
+<AbsoluteFill style={{...containerStyle, paddingBottom:
+130}}>
+{title &&
+<div style={{...titleContainerStyle}}>
+<h2>{title}</h2>
+</div>}
+<div style={{display: ’flex’, flexWrap: ’nowrap’,
+gap: 20, ...}}>
+{cards.map((card, index) => (
+<div key={index} style={{
+flex: ’1 1 0%’, width: 0, minWidth: 0,
+background: ’rgba(26, 32, 44, 0.8)’,
+border: ‘2px solid ${card.color}‘,
+...cardStyle
+}}>
+<div style={{fontSize: 52, color: card.color,
+...}}>{card.number}</div>
+<div style={{fontSize: 15, color: ’#e0e0e0’,
+...}}>{card.label}</div>
+</div>
+))}
+</div>
+</AbsoluteFill>
+);
+};
+C.7
+Animation Adding Agent
+C.7.1
+Static Charts Animation
+Prompt Template: Animated Chart Component Specifica-
+tion
+You are a React, D3.js, and Remotion animation expert.
+Task
+I have a static D3 infographic component, and I need you
+to only add animation logic without modifying the static
+rendering part.
+Scene Information
+Title: "{scene_title}"
+Animation Configuration: {json.dumps(animations_config,
+indent=2)}
+Subtitle Configuration: {json.dumps(narrations, indent=2)}
+Existing Static Component Code: {static_tsx_code}
+What to Do:
+1. Add
+Remotion
+imports:
+useCurrentFrame,
+useVideoConfig
+2. Add hooks: const frame = useCurrentFrame();
+const {fps} = useVideoConfig(); const
+sceneStartOffset = {scene_start_time};
+3. Add second useEffect for animations:
+• Implement entrance and emphasis animations
+• After entrance ends, force all elements to final
+state
+• Use precise class selectors (.bar, .dot, etc.), not
+broad tag selectors
+• Always check if data d exists before accessing
+properties
+• Use .style(’opacity’, ...)
+consistently,
+not mixed with .attr()
+4. Add
+subtitle
+display:
+Create
+getCurrentNarration() helper,
+display in bot-
+tom area (reserved 35-130px)
+5. Modify initial state: Set initial animation values (e.g.,
+height: 0, opacity: 0) in first useEffect
+Key Requirements:
+• Use absolute time (seconds) for animation timing, not
+relative progress
+• Handle multiple simultaneous animations correctly (use
+Set to track highlighted items)
+• Use
+standard
+D3
+ease
+functions
+(e.g.,
+d3.easeCubicOut(progress))
+• DO NOT modify core static rendering logic or JSX lay-
+out structure
+Output: Complete TypeScript code with animations. Com-
+ponent name: export const SceneComponentAnimated.
+No markdown blocks, no explanations.
+C.7.2
+Opening, Closing, Stat_cards Scene Animation
+Prompt Template: Opening/Closing/Stat Cards Scene Ani-
+mation
+You are adding ANIMATIONS to an OPENING/CLOS-
+ING/STAT CARDS SCENE component.
+SCENE TIMING:
+• Scene starts at: {scene_start_time}s
+• Duration: {duration}s
+• Number of cards: {num_cards} (for Stat Cards only)
+• FPS: 30
+ANIMATION CONFIGURATION: (for Stat Cards only)
+{animations_json}
+
+
+COMMON REQUIREMENTS:
+• CRITICAL: frame in Sequence is LOCAL (starts from
+0), NOT global frame number
+• Use relativeTime = frame / fps for animation
+timing
+• Use
+absoluteTime = sceneStartOffset +
+relativeTime for subtitle matching
+• Import
+Remotion
+hooks:
+useCurrentFrame,
+useVideoConfig, interpolate, Easing
+• For
+Stat
+Cards:
+Also
+import
+useMemo,
+add
+animations?:
+Animation[] to SceneProps
+• Apply animations to individual elements separately (title,
+subtitle, cards), NOT to AbsoluteFill
+• Use
+interpolate
+with
+Easing.out(Easing.cubic)
+for
+smooth
+anima-
+tions
+• Add narration subtitle UI at bottom
+• DO NOT change component structure or content
+SCENE-SPECIFIC ANIMATIONS:
+• Opening: Title and subtitle fade in with slide-up effect
+• Closing:
+Title fade in + slide up (30px) + scale
+(0.92→1.0) over 0.8s, starts at 0.15s. Subtitle fade in +
+slide up (20px) over 0.7s, starts at 0.5s. NO fade out.
+• Stat Cards: Cards appear sequentially using config’s
+stagger_delay. Each card: fades in + scales up +
+slides up.
+Emphasis: border width 3px + glowing
+shadow + pulse (2.5 cycles) when active. MUST use
+animations prop from config.
+Examples:
+{Opening_Example
+C.7.3},
+{Clos-
+ing_Example C.7.3}, {Stat_Card_Example C.7.3}
+OUTPUT: Return ONLY the complete animated TSX code,
+no explanation.
+Example: The following demonstrates concrete examples of an-
+imation logic for different scene types (Opening, Closing, and Stat
+Cards). These examples illustrate how to add Remotion animation
+hooks and implement entrance/emphasis animations that sync with
+narration timing.
+C.7.3
+Animation Adding Agent Example
+Opening/Closing Scene Animation Example
+export const ComponentName: React.FC<SceneProps> = ({
+sceneStartOffset = 0,
+narrations = []
+}) => {
+const frame = useCurrentFrame();
+const { fps } = useVideoConfig();
+const relativeTime = frame / fps;
+const absoluteTime = sceneStartOffset + relativeTime;
+// Opening: Simple fade + slide up
+const titleProgress = Math.max(0, Math.min(1,
+(relativeTime - 0.2) / 0.6));
+const titleOpacity = titleProgress;
+const titleY = (1 - titleProgress) * 20;
+// Closing: Rich layered animation with interpolate
+// const titleProgress = interpolate(frame, [titleDelay
+* fps, ...], [0, 1],
+// { easing: Easing.out(Easing.cubic) });
+// const titleScale = 0.92 + 0.08 * titleProgress;
+const currentNarration = narrations.find(
+n => absoluteTime >= n.time_start && absoluteTime <
+n.time_end
+);
+return (
+<AbsoluteFill>
+<div style={{...originalTitleStyle, opacity:
+titleOpacity,
+transform: ‘translateY(${titleY}px)‘}}>
+{title}
+</div>
+{currentNarration && (
+<div style={{position: ’absolute’, bottom: 35,
+...subtitleStyle}}>
+{currentNarration.text}
+</div>
+)}
+</AbsoluteFill>
+);
+};
+Stat Card Animation Example
+export const ComponentName: React.FC<SceneProps> = ({
+sceneStartOffset = 0,
+narrations = [],
+animations = [] // MUST receive animations prop
+}) => {
+const frame = useCurrentFrame();
+const { fps } = useVideoConfig();
+const relativeTime = frame / fps;
+const absoluteTime = sceneStartOffset + relativeTime;
+// Extract animations from config
+const entranceAnim = useMemo(() =>
+animations.find(a => a.type === ’entrance’),
+[animations]);
+const emphasisAnims = useMemo(() =>
+animations.filter(a => a.type === ’emphasis’),
+[animations]);
+// Card entrance: sequential appearance with stagger
+const getCardProgress = (index: number) => {
+const cardStartFrame = entranceStartFrame + index *
+(staggerDelay * fps);
+return interpolate(frame, [cardStartFrame,
+cardStartFrame + duration],
+[0, 1], { easing: Easing.out(Easing.cubic) });
+};
+// Card emphasis: pulse effect when mentioned in
+narration
+const getCardEmphasis = (cardIndex: number) => {
+const emphasisAnim = emphasisAnims.find(a =>
+a.target_data?.card_index === cardIndex);
+if (!emphasisAnim || !isActive) return { scale: 1,
+borderWidth: 2 };
+const pulse = Math.sin(progress * Math.PI * 2.5) *
+intensity * 0.4 + 1;
+return { scale: pulse, borderWidth: 3,
+boxShadow: ‘0 0 12px ${card.color}40, 0 0 24px
+${card.color}20‘ };
+};
+return (
+
+
+<AbsoluteFill>
+{cards.map((card, index) => {
+const progress = getCardProgress(index);
+const emphasis = getCardEmphasis(index);
+return (
+<div key={index} style={{
+...originalCardStyle,
+opacity: progress,
+transform: ‘scale(${0.8 + 0.2 * progress} *
+${emphasis.scale})
+translateY(${(1 - progress) * 30}px)‘,
+border: ‘${emphasis.borderWidth}px solid
+${card.color}‘,
+boxShadow: emphasis.boxShadow
+}}>
+{/* Card content */}
+</div>
+);
+})}
+</AbsoluteFill>
+);
+};
+D
+EVALUATION FRAMEWORK AND CRITERIA
+D.1
+Detailed Evaluation Framework and Scoring Criteria
+This appendix provides a multi-dimensional assessment system for
+the generated videos. The design of this system takes into account
+the User Intent as well as the three core components of the data
+videos: Visualization, Narration, and Animation. We have defined
+the following five core indicators (F1-F5), and have formulated detailed
+1-5 point scoring standards.
+F1: Intent Fulfillment This perspective evaluates whether the data
+video solved the user’s problem, rather than just whether it was made
+correctly. It focuses on the relevance, completeness, and clarity of the
+answer provided.
+Prompt: Intent Fulfillment Description and Scoring Crite-
+ria (1-5 Scale)
+Description:
+The primary goal of a data video is to answer the user’s an-
+alytical question. Intent Fulfillment evaluates whether the
+video answers the user’s query, including the completeness of
+the query response, the achievement of analytical goals, and
+content relevance. This dimension focuses not on "whether
+the visualization is well done," but on "whether it solves the
+user’s problem."
+Scoring criteria(Strict):
+S 1. Completely fails to answer the user’s questions, insights
+are irrelevant to user intent, content deviates from the
+topic.
+S 2. Only surface questions are answered, no deep analysis,
+insights are weakly connected to user intent, style is
+mismatched. Or, severe misalignment significantly hin-
+ders understanding. This score should only be given
+when the problem is so severe that the video becomes
+completely incomprehensible.
+S 3. Some questions are answered, insights are partially rel-
+evant, style is acceptable. Or, alignment issues cause
+moderate confusion that hinders understanding.
+S 4. Main questions are answered, 1-2 minor points may be
+missed, insights are relevant but could be deeper, style is
+appropriate, no obvious visual-narrative misalignment.
+S 5. Only when all user questions are fully answered, the
+insights are highly relevant to the user’s intent, and the
+video style perfectly matches the target audience. This
+is exceptional and rare. Evaluation Focus: Video pre-
+sentation quality (smooth animation, clear narration,
+visual completeness), not data accuracy.
+F2: Data Insight This viewpoint stresses that data insights must be
+visually proven to be credible. The value of an insight depends on
+whether it can be clearly seen and verified in the visualization.
+Prompt: Data Insight Description and Scoring Criteria
+(1-5 Scale)
+Description:
+Data Insight evaluates the quality of discoveries from the data,
+including the depth, novelty, relevance, and value of insights.
+This dimension focuses on meaningful findings and patterns
+extracted from the data, and whether these insights help users
+understand the story behind the data. Insights must be visually
+verifiable—if an insight is only verbally stated and cannot be
+verified or understood from visual elements, its credibility and
+value are diminished.
+Scoring criteria(Strict):
+S 1. No meaningful insights are presented, only raw data
+display without analysis, or insights are completely ir-
+relevant.
+S 2. Insights are superficial, only reveal obvious patterns,
+provide limited value. Or, the visuals fail to demonstrate
+the stated insights, making them unverifiable. If insights
+are not adequately visually supported (e.g., narration
+describes dynamic comparisons but visuals are static,
+or insights cannot be verified from the visuals), a
+score of 2 should be given.
+S 3. Insights are acceptable but relatively shallow, reveal
+basic patterns, provide some information but lack depth.
+Insights have some visual support, but may not be clear
+or complete.
+S 4. Insights are meaningful and relevant, reveal some pat-
+terns, provide useful information, insights are visually
+supported but could be deeper.
+S 5. Only when insights are extremely profound and mean-
+ingful, reveal novel patterns, are highly relevant to the
+user query, provide significant value, and are clearly
+showcased visually. This requires exceptional analytical
+depth. Evaluation Focus: Quality of insight presen-
+tation (whether clearly presented visually), not data
+accuracy.
+F3: Narrative Quality This viewpoint judges how well a story is
+structured and how clearly it connects to the data insights. It focuses
+on the storytelling itself, not on whether the data is accurate.
+Prompt: Narrative Quality Description and Scoring Crite-
+ria (1-5 Scale)
+Description:
+Narrative Quality evaluates the logical quality of the video’s
+narration, including narrative coherence, logical completeness,
+structural soundness, and the connection between the narrative
+and data insights. This dimension focuses on the overall
+logical flow of the story, including the completeness of the
+
+
+beginning, development, climax, and conclusion, as well as
+natural transitions between scenes.
+Scoring criteria(Strict):
+S 1. Narration is chaotic and disorganized, the storyline is
+incomprehensible, insights are missing or severely devi-
+ated, and there is no clear connection between scenes.
+S 2. Narration is insufficiently coherent or has serious logical
+gaps, story structure is incomplete or has logical jumps,
+scene transitions are abrupt, making the narration diffi-
+cult to follow. If there is a serious disconnect between
+the narration and the visual presentation (e.g., nar-
+ration describes a dynamic process but visuals are
+static), a score of 2 should be given.
+S 3. Narration is basically coherent but relatively plain, story
+structure is basically complete but lacks highlights, in-
+sight connection is basically clear but not deep enough,
+scene transitions are acceptable. Minor inconsistencies
+between narration and visuals (e.g., numerical differ-
+ences due to rounding) are tolerable.
+S 4. Narration is coherent and logically clear, story structure
+is basically complete, insights are clearly connected,
+narration and visuals are consistent, scene transitions are
+reasonable.
+S 5. Only when the narration is extremely coherent and log-
+ically clear, the story structure is complete and well-
+organized, perfectly connected to insights, the narration
+and visuals are completely consistent, scene transitions
+are natural and smooth, achieving a professional nar-
+rative level. Evaluation Focus: Fluency, structure,
+and logic of the narration (whether scene transitions
+are natural, narrative structure is clear, story flow is
+coherent), not data accuracy.
+F4: Animation Effectiveness This aspect assesses how precisely an-
+imations are synchronized with the narration and visuals to highlight
+key elements at the right moments.
+Prompt: Animation Effectiveness Description and Scoring
+Criteria (1-5 Scale)
+Description:
+Evaluates the synchronization of animations with the narration:
+whether visual elements (highlights, appearances, annotations,
+etc.) emphasize the content being discussed at the appro-
+priate moment. This dimension only focuses on animation
+timing and pointing accuracy, not data or chart quality. Score
+based on the entire video; only downgrade significantly when
+problems are recurring or severely impair understanding.
+Scoring criteria(Strict):
+S 1. Frequent and severe misalignments/highlighting errors,
+severely interfering with understanding or making it
+almost impossible to understand.
+S 2. Multiple noticeable misalignments (>1 second) or fre-
+quently highlights wrong elements/points to wrong cate-
+gories, causing viewers significant difficulty in matching
+narration with visuals, and significantly hindering under-
+standing.
+S 3. Overall can follow along (<1 second), but timing is un-
+stable, omissions are frequent, or highlighting doesn’t
+closely "follow the narration"; can still basically under-
+stand the main points.
+S 4. Generally well synchronized (<0.5 seconds), highlights
+correct elements most of the time, occasional minor
+timing issues or omissions.
+S 5. Almost perfectly synchronized with narration (<0.2 sec-
+onds), highlights/appears correct elements every time,
+with accurate timing.
+F5: Aesthetic Quality This point evaluates the visual polish and design
+coherence of a video, focusing on its color scheme, typography, and lay-
+out. It judges whether the aesthetic presentation appears professionally
+finished and credible, or rough and amateurish.
+Prompt: Aesthetic Quality Description and Scoring Crite-
+ria (1-5 Scale)
+Description:
+Evaluates the overall visual aesthetics and professionalism
+of the video, including color scheme coordination, typogra-
+phy refinement (margins, alignment, whitespace), design de-
+tails (rounded corners, shadows, transition effects), and style
+consistency. Aesthetic quality reflects the video’s "polish."
+High-quality videos feel professional and carefully crafted;
+low-quality videos appear rough and amateurish.
+Scoring criteria(Strict):
+S 1. Color scheme is chaotic and jarring, typography has
+serious problems, completely lacks design sense, style is
+completely inconsistent, giving the impression of being
+haphazardly assembled.
+S 2. Multiple design issues affecting visual appeal or read-
+ability (obvious overlap, severe cropping, chaotic align-
+ment, placeholder feel, etc.) making core information
+hard to read or significantly reducing professionalism.
+S 3. Overall readable and basically neat, but details are aver-
+age; minor local flaws (e.g., slight overlap/cropping/s-
+mall font size) are allowed as long as they do not affect
+core information acquisition and are not recurring prob-
+lems.
+S 4. Color scheme and typography are clear and unified, de-
+tails are reasonably executed, overall appearance is pro-
+fessional; basically no obvious flaws like cropping/over-
+lap.
+S 5. Only when it reaches a professional designer’s level:
+color scheme is refined and harmonious, typography is
+polished and meticulous, details are well-crafted, overall
+style is highly consistent, visuals are complete and cor-
+rectly rendered, with strong visual appeal. Evaluation
+Focus: Visual presentation (color scheme, typogra-
+phy, design details, visual completeness), not data
+accuracy.
+D.2
+MLLM-as-a-Judge Prompt
+To achieve automatic evaluation, we have designed the following
+prompt to guide the scoring of Gemini-2.5-Pro.
+The evaluation prompt involved the following components:
+• {user_query}: User’s original intension or queries of the data.
+• {F1_prompt}: Detailed prompt of User Intent in Appendix D.1
+• {F2_prompt}: Detailed prompt of Data Insight in Appendix D.1
+• {F3_prompt}:Detailed prompt of Narrative Quality in Appendix
+D.1
+
+
+• {F4_prompt}:Detailed prompt of Animation Effectiveness in
+Appendix D.1
+• {F5_prompt}:Detailed prompt of Aesthetic Quality in Appendix
+D.1
+Prompt Template: Data Video Evaluation
+You are a professional data visualization video evaluation
+expert. Please watch this data visualization video carefully
+and provide a comprehensive assessment.
+Step 1 Video Content Description:
+First, provide a detailed description of what you actually ob-
+serve in the video. The description should include:
+• The data being visualized (topic, metrics, time period,
+etc.)
+• The types of charts/visualizations displayed
+• The narrative content presented (what the narration says,
+what text appears on screen)
+• The overall structure and flow of the video (describe
+only what you actually see, do not assume)
+• Key scenes or segments and their sequence
+• Any major issues hindering comprehension (e.g., con-
+tradictions between narration and visuals, missing
+promised animations, placeholder/incomplete visual ele-
+ments, cropped/truncated charts, overlapping elements,
+misaligned layout)
+Key Requirement: Describe only what you truly see and hear.
+Do not fabricate, speculate, or assume content not explicitly
+present. Remain objective and factual.
+At the end of the description, include a concise list of Observed
+Issues (if any), strictly based on what you saw/heard.
+{user_query}
+Step 2: Evaluation Dimensions and Scoring Criteria
+After providing the video content description, please provide a
+score of 1-5 (with 1 being the lowest and 5 being the highest)
+for each of the following five dimensions:
+F1:User Intent: {F1_prompt}
+F2:Data Insight: {F2_prompt}
+F3:Narrative Quality: {F3_prompt}
+F4:Animation Effectiveness: {F4_prompt}
+F5:Aesthetic Quality: {F5_prompt}
+Scoring Requirements:
+Please provide a 1-5 score for each dimension according to the
+above scoring criteria, accompanied by a brief justification for
+the score (1-2 sentences explaining the specific performance
+for each dimension).
+For each dimension, the justification must cite at least one
+specific, observable piece of evidence from the video (e.g.,
+a specific on-screen element, a missing/cropped chart, over-
+lapping elements, a described but missing animation, or a
+specific mismatch). Do not award a high score based solely
+on narrative claims if the visual elements fail to show or
+support them.
+Key Evaluation Principles:
+• Evaluate based solely on what you actually observe in
+the video. Do not fabricate, speculate, or assume struc-
+tures, patterns, or content that are not clearly visible or
+audible in the video.
+• When describing narrative structure or any other aspect,
+mention only what you truly see and hear. If you cannot
+clearly identify something, do not mention it or use
+vague language like "there seems to be" or "appears to
+follow".
+• Be accurate and honest. It is better to give a lower score
+based on actual observation than a higher score based
+on assumptions or fabricated structure.
+• Consider overall quality comprehensively; do not pe-
+nalize heavily for minor errors: The evaluation should
+consider the video’s overall quality comprehensively (an-
+imation smoothness, aesthetic quality, narrative clarity,
+visual completeness, etc.), rather than assigning a very
+low score directly due to a localized issue (e.g., data
+contradiction, minor inconsistency). Significant score re-
+duction should only occur if a problem is severe enough
+to impact the overall viewing experience or render the
+video completely incomprehensible.
+• Distinguish Major Issues from Minor Discrepan-
+cies: Only significant inconsistencies (e.g., order-of-
+magnitude differences, opposite trends, incorrect cate-
+gories, missing key elements) should be heavily penal-
+ized. Minor numerical differences (e.g., due to rounding
+or unit conversion) are acceptable and should not sig-
+nificantly lower the score.For Aesthetic Quality (F5):
+A score of 2 or below is only for issues that seriously
+harm readability and professionalism. Minor aesthetic
+flaws not significantly impairing the overall experience
+are acceptable and merit a score of 3. For Animation
+Effectiveness (F4): Distinguish between animation is-
+sues (synchronization, timing, highlight accuracy) and
+data issues (missing data, incomplete charts). Inabil-
+ity to highlight due to missing data is not an animation
+misalignment and should impact F1/F2/F3, not F4.
+• Interlinked Dimensions: A major issue in one dimension
+often affects others. For example, severe animation-
+narration misalignment (low F4) can hinder comprehen-
+sion (affecting F1) and disrupt narrative flow (affecting
+F3). Do not evaluate dimensions in isolation; consider
+how problems in one area impact the overall viewing
+experience.
+Please return the results following the json format below:
+{
+"video_description": "A detailed and objective
+description of the content actually observed in
+the video, including data themes, chart types,
+narrative content, structure, and key scenes.
+Include only what is truly seen and heard,
+without speculation or assumptions.",
+"scores": {
+"intent_fulfillment": {
+"score": 4,
+"reason": "Addresses the main user questions,
+insights are relevant to the intent, video
+style is suitable for the target audience."
+},
+"data_insights": {
+"score": 4,
+"reason": "Insights are meaningful and relevant,
+revealing some patterns, providing useful
+information, but could be deeper."
+},
+"narrative_quality": {
+"score": 4,
+
+
+"reason": "The narrative is coherent and
+logically clear, the story structure is
+basically complete, insights are clearly
+connected, and scene transitions are
+reasonable."
+},
+"animation_effectiveness": {
+"score": 4,
+"reason": "Animation synchronization is good
+(deviation <0.5 seconds), mostly
+highlights the correct elements, alignment
+is generally accurate."
+},
+"aesthetic_quality": {
+"score": 4,
+"reason": "The color scheme is harmonious and
+comfortable, typography is clear and
+reasonable, with some attention to detail,
+overall style is basically unified."
+}
+},
+"overall_score": 4.33,
+"summary": "Overall quality is excellent, with
+outstanding performance in data fidelity and
+visualization effectiveness, good animation
+synchronization, and an engaging narrative.
+Suggestion: Further optimize intent fulfillment
+to ensure all user questions are fully addressed."
+}
+Please ensure that the returned content is in valid JSON for-
+mat and does not contain any markdown code block tags or
+anything other than JSON
+E
+DETAILS OF HUMAN EXPERT VALIDATION AND EVALUATION
+INTERFACE
+To verify the effectiveness of the MLLM-based automated evaluation
+method, we conducted a human expert consistency validation experi-
+ment to establish a high-quality ground-truth baseline. The evaluation
+panel consisted of three experts with professional backgrounds in data
+analysis and video production.
+To ensure broad representation and coverage of the complete qual-
+ity spectrum, we employed a dual-layered stratified sampling strategy.
+First, we performed a preliminary screening from a sample pool gen-
+erated by various methods (Direct vs. DATAMAGIC) and base models
+(GPT-5, Claude-Sonnet-4, Gemini-2.5-Pro, DeepSeek-V3.2). Subse-
+quently, we sampled 15 video cases for each of the four quality inter-
+vals: 1-2, 2-3, 3-4, and 4-5 points. Through this balanced mechanism
+across both models and scores, we constructed a validation set of 60
+videos, supporting broad coverage of the quality distribution for expert
+validation.
+Table 7. Automated Evaluator–Human Expert Consistency Metrics.
+Dimension
+Pearson r
+MAE
+MSE
+Overall
+0.91
+0.38
+0.23
+Intent
+0.78
+0.57
+0.49
+Insight
+0.76
+0.51
+0.47
+Narrative
+0.83
+0.60
+0.59
+Animation
+0.90
+0.47
+0.48
+Aesthetic
+0.77
+0.73
+0.84
+The expert review process was conducted via the online evaluation
+platform provided for this study. As illustrated in Figure 12, the in-
+terface defines a standardized audit workflow for experts: they first
+examine the original User Query module on the lower-left to identify
+the analytical objectives the video is expected to achieve; then, they use
+the interactive player for in-depth observation, focusing on the preci-
+sion of audio-visual synchronization and narrative coherence. During
+the scoring phase, experts refer to the detailed Scoring Guide pro-
+vided in Appendix D.1 to provide quantitative ratings (1-5 scale) across
+five dimensions: Intent Fulfillment, Data Insight, Narrative Quality,
+Animation Effectiveness, and Aesthetic Quality.
+In practice, experts spent approximately 15 to 30 minutes reviewing
+each video case. This extended period of meticulous review ensured
+that experts could identify subtle logical deviations, cross-modal numer-
+ical conflicts, or temporal misalignments. In addition to quantitative
+scores, experts utilized the feedback area at the bottom of the interface
+to document qualitative defects.
+Consistency Results. Table 7 summarizes the agreement between
+the automated evaluator and expert scores. Overall scores exhibit a
+strong positive correlation (Pearson r = 0.91, p < 0.001) with a mean
+absolute error of 0.38. All dimension-level correlations exceed 0.75,
+with the strongest agreement for Animation (r = 0.90), followed by
+Narrative (r = 0.83); Intent, Aesthetic, and Insight achieve correlations
+of 0.78, 0.77, and 0.76, respectively. Although Aesthetic has the largest
+absolute error (MAE = 0.73), the results indicate that the automated
+evaluator largely preserves experts’ relative quality judgments across
+dimensions and quality levels.
+
+
+Fig. 12. The online evaluation platform used for human expert validation. The interface integrates the original user query, synchronized video
+playback, a multi-dimensional scoring guide, and a feedback module for documenting qualitative observations.
