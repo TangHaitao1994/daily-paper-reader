@@ -48,17 +48,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-10-03</span>
+      <span class="dpr-home-dashboard-kicker">2026-10-04</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 8 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 13 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>4</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>4</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>9</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-10-03 21:53:45 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-10-04 22:52:06 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -69,9 +69,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共生成 8 篇推荐（精读 4 篇，速读 4 篇）</p>
-<p>精读：《WenetSpeech-Min: A Large-Scale Minnan Speech Corpus with Dual Transcriptions for Dialectal Speech Processing》（8.0/10）, 《VAmoS Part Deux: Harder, More Realistic Voice-Agent Simulation》（8.0/10）</p>
-<p>速读：《Beyond Mode Collapse: Generating Diverse Synthetic Expert Conversations via Generative Flow Networks》（7.0/10）, 《DataMagic: Authoring Data Videos through Declarative Multi-Agent Orchestration》（6.0/10）, 《Uncovering Ordinal-Matching Bias in Audio-Visual LLMs》（6.0/10）</p>
+<p>今日共生成 13 篇推荐（精读 4 篇，速读 9 篇）</p>
+<p>精读：《Thinking in Depth, Speaking Directly: Recurrent Latent Reasoning for Paralinguistically Grounded Spoken Dialogue》（9.0/10）, 《RVQ Position Aware Speculative Decoding for On Device Text to Speech》（8.0/10）</p>
+<p>速读：《Adaptive Consistency Graph for Long-Horizon Agents》（7.0/10）, 《Uncovering shortcut learning in audio classifiers by discovering recurring concepts in temporal explanations》（7.0/10）, 《FOCUS: Training-Free Decision-Preserving Context Compression for LLM Agents》（7.0/10）</p>
 <p>这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。</p>
   </div>
 </section>
@@ -84,9 +84,9 @@
     <strong class="dpr-home-dashboard-count">4 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="WenetSpeech-Min: A Large-Scale Minnan Speech Corpus with Dual Transcriptions for Dialectal Speech Processing">WenetSpeech-Min: A Large-Scale Minnan Speech Corpus with Dual Transcriptions for Dialectal Speech Processing</span></li><li><span class="dpr-home-dashboard-paper-title" title="VAmoS Part Deux: Harder, More Realistic Voice-Agent Simulation">VAmoS Part Deux: Harder, More Realistic Voice-Agent Simulation</span></li><li><span class="dpr-home-dashboard-paper-title" title="Towards Model as a Library: Offline, Community-Sourced AI for Low-Resource African Languages">Towards Model as a Library: Offline, Community-Sourced AI for Low-Resource African Languages</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Thinking in Depth, Speaking Directly: Recurrent Latent Reasoning for Paralinguistically Grounded Spoken Dialogue">Thinking in Depth, Speaking Directly: Recurrent Latent Reasoning for Paralinguistically Grounded Spoken Dialogue</span></li><li><span class="dpr-home-dashboard-paper-title" title="RVQ Position Aware Speculative Decoding for On Device Text to Speech">RVQ Position Aware Speculative Decoding for On Device Text to Speech</span></li><li><span class="dpr-home-dashboard-paper-title" title="FFASR: Benchmarking Far-Field Automatic Speech Recognition using High-Fidelity Simulated RIRs">FFASR: Benchmarking Far-Field Automatic Speech Recognition using High-Fidelity Simulated RIRs</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">data-agent <strong>3</strong></span><span class="dpr-home-dashboard-tag">duplex-agent <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">data-agent <strong>2</strong></span><span class="dpr-home-dashboard-tag">duplex-agent <strong>2</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -94,12 +94,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">4 篇</strong>
+    <strong class="dpr-home-dashboard-count">9 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Beyond Mode Collapse: Generating Diverse Synthetic Expert Conversations via Generative Flow Networks">Beyond Mode Collapse: Generating Diverse Synthetic Expert Conversations via Generative Flow Networks</span></li><li><span class="dpr-home-dashboard-paper-title" title="DataMagic: Authoring Data Videos through Declarative Multi-Agent Orchestration">DataMagic: Authoring Data Videos through Declarative Multi-Agent Orchestration</span></li><li><span class="dpr-home-dashboard-paper-title" title="Uncovering Ordinal-Matching Bias in Audio-Visual LLMs">Uncovering Ordinal-Matching Bias in Audio-Visual LLMs</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Adaptive Consistency Graph for Long-Horizon Agents">Adaptive Consistency Graph for Long-Horizon Agents</span></li><li><span class="dpr-home-dashboard-paper-title" title="Uncovering shortcut learning in audio classifiers by discovering recurring concepts in temporal explanations">Uncovering shortcut learning in audio classifiers by discovering recurring concepts in temporal explanations</span></li><li><span class="dpr-home-dashboard-paper-title" title="FOCUS: Training-Free Decision-Preserving Context Compression for LLM Agents">FOCUS: Training-Free Decision-Preserving Context Compression for LLM Agents</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">data-agent <strong>2</strong></span><span class="dpr-home-dashboard-tag">duplex-agent <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">duplex-agent <strong>7</strong></span><span class="dpr-home-dashboard-tag">data-agent <strong>2</strong></span></div>
 </section>
 </div>
 
