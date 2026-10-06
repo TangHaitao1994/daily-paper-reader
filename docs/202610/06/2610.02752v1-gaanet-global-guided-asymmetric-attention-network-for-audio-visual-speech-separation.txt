@@ -1,0 +1,773 @@
+GAANet: Global-guided Asymmetric Attention
+Network for Audio-Visual Speech Separation
+Zhiyuan Zhang1, Jingyuan Xu1*, Yiming Tang1, Liu Liu1, Dan Guo1
+1School of Computer Science and Information Engineering, Hefei University of Technology, Hefei, Anhui 230601, China
+zhiyuan.dizzy@outlook.com, xujingyuan@hfut.edu.cn, tym608@163.com, liuliu@hfut.edu.cn, guodan@hfut.edu.cn
+Abstract—Multi-scale design is crucial for efficient audio-visual
+speech separation, yet effectively modeling multi-scale informa-
+tion for audio-visual feature fusion remains challenging. We argue
+that the limited capacity of existing approaches primarily arises
+from: 1) treating features from different modalities in the same
+manner, and 2) overlooking the role of global features. To address
+these issues, we propose a Global-guided Asymmetric Attention
+Network (GAANet). Our model introduces two core innovations:
+first, an asymmetric multi-scale fusion framework that allows
+audio and visual streams to extract and interact with features at
+their respective optimal temporal resolutions, removing the need
+for symmetric temporal downsampling; second, a global-guided
+attention mechanism that compresses each modality into a com-
+pact global token with a temporal dimension of one, which then
+provides high-level semantic cues to guide both intra- and inter-
+modal fusion across scales. Experiments on LRS2 and VoxCeleb2
+demonstrate that GAANet achieves state-of-the-art performance,
+reaching 16.5 dB SI-SNRi on LRS2 and 14.0 dB on VoxCeleb2,
+while maintaining a lightweight computational profile with only
+3.3M parameters and 19.8G MACs. These results highlight the
+strong potential of asymmetric temporal modeling and global
+guidance for efficient and robust multimodal fusion. The source
+code is publicly accessible at https://github.com/redizzy/GAANet.
+Index Terms—Speech separation, Asymmetric multi-scale fu-
+sion, Global-guided attention, Audio-visual learning
+I. INTRODUCTION
+Audio-visual speech separation (AVSS) aims to recover a
+target speaker’s voice from a mixture by jointly leveraging
+acoustic signals and visual cues such as lip movements.
+Inspired by the human ability to use visual information to
+understand speech in noisy environments, AVSS has become
+an important research direction for challenging multi-speaker
+or low-SNR conditions. Recent studies have shown that multi-
+scale modeling is crucial for AVSS [1]–[4], as it enables
+the integration of information across different temporal scales
+for effective separation. However, most existing multi-scale
+AVSS methods perform cross-modal fusion under matched
+temporal resolutions, without explicitly accounting for the
+distinct temporal characteristics of audio and visual streams.
+This work is supported by the National Natural Science Foundation of
+China under Grants 62501224 and 62576130, and by the Fundamental
+Research Funds for the Central Universities under Grants JZ2025HGQA0139
+and JZ2025HGTA0160.
+This
+work
+is
+supported
+by
+the
+National
+Key
+R&D
+Program
+of
+China (NO.2024YFB3311600), the Natural Science Foundation of China
+(62272144), the Anhui Provincial Natural Science Foundation (2408085J040),
+the Major Project of the Anhui Provincial Science and Technology Break-
+through Program (202423k09020001), and the Fundamental Research Funds
+for the Central Universities (JZ2024AHST0337).
+The computation is completed on the HPC Platform of Hefei University of
+Technology.
+Corresponding author:xujingyuan@hfut.edu.cn
+Fig. 1: Illustration of 1) Existing multi-scale methods with
+symmetric fusion framework and 2) our proposed GAANet
+with asymmetric multi-scale fusion framework and global-
+token guidance.
+Recent AVSS systems typically adopt symmetric multi-scale
+fusion frameworks [1], [2], where audio and visual features are
+downsampled to matching temporal resolutions before cross-
+modal interaction. However, audio and visual streams exhibit
+different temporal behaviors: audio features are sampled at a
+much higher temporal resolution and contain rapidly varying
+fine-grained patterns, whereas visual lip movements evolve
+more slowly and convey relatively stable semantic cues [2].
+This temporal asymmetry between the two modalities is not
+explicitly captured in symmetric fusion designs.
+Beyond modeling temporal asymmetry, audio-visual speech
+separation inherently requires reasoning beyond local temporal
+correspondences. While audio and visual features evolve over
+time, key semantic factors such as speaker identity, articula-
+tion patterns, and target dominance remain largely consistent
+within an utterance. To this end, we introduce compact global
+tokens with a singleton temporal dimension (T=1) to summa-
+rize each modality into a time-invariant semantic descriptor.
+Rather than modeling temporal dynamics, these global tokens
+provide consistent cross-modal context across temporal scales,
+enabling coherent guidance for both intra-modal refinement
+and inter-modal fusion.
+Motivated by these insights, we propose the Global-guided
+Asymmetric Attention Network (GAANet) for audio-visual
+speech separation. As illustrated in Fig.1, GAANet departs
+from the conventional symmetric temporal downsampling
+pipeline and adopts an asymmetric multi-scale fusion frame-
+work, where the audio encoder generates a multi-level tem-
+poral hierarchy while the video encoder preserves a fixed
+temporal resolution. These audio and visual features are in-
+tegrated through an asymmetric fusion block that aggregates
+information across audio scales and aligns it with the video
+arXiv:2610.02752v1  [cs.SD]  2 Oct 2026
+
+
+pathway without enforcing matched temporal rates. Built upon
+this structure, a global-guided attention (GGA) mechanism
+compresses each modality into a compact global token with
+temporal dimension 1. The two global tokens interact to form
+time-invariant cross-modal context, which is then broadcast
+back to all scales to guide the corresponding audio and visual
+features. In this way, GAANet provides coherent global guid-
+ance for both intra-modal refinement and inter-modal fusion
+throughout the entire multi-scale hierarchy.
+Our main contributions are summarized as follows:
+• We propose GAANet, a Global-guided Asymmetric
+Attention Network for AVSS, which explicitly exploits
+the intrinsic temporal asymmetry between audio and
+visual modalities for multi-scale fusion.
+• We develop an asymmetric multi-scale fusion frame-
+work that builds a temporal hierarchy for audio while
+preserving the visual temporal resolution, and further
+introduce a global-guided attention mechanism that
+forms compact global tokens (T=1) to provide time-
+invariant guidance for intra-/inter-modal fusion across
+scales.
+• GAANet achieves competitive performance on the
+LRS2 and VoxCeleb2 benchmarks with a lightweight
+computational
+profile,
+demonstrating
+an
+effective
+accuracy–efficiency trade-off.
+II. RELATED WORK
+Audio-visual speech separation (AVSS) improves robustness
+in challenging acoustic conditions by leveraging lip motion
+as a complementary, noise-invariant cue. Early AVSS systems
+primarily combine CNN-based visual encoders with audio
+encoders to extract modality-specific features [5], [6]. Subse-
+quent works incorporate cross-modal attention or Transformer-
+based fusion to strengthen audio-visual alignment [7]–[9].
+Beyond single-scale designs—typically operating at either
+coarse [6] or fine temporal resolutions [1]—recent studies
+explore multi-scale architectures to capture interactions be-
+tween fast acoustic dynamics and slower visual motions [1],
+[2], [10]. To address realistic multi-speaker settings, a re-
+cent framework performs simultaneous separation of multiple
+speakers within a single process and remains robust to missing
+visual cues [11]. In parallel, diffusion-based AVSS models
+introduce generative denoising processes with cross-attention
+fusion [12], while Transformer-style designs further refine
+audio-visual alignment through chunk-wise processing, hier-
+archical attention, and specialized positional encoding [13].
+Together, these developments outline major methodological
+directions in contemporary AVSS research.
+Attention is a central mechanism for selective information
+processing in both human cognition and machine perception
+[14]–[16]. In audio-visual speech separation, attention-based
+architectures such as dual-path Transformers and their vari-
+ants effectively model long-range dependencies and refine
+hierarchical representations [17]–[19]. Building on these ad-
+vances, AVSS systems increasingly adopt attention modules
+to align audio and visual features [7]–[9]. Recent work also
+explores time-frequency modeling with global attention and
+early audio-visual fusion [20].
+Building upon these advances in multi-scale modeling and
+attention-driven audio-visual fusion, we further extend this line
+of research by introducing the Global-guided Asymmetric
+Attention Network (GAANet). Our design departs from con-
+ventional symmetric temporal hierarchies and standard atten-
+tion formulations by incorporating modality-specific temporal
+structures together with compact global guidance, enabling
+more coherent and flexible cross-scale fusion for AVSS.
+III. PROPOSED MODEL
+A. Overall Pipeline
+GAANet targets audio-visual speech separation by leverag-
+ing the lip-region video frames of the target speaker. Given
+a mixture waveform S ∈R1×Ta and lip ROI frames V ∈
+RH×W ×Tv, the goal is to estimate the clean target waveform
+bA. The overall pipeline is illustrated in Fig. 2.
+First, the mixture audio and the lip video are processed by
+two encoders to produce the initial representations Ea and Ev.
+The audio encoder consists of a 1D convolutional layer that
+transforms the waveform into frame-level embeddings Ea ∈
+RNa×T ′
+a, while the video encoder follows the same design as
+[2] and extracts spatiotemporal lip embeddings Ev ∈RNv×Tv.
+Second, the features are fed into a unified A-V Fusion
+Block, which integrates our two architectural innovations:
+the asymmetric multi-scale fusion framework and the global-
+guided attention mechanism. Each iteration of this block
+performs multi-scale audio-visual fusion and computes global
+semantic tokens that modulate both modalities. The A-V
+Fusion Block is repeated N1 times with shared parameters,
+progressively enhancing the cross-modal alignment. The de-
+tailed structure of the A-V Fusion Block is illustrated in Fig. 3.
+Finally, the fused audio representation is refined by a
+lightweight auditory module, which is repeated N2 times to
+stabilize and polish the auditory features. The output of the au-
+ditory module is passed through a ReLU activation to produce
+the mask M, and the masked embedding is decoded through
+transposed convolutions to reconstruct the target waveform bA.
+B. Asymmetric Multi-Scale Fusion Framework
+As illustrated in Fig. 3, GAANet constructs modality-
+specific multi-scale temporal hierarchies of depth D from au-
+dio features Ea and visual features Ev produced by the front-
+end encoders, and aggregates them into cumulative multi-scale
+auditory and visual representations SA and SV .
+Audio pathway. The audio stream is processed by 1D con-
+volutional blocks along the temporal dimension, each applying
+a kernel size 5 and stride 2 convolution, layer normalization,
+and a PReLU activation. This produces the multi-scale hierar-
+chy and its cumulative representation:
+{ Ei
+a ∈RNi
+a×(T ′
+a/2 i−1) | i = 1, . . . , D},
+SA =
+D−1
+X
+i=1
+pi(Ei
+a) + ED
+a ,
+(1)
+
+
+Fig. 2: Overview of GAANet, which consists of an audio encoder, a video encoder, an A-V Fusion Block combining the
+asymmetric multi-scale fusion framework and the global-guided attention mechanism, a lightweight auditory refinement module,
+and an audio decoder.Here, “⊙” denotes the element-wise product.
+where each pooling operator pi(·) adapts the intermediate
+feature Ei
+a to the scale of the deepest representation ED
+a .
+Visual pathway. To avoid losing temporal details during
+downsampling, the visual hierarchy is designed to preserve
+the original temporal resolution at every stage. Unlike the
+audio pathway, the visual pathway maintains a fixed tem-
+poral resolution across all stages, applying no downsam-
+pling;instead, each refinement step expands the receptive field
+through convolution so that higher-level visual cues can be
+aggregated without reducing temporal fidelity. Concretely, the
+visual stream is processed by D temporal refinement blocks,
+each composed of a 1D convolution (kernel size 5, stride
+1), layer normalization, and a PReLU activation, producing
+a multi-level visual representation:
+{ Ei
+v ∈RNi
+v×Tv | i = 1, . . . , D},
+SV =
+D
+X
+i=1
+Ei
+v.
+(2)
+Both SA and SV are then forwarded to the subsequent
+fusion stage.
+C. Global-Guided Attention Mechanism
+The cumulative multi-scale audio and visual features SA and
+SV produced by the asymmetric multi-scale fusion framework
+serve as the inputs to the global-guided attention module. As
+illustrated in Fig. 3, temporal average pooling is first applied
+to obtain compact global descriptors:
+SA = AvgPoolt(SA),
+SV = AvgPoolt(SV ).
+(3)
+To enable cross-modal semantic conditioning at the global
+level, the two descriptors modulate each other through
+lightweight convolutional gating. Specifically, the visual de-
+scriptor SV is passed through a 1D convolution Qa(·) with
+kernel size 3, followed by a sigmoid activation σ(·), which
+produces a gating vector used to modulate the audio descriptor:
+GA,0 = SA + SA ⊙σ(Qa(SV )).
+(4)
+Symmetrically, the audio descriptor SA is processed by a 1D
+convolution Qv(·) (kernel size 5) to modulate visual features:
+GV,0 = SV + SV ⊙σ(Qv(SA)).
+(5)
+Finally, two modality-specific feed-forward networks are
+applied to produce the global audio and visual tokens:
+GA = FFNA(GA,0),
+GV = FFNV (GV,0).
+(6)
+Here, FFN(·) denotes a feed-forward network composed of
+three convolutional layers followed by a global layer normal-
+ization (GLN) module, providing nonlinear transformation and
+stabilization for the global representations.
+D. Multi-Scale Fusion and Reconstruction
+GAANet performs multi-scale audio–visual fusion across D
+levels, as illustrated in Fig. 3. As described in Section III-C,
+the global-guided attention (GGA) mechanism takes the cu-
+mulative features SA and SV as input and produces modality-
+specific global tokens GA and GV . These global tokens inject
+global semantic priors back into all fusion stages.
+At each scale i, the audio feature Ei
+a and the visual
+feature Ei
+v are modulated by their corresponding global tokens
+through a gated residual formulation:
+eEi
+a = Ei
+a + Ei
+a ⊙σ(Qa(GA)),
+eEi
+v = Ei
+v + Ei
+v ⊙σ(Qv(GV )).
+(7)
+This global token modulation enriches each scale with global
+semantics, making fused representations more consistent
+across modalities. The global token generation and multi-scale
+modulation process is visualized in Fig. 3.
+Following the global token modulation, the refined multi-
+scale audio features { eEi
+a} are fused through a customized
+upsampling procedure that concentrates information from all
+scales into the finest-resolution feature eE1
+a, which then serves
+as the audio input for the next fusion iteration. For the visual
+pathway, the refined features { eEi
+v} undergo a customized
+consolidation process that similarly concentrates multi-scale
+information into the finest-resolution feature eE1
+v, which is
+used as the visual input for the next iteration. The detailed
+implementation of these operations and auditory module is
+provided in the supplementary material.
+IV. EXPERIMENT CONFIGURATIONS
+A. Datasets
+Our experimental setup follows previous research [2] on the
+standard LRS2 [21] and VoxCeleb2 [22] datasets. The data was
+
+
+Fig. 3: Architecture of one iteration of the proposed A-V Fusion Block. In a single iteration, the audio and visual multi-scale
+features are first processed by the asymmetric multi-scale fusion framework to produce the cumulative representations SA and
+SV . The global-guided attention mechanism (a) then generates modality-specific global tokens GA and GV , which are used
+in (b) to modulate features across all scales via global token modulation. The refined multi-scale audio and visual features are
+finally consolidated and passed to the next iteration. This figure illustrates the case of D = 3.
+prepared as follows: audio segments were 2 seconds at 16 kHz;
+mixtures were created by randomly blending two speakers’
+audio at SNRs from -5 dB to 5 dB; and the synchronized lip
+frames were 88×88 grayscale images at 25 FPS. We employed
+the standard dataset split [2].
+B. Model configurations
+The GAANet model was implemented in PyTorch [23] and
+trained using the Adam optimizer with an initial learning rate
+of 0.001. We adopted a learning rate scheduling strategy that
+reduced the rate by 50% after 20 epochs without improvement
+in validation loss, and applied early stopping after 30 epochs.
+Gradient clipping was employed with a maximum L2-norm
+of 5, and the model was optimized using the scale-invariant
+signal-to-noise ratio (SI-SNR) as the training objective.
+Following the design described in Section III-B, GAANet
+adopts a multi-scale hierarchy of depth D = 4. The A-V fusion
+block is iterated N1 = 4 times with shared parameters, while
+the auditory refinement module is further unrolled for N2 = 12
+iterations. All experiments were conducted with a batch size
+of 3 on 8 GeForce RTX 4090 GPUs.
+C. Evaluation metrics
+To evaluate the performance of our model, we employed the
+scale-invariant signal-to-noise ratio improvement (SI-SNRi)
+and signal-to-distortion ratio improvement (SDRi), which are
+widely adopted in speech separation studies [2], [25]. These
+metrics are defined as follows:
+SI-SNRi = SI-SNR(s,ˆs) −SI-SNR(s, x),
+SDRi = SDR(s,ˆs) −SDR(s, x),
+(8)
+where x ∈R1×Ta denotes the mixture audio, s ∈R1×Ta the
+original clean source, and ˆs ∈R1×Ta the estimated source.
+SI-SNRi and SDRi measure the improvement in separation
+quality relative to the original mixture.
+In addition, we incorporated the Perceptual Evaluation of
+Speech Quality (PESQ) [26] to assess the perceived quality
+and intelligibility of the separated speech, thereby providing a
+more comprehensive evaluation of the model’s performance.
+V. RESULTS
+A. Comparisons with State-of-the-Art Methods
+Table I summarizes the performance and efficiency of
+GAANet compared with representative audio-visual speech
+separation models on LRS2 and VoxCeleb2.
+Separation Performance. As shown in Table I, GAANet
+achieves an SI-SNRi of 16.5 dB and an SDRi of 16.64 dB on
+LRS2, exceeding the strongest prior method. On VoxCeleb2,
+GAANet also attains the top results with 14.0 dB SI-SNRi and
+14.7 dB SDRi. The consistent improvements across datasets
+demonstrate the superior performance and strong generaliza-
+tion of the proposed asymmetric fusion strategy and global-
+guided attention mechanisms.
+Model Complexity and Efficiency. GAANet contains 3.3M
+parameters and 19.8G MACs, providing a compact architec-
+ture with manageable computational requirements. The model
+runs efficiently in practice, making it suitable for deployment
+while still delivering strong separation performance.
+B. Ablation Study
+We assess the individual effects of the global-guided at-
+tention (GGA) and the asymmetric multi-scale fusion (AMF)
+framework. Removing both components results in an SI-SNRi
+of 15.5 dB. Introducing only GGA increases the score to
+16.2 dB, whereas using only AMF yields 15.9 dB, indicating
+
+
+TABLE I: Separation results of different AVSS methods on LRS2 and VoxCeleb2 datasets. These metrics represent the average
+values for all speakers in each test set, where larger SI-SNRi, SDRi and PESQ values are better. ”-” denotes results not reported
+in the original paper. Bolds indicate the best.
+Methods
+LRS2
+VoxCeleb2
+Params (M)
+MACs (G)
+SI-SNRi
+SDRi
+PESQ
+SI-SNRi
+SDRi
+PESQ
+AVConvTasNet [5]
+12.5
+12.8
+2.69
+9.2
+9.8
+2.17
+16.5
+23.8
+LWTNet [24]
+-
+10.8
+-
+-
+-
+-
+69.4
+-
+VisualVoice [6]
+11.5
+11.8
+2.78
+9.3
+10.2
+2.45
+77.8
+9.7
+CaffNet-C [7]
+-
+10.0
+1.15
+-
+7.6
+-
+-
+-
+AVLiT-8 [10]
+12.8
+13.1
+2.56
+9.4
+9.9
+2.23
+5.8
+18.2
+AVSepChain [13]
+15.3
+15.7
+3.26
+13.6
+14.2
+2.72
+33.1
+-
+CTCNet [1]
+14.3
+14.6
+3.08
+11.9
+13.1
+3.00
+7.0
+167.1
+IIANet [2]
+16.0
+16.2
+3.23
+13.6
+14.3
+3.12
+3.1
+18.6
+GAANet(ours)
+16.5
+16.64
+3.28
+14.0
+14.7
+3.15
+3.3
+19.8
+TABLE II: Ablation study on the global-guided attention
+(GGA) and asymmetric multi-scale fusion (AMF) framework
+on the LRS2 dataset.
+GGA
+AMF
+SI-SNRi(dB)
+SDRi(dB)
+MACs (G)
+Params (M)
+✗
+✗
+15.5
+15.65
+18.4
+3.1
+✓
+✗
+16.2
+16.31
+19.6
+3.3
+✗
+✓
+15.9
+16.31
+19.1
+3.2
+✓
+✓
+16.5
+16.64
+19.8
+3.3
+that GGA contributes a relatively stronger improvement when
+applied in isolation. When both components are integrated,
+GAANet achieves the highest SI-SNRi of 16.5 dB, demonstrat-
+ing that the two mechanisms are complementary and jointly
+enhance separation performance.
+C. Qualitative Analysis
+Qualitative Spectrogram Comparison. We provide rep-
+resentative spectrogram examples in Fig. 4 to qualitatively
+examine the time–frequency behavior of different methods
+on the LRS2 dataset.The red boxes indicate regions with no-
+table discrepancies among the compared outputs.Overall, the
+spectrograms produced by GAANet exhibit patterns that are
+more consistent with the clean target speechMore qualitative
+examples are provided in the supplementary material.
+Discriminative Property of Global Audio Tokens. To
+examine whether the global audio token GA exhibits discrim-
+inative speaker-related properties consistent with our design
+motivation, we visualize the learned GA representations using
+t-SNE. The global tokens (with temporal dimension T=1) are
+extracted from multiple test utterances and projected into a
+two-dimensional space. As shown in Fig. 5, most GA tokens
+corresponding to the same target speakers are located relatively
+close to each other, while tokens from different speakers tend
+to occupy more separated regions in the embedding space,
+although some overlap is observed. This suggests that GA
+captures speaker-related global characteristics that are largely
+consistent across an utterance, making it suitable for utterance-
+level semantic guidance.
+D. Impact of Iteration Number and Multi-Scale Depth
+We analyze the effect of two key hyperparameters in
+GAANet: the number of refinement iterations N1 and the
+multi-scale depth D. As shown in Table III, increasing N1
+Fig. 4: Time–frequency representations of two mixtures from
+the LRS2 dataset. For each example (1) and (2), we show the
+ground-truth spectrogram, the output of GAANet, and IIANet.
+The red boxes highlight regions in which IIANet retains
+noticeable interference or loses harmonic structure, whereas
+GAANet recovers more target-consistent spectral patterns.
+Fig. 5: t-SNE visualization of the global audio tokens GA.
+We randomly select 10 target speakers from the test set. Each
+point corresponds to one GA embedding, and colors indicate
+different target speakers.
+from 1 to 4 (with D = 4) progressively improves the SI-SNRi
+from 15.2 dB to 16.5 dB, demonstrating the benefit of repeated
+global-guided refinement. However, the performance saturates
+at N1 = 4, as N1 = 5 yields no further gain while increasing
+MACs, indicating that four iterations already provide sufficient
+enhancement with minimal redundancy.
+When varying the depth D (with N1 = 4), expanding the
+hierarchy from three to four scales improves the SI-SNRi
+(16.2 dB →16.5 dB), suggesting that an additional temporal
+level enhances cross-scale fusion. Further increasing the depth
+
+
+TABLE III: Impact of the iteration number N1 and multi-scale
+depth D on the LRS2 dataset.
+Setting
+N1
+D
+SI-SNRi (dB)
+MACs (G)
+Params (M)
+Varying N1 (fixed D = 4)
+A
+1
+4
+15.2
+18.1
+3.3
+B
+2
+4
+15.7
+18.7
+3.3
+C
+3
+4
+16.1
+19.2
+3.3
+D
+4
+4
+16.5
+19.8
+3.3
+E
+5
+4
+16.5
+20.4
+3.3
+Varying D (fixed N1 = 4)
+F
+4
+3
+16.2
+19.1
+3.3
+G
+4
+4
+16.5
+19.8
+3.3
+H
+4
+5
+16.4
+21.0
+3.3
+to D = 5 does not improve performance and instead increases
+the computational cost. These results show that the configu-
+ration N1 = 4, D = 4 achieves the best trade-off between
+separation quality and efficiency, and is therefore adopted
+as the default setting. Additional experiments analyzing the
+impact of N2 are provided in the supplementary material.
+VI. CONCLUSION AND DISCUSSION
+We presented GAANet, a simple yet effective AVSS frame-
+work.GAANet overcomes the limitations of symmetric tempo-
+ral fusion by introducing an asymmetric multi-scale design that
+respects the distinct temporal characteristics of audio and vi-
+sual signals. A compact global token provides coherent seman-
+tic guidance across fusion stages, leading to stronger audio-
+visual alignment and more stable feature integration. Extensive
+experiments demonstrate superior separation performance with
+a lightweight computational footprint, highlighting GAANet’s
+practicality for real-world multimodal speech separation.
+REFERENCES
+[1] Kai Li, Fenghua Xie, Hang Chen, Kexin Yuan, and Xiaolin Hu,
+“An audio-visual speech separation model inspired by cortico-thalamo-
+cortical circuits,” IEEE Transactions on Pattern Analysis and Machine
+Intelligence, vol. 46, no. 10, pp. 6637–6651, 2024.
+[2] Kai Li, Runxuan Yang, Fuchun Sun, and Xiaolin Hu, “Iianet: An intra-
+and inter-modality attention network for audio-visual speech separation,”
+arXiv preprint arXiv:2308.08143, 2023.
+[3] Yucheng Zhao, Chong Luo, Zheng-Jun Zha, and Wenjun Zeng, “Multi-
+scale group transformer for long sequence modeling in speech sepa-
+ration,” in Proceedings of the Twenty-Ninth International Conference
+on International Joint Conferences on Artificial Intelligence, 2021, pp.
+3251–3257.
+[4] Zhaoxi Mu, Xinyu Yang, and Wenjing Zhu, “Multi-dimensional and
+multi-scale modeling for speech separation optimized by discriminative
+learning,”
+in ICASSP 2023-2023 IEEE International Conference on
+Acoustics, Speech and Signal Processing (ICASSP). IEEE, 2023, pp.
+1–5.
+[5] Jian Wu, Yong Xu, Shi-Xiong Zhang, Lian-Wu Chen, Meng Yu, Lei
+Xie, and Dong Yu, “Time domain audio visual speech separation,” in
+2019 IEEE automatic speech recognition and understanding workshop
+(ASRU). IEEE, 2019, pp. 667–673.
+[6] Ruohan Gao and Kristen Grauman, “Visualvoice: Audio-visual speech
+separation with cross-modal consistency,” in 2021 IEEE/CVF Confer-
+ence on Computer Vision and Pattern Recognition (CVPR). IEEE, 2021,
+pp. 15490–15500.
+[7] Jiyoung Lee, Soo-Whan Chung, Sunok Kim, Hong-Goo Kang, and
+Kwanghoon Sohn, “Looking into your speech: Learning cross-modal
+affinity for audio-visual speech separation,”
+in Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pattern Recognition,
+2021, pp. 1336–1345.
+[8] Akam Rahimi, Triantafyllos Afouras, and Andrew Zisserman, “Reading
+to listen at the cocktail party: Multi-modal speech separation,”
+in
+Proceedings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, 2022, pp. 10493–10502.
+[9] Juan F Montesinos, Venkatesh S Kadandale, and Gloria Haro, “Vovit:
+Low latency graph-based audio-visual voice separation transformer,” in
+European Conference on Computer Vision. Springer, 2022, pp. 310–326.
+[10] H´ector Martel, Julius Richter, Kai Li, Xiaolin Hu, and Timo Gerk-
+mann, “Audio-visual speech separation in noisy environments with a
+lightweight iterative model,” arXiv preprint arXiv:2306.00160, 2023.
+[11] Tianrui Pan, Jie Liu, Bohan Wang, Jie Tang, and Gangshan Wu, “Ravss:
+Robust audio-visual speech separation in multi-speaker scenarios with
+missing visual cues,” in Proceedings of the 32nd ACM International
+Conference on Multimedia, 2024, pp. 4748–4756.
+[12] Suyeon Lee, Chaeyoung Jung, Youngjoon Jang, Jaehun Kim, and
+Joon Son Chung, “Seeing through the conversation: Audio-visual speech
+separation based on diffusion model,”
+in ICASSP 2024-2024 IEEE
+International Conference on Acoustics, Speech and Signal Processing
+(ICASSP). IEEE, 2024, pp. 12632–12636.
+[13] Zhaoxi Mu and Xinyu Yang,
+“Separate in the speech chain: Cross-
+modal conditional audio-visual target speech extraction,” arXiv preprint
+arXiv:2404.12725, 2024.
+[14] Werner X Schneider, “Selective visual processing across competition
+episodes: A theory of task-driven visual attention and working memory,”
+Philosophical Transactions of the Royal Society B: Biological Sciences,
+vol. 368, no. 1628, pp. 20130060, 2013.
+[15] Zhangbin Li, Jinxing Zhou, Jing Zhang, Shengeng Tang, Kun Li, and
+Dan Guo, “Patch-level sounding object tracking for audio-visual ques-
+tion answering,” in Proceedings of the AAAI Conference on Artificial
+Intelligence, 2025, vol. 39, pp. 5075–5083.
+[16] Zhangbin Li, Dan Guo, Jinxing Zhou, Jing Zhang, and Meng Wang,
+“Object-aware adaptive-positivity learning for audio-visual question
+answering,”
+in Proceedings of the AAAI Conference on Artificial
+Intelligence, 2024, vol. 38, pp. 3306–3314.
+[17] Cem Subakan, Mirco Ravanelli, Samuele Cornell, Mirko Bronzi, and
+Jianyuan Zhong, “Attention is all you need in speech separation,” in
+ICASSP 2021-2021 IEEE International Conference on Acoustics, Speech
+and Signal Processing (ICASSP). IEEE, 2021, pp. 21–25.
+[18] Kai Li, Runxuan Yang, and Xiaolin Hu, “An efficient encoder-decoder
+architecture with top-down attention for speech separation,”
+arXiv
+preprint arXiv:2209.15200, 2022.
+[19] Ting-Yu Kuo, Yuanda Liao, Kai Li, Bo Hong, and Xiaolin Hu, “In-
+ferring mechanisms of auditory attentional modulation with deep neural
+networks,” Neural Computation, vol. 34, no. 11, pp. 2273–2293, 2022.
+[20] Vahid Ahmadi Kalkhorani, Cheng Yu, Anurag Kumar, Ke Tan, Buye
+Xu, and DeLiang Wang, “Av-crossnet: An audiovisual complex spectral
+mapping network for speech separation by leveraging narrow-and cross-
+band modeling,” IEEE Journal of Selected Topics in Signal Processing,
+2025.
+[21] Triantafyllos Afouras, Joon Son Chung, and Andrew Zisserman, “The
+conversation: Deep audio-visual speech enhancement,” arXiv preprint
+arXiv:1804.04121, 2018.
+[22] Joon Son Chung, Arsha Nagrani, and Andrew Zisserman, “Voxceleb2:
+Deep speaker recognition,” arXiv preprint arXiv:1806.05622, 2018.
+[23] Adam Paszke, Sam Gross, Francisco Massa, Adam Lerer, James Brad-
+bury, Gregory Chanan, Trevor Killeen, Zeming Lin, Natalia Gimelshein,
+Luca Antiga, et al., “Pytorch: An imperative style, high-performance
+deep learning library,”
+Advances in neural information processing
+systems, vol. 32, 2019.
+[24] Triantafyllos Afouras, Andrew Owens, Joon Son Chung, and Andrew
+Zisserman,
+“Self-supervised learning of audio-visual objects from
+video,” in European Conference on Computer Vision. Springer, 2020,
+pp. 208–224.
+[25] Emmanuel Vincent, R´emi Gribonval, and C´edric F´evotte, “Performance
+measurement in blind audio source separation,” IEEE transactions on
+audio, speech, and language processing, vol. 14, no. 4, pp. 1462–1469,
+2006.
+[26] A. E. Mahdi, “Voice quality measurement in modern telecommunication
+networks,” in 2007 14th International Workshop on Systems, Signals and
+Image Processing and 6th EURASIP Conference focused on Speech and
+Image Processing, Multimedia Communications and Services, 2007, pp.
+25–32.

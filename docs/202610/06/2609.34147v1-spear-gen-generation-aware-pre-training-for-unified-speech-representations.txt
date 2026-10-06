@@ -1,0 +1,757 @@
+SPEAR-GEN: GENERATION-AWARE PRE-TRAINING FOR UNIFIED SPEECH
+REPRESENTATIONS
+Xiaoyu Yang‡∗, Arthur Hinsvark†, Antonios Alexos†, Osama Hanna†, Philip C. Woodland‡, Yiting Lu†
+‡Department of Engineering, University of Cambridge, Cambridge, UK
+†Meta Superintelligence Labs, Menlo Park, USA
+ABSTRACT
+Speech understanding and generation place different de-
+mands on speech representations, and existing models are
+typically optimised towards one capability or the other. To re-
+duce this gap, we introduce SPEAR-Gen, a speech represen-
+tation model that learns a single representation for both capa-
+bilities. Task-aligned feature aggregation consolidates com-
+plementary linguistic and paralinguistic information across
+a frozen encoder into discrete targets for masked prediction,
+while a coarse-to-fine objective combines log-Mel recon-
+struction with residual flow matching to preserve spectral
+structure and fine-grained acoustic variation.
+Experiments
+on SUPERB and speech resynthesis show that SPEAR-Gen
+maintains strong understanding performance while substan-
+tially improving resynthesis quality and speaker preservation.
+These results demonstrate that a single speech representation
+can effectively support both understanding and generation.
+Index Terms— Speech Representation Learning
+1. INTRODUCTION
+Speech conveys linguistic content together with rich paralin-
+guistic and acoustic cues. Understanding-oriented learning
+often prioritises linguistic content [1, 2, 3], whereas genera-
+tion additionally requires these acoustic cues to be faithfully
+preserved [4, 5].
+Existing representation models therefore
+tend to specialise in one direction or maintain separate fea-
+ture spaces. A single representation that makes these com-
+plementary forms of information jointly accessible is highly
+desirable, providing a common interface for diverse speech
+applications and future speech language models [6, 7, 8].
+However, learning such a unified representation remains
+challenging because existing training objectives impose dif-
+ferent representational biases.
+Masked token prediction
+(MTP) trains an encoder output to predict discrete targets
+obtained by clustering features from a particular layer in a
+pre-trained model [1, 2, 3]. Such targets can inherit layer-
+specific biases, encouraging the output representation to spe-
+cialise in phonetic or linguistic content while leaving speaker
+and other paralinguistic cues more accessible from earlier
+∗Work done while at Meta Superintelligence Labs as an intern
+layers [9]. On the other hand, reconstruction objectives pre-
+serve rich acoustic information but show weak understanding
+performance [10, 11, 5]. Although recent studies have sought
+to bridge these gaps [12, 13, 14], they either rely on separate
+representations for understanding and generation or retain a
+trade-off between both.
+To address this gap, we introduce SPEAR-Gen (Fig-
+ure 1), a speech representation model that learns a single
+shared representation for understanding and generation. First,
+task-aligned feature aggregation (TAFA) uses task supervi-
+sion to consolidate linguistic and paralinguistic cues across a
+frozen encoder into a task-aligned representation that is quan-
+tised into MVQ targets, guiding MTP to expose these cues
+jointly to the final layer representation. Second, the coarse-to-
+fine generative modelling combines mel reconstruction with
+residual flow matching (FM). Mel reconstruction encourages
+the representation to retain dominant spectro-temporal struc-
+ture, while residual FM provides complementary supervision
+for the remaining nuanced acoustic variation.
+Experiments on the SUPERB benchmark [15] and speech
+resynthesis demonstrate that SPEAR-Gen achieves a strong
+balance between speech understanding and generation within
+a single-layer representation. Compared with understanding-
+focused counterparts, adding generation-aware training sub-
+stantially improves speech resynthesis while preserving
+linguistic performance and strengthening paralinguistic in-
+formation.
+Compared with WavCube [14], SPEAR-Gen
+achieves competitive resynthesis quality while showing
+stronger understanding performance. These results suggest
+that a single representation can support both speech under-
+standing and generation, achieving a favourable balance.
+2. RELATED WORK
+SPEAR [3] learns understanding-oriented speech represen-
+tations through masked prediction of MVQ [16] tokens.
+SPEAR-Gen builds on SPEAR, but constructs its MVQ tar-
+gets through fused representations across multiple layers and
+introduces generative modelling to support both understand-
+ing and generation. Recent studies have explored joint learn-
+ing for speech understanding and generation. OLIVE [12]
+combines latent prediction with waveform reconstruction, but
+uses different feature levels for understanding and synthesis.
+UniWav [13] incorporates flow-matching-based generation
+arXiv:2609.34147v1  [eess.AS]  28 Sep 2026
+
+
+(a) TAFA
+(b) SPEAR-Gen pre-training
+SPEAR-XLarge
+⋮
+TAFA
+Text LLM + LoRA
+MVQ
+quantiser
+Masking
+SPEAR-Gen
+encoder
+MVQ
+Prediction
+Mel decoder
+FM decoder
+ \ \ 
+Blue: understanding objective    
+Brown: generative objective
+Fig. 1. Overview of SPEAR-Gen. (a) TAFA fuses layer-wise features from SPEAR-XLarge under multi-task supervision, and
+its output is quantised into MVQ targets. (b) SPEAR-Gen jointly learns masked MVQ prediction and two-stage coarse-to-fine
+generative modelling through log-Mel reconstruction and residual FM. Only the SPEAR-Gen encoder is retained.
+into representation learning, but relies on aggregation across
+encoder layers. The closest work, WavCube [14], follows
+a two-stage paradigm that adapts an encoder pre-trained for
+understanding into a joint semantic–acoustic model, with
+the original encoder as a semantic anchor. By contrast, the
+SPEAR-Gen representation encoder is trained from scratch,
+with its predictive and generative objectives jointly optimised.
+3. SPEAR-GEN
+3.1. Task-Aligned Feature Aggregation for MTP
+To address the information bias of MVQ tokens inherited
+from the single-layer representation, TAFA consolidates com-
+plementary linguistic and paralinguistic cues across layers
+into a task-aligned representation to construct MVQ tar-
+gets.
+Let {S(ℓ)}L
+ℓ=1 denote the layer-wise representations
+of a pre-trained SSL encoder. TAFA applies layer-specific
+normalisation, concatenates the resulting features along the
+feature dimension, and maps them into a shared space using
+a learnable linear projection Pϕ:
+Z = Pϕ
+
+Concat
+
+LN1(S(1)), . . . , LNL(S(L))
+
+.
+(1)
+TAFA is trained on speech–text pairs spanning linguistic
+and paralinguistic tasks, with the aggregated representa-
+tion Z conditioning a text LLM. The alignment objective is
+Lalign = −Ej log p(yj | y<j, Z). Only the TAFA parameters
+Pϕ and the LLM LoRA parameters are updated, while the
+SSL encoder remains frozen to preserve its generalisation
+capability. Unlike task-specific weighted sums [15], which
+learn separate layer combinations for individual downstream
+tasks, TAFA learns a single fusion shared across tasks.
+After task alignment, we quantise the frame-wise Z =
+z1:t into N MVQ tokens, qt = QMVQ(zt) = (qt,1, . . . , qt,N),
+for MTP pre-training. Let X and eX denote the clean and
+masked acoustic input, the SPEAR-Gen encoder Eθ maps eX
+to the output H = Eθ( eX) = (h1, . . . , hT ), from which N
+classification heads predict the corresponding MVQ tokens:
+LMTP = −1
+TN
+T
+X
+t=1
+N
+X
+n=1
+log pθ,n (qt,n | ht) .
+(2)
+This objective directly shapes a single encoder output repre-
+sentation, without downstream layer aggregation.
+3.2. Two-Stage Coarse-to-Fine Generative Modelling
+Masked prediction does not explicitly require H to preserve
+acoustic detail useful for generation. We therefore combine
+an ℓ1 log-mel objective for dominant spectro-temporal struc-
+ture with FM over its residual for finer acoustic variation.
+3.2.1. Log-Mel Reconstruction
+We use mean–variance normalised log-mel spectrograms
+M ∈RT ×F as reconstruction targets. Given encoder output
+H, the mel decoder Dmel predicts c
+M = Dmel(H). The ℓ1
+loss is computed between predicted and ground-truth mel:
+Lmel =
+1
+TF
+c
+M −M
+
+1 .
+(3)
+Since Dmel is conditioned solely on H, Lmel encourages the
+encoder output to retain dominant spectro-temporal structure.
+3.2.2. Residual Flow Matching
+An ℓ1 mel objective produces a single point estimate that
+tends towards the conditional median, potentially under-
+representing fine-grained acoustic variation.
+We therefore
+apply conditional FM to the residual of the mel prediction,
+providing a complementary learning signal that encourages H
+to retain acoustic cues not captured by the coarse prediction.
+Specifically, we define the residual as R = M −sg(c
+M).
+The stop-gradient separates the two stages by preventing the
+FM branch from updating Dmel through the residual target,
+while the encoder is still updated through conditioning on H.
+Given ϵ ∼N(0, I), we define Rτ = (1 −τ)ϵ + τR and the
+target velocity uτ = R −ϵ. A conditional FM decoder DFM
+takes (Rτ, τ, H) as input and predicts uτ using
+LFM = Eτ,ϵ
+ 1
+TF ∥DFM(Rτ, τ, H) −uτ∥2
+2
+
+(4)
+We sample τ ∼Beta(2, 5), favouring noisier input to encour-
+age H to model fine-grained acoustic detail.
+
+
+3.3. Unifying Predictive and Generative Objectives
+SPEAR-Gen jointly optimises predictive and generative ob-
+jectives, leading to the following pre-training loss:
+L = LMTP + λ (Lmel + γLFM) ,
+(5)
+where λ and γ control the overall generative objective and
+residual FM, respectively. To reduce the mismatch between
+masked pre-training and clean-input inference, masking on
+X is bypassed with probability pclean.
+4. EXPERIMENTAL SETUP
+4.1. Model and Pre-training Configuration
+SPEAR-Gen adopts Zipformer [17] as its encoder architec-
+ture. The encoder receives 128-d log-mel filterbank features
+at 100 Hz and outputs representations at 50 Hz. The recon-
+struction target M is the same as the input feature X. Two
+model configurations are considered: Base version contains
+95M encoder parameters with a 512-d output, while Large
+contains 327M parameters with a 1024-d output. Both Dmel
+and DFM use the same lightweight ConvNeXt [18] architec-
+ture, each containing approximately 15M parameters.
+For task-aligned TAFA training, we use the frozen SPEAR-
+XLarge checkpoint as the SSL feature extractor and Qwen3-
+0.6B as the LLM decoder. The SPEAR-XLarge model has 13
+layers with hidden size of 1280. TAFA concats the 13 hidden
+states and projects back to 1280-d features. Only TAFA and
+LoRA parameters in the LLM are updated. After task align-
+ment, the 1280-d output of TAFA at 50 Hz frame rate is used
+to train an MVQ quantiser with eight 256-entry codebooks,
+which is then used to produce targets for MTP as introduced
+in Sec 3.1.
+Following SPEAR, approximately 50% input
+fbank frames are masked, while masking is bypassed with
+pclean = 0.1. We set λ = γ = 0.5. The global batch contains
+4,800 seconds of speech. The Base and Large models are
+trained for 100k and 200k steps, respectively.
+4.2. Training Data
+Table 1 summarises the datasets and task-label usage for
+TAFA alignment and SPEAR-Gen pre-training.
+Approxi-
+mately 350 hours of labelled speech were used during TAFA
+alignment. These data are used exclusively for TAFA align-
+ment, while SPEAR-Gen pre-training uses LibriSpeech for
+the Base model and LibriHeavy for the Large model without
+annotations. All TAFA alignment corpora are disjoint from
+the SUPERB evaluation datasets.
+Thus, task supervision
+is introduced only through external TAFA alignment data,
+without exposing evaluation transcripts or speaker identities,
+allowing a fair evaluation of the TAFA contribution.
+4.3. Evaluation Protocols
+We evaluate the final-layer representation along two comple-
+mentary axes: speech understanding and speech resynthesis.
+Table 1. Datasets, task-label usage, and training objectives
+for TAFA alignment and SPEAR-Gen pre-training.
+Stage
+Dataset
+Hours Task labels
+Objectives
+TAFA
+alignment
+VoxPopuli [19]
+200
+Yes
+ASR, SV
+MSP-Podcast [20] 150
+ER
+SPEAR-Gen
+Pre-training
+LibriSpeech [21]
+960
+No
+MTP, Gen.
+LibriHeavy [22]
+50k
+Speech understanding.
+We evaluate the frozen represen-
+tations on SUPERB [15], using only the encoder’s final
+layer.
+While the conventional SUPERB protocol learns a
+task-specific weighted sum over encoder layers, our protocol
+directly assesses whether diverse information is jointly ac-
+cessible from a single task-independent representation. The
+selected tasks cover linguistic information through automatic
+speech recognition (ASR), phoneme recognition (PR), key-
+word spotting (KWS) and intent classification (IC), as well as
+paralinguistic and speaker-related information through emo-
+tion recognition (ER), speaker identification (SID), speaker
+verification (SV), and speaker diarisation (SD).
+Speech resynthesis. To assess whether the same represen-
+tation retains acoustic information useful for speech genera-
+tion, we train a 14M HiFi-GAN [23] vocoder conditioned di-
+rectly on final-layer representations. All systems use the orig-
+inal HiFi-GAN architecture and are trained with LibriSpeech.
+Only the input layer of the HiFi-GAN is adjusted to match
+the representation dimension. We evaluate on test-clean using
+PESQ-WB, ViSQOL [24], and UTMOS [25] for perceptual
+quality, STOI and Whisper large-v3 WER for intelligibility,
+and SIM for speaker preservation. SIM is computed as the
+cosine similarity between ECAPA-TDNN [26] embeddings
+of the original and resynthesised utterances.
+5. EXPERIMENTAL RESULTS
+5.1. Understanding and Resynthesis Performance
+Table 2 and 3 present the SUPERB last-layer evaluation re-
+sults and speech resynthesis results. Baseline results are ob-
+tained from official released checkpoints, except for SPEAR,
+which we reproduce on LS-960.
+On SUPERB, SPEAR-
+Gen Base substantially improves SPEAR, its understanding-
+oriented baseline, on ASR, KWS, ER, SID, and SV, while
+showing only modest changes on PR, IC, and SD. These gains
+are accompanied by much stronger acoustic recoverability re-
+flected by speech resynthesis:
+relative to SPEAR, PESQ
+increases from 1.20 to 2.94, ViSQOL from 1.70 to 4.12, and
+SIM from 0.467 to 0.892, while WER decreases from 2.61
+to 2.22. Together, these results show that SPEAR-Gen sub-
+stantially improves acoustic recoverability while maintaining
+strong understanding performance.
+Table 4 separates the
+contributions of TAFA targets and generative supervision.
+Compared with WavCube, SPEAR-Gen Base achieves
+
+
+Table 2. Final-layer results on SUPERB. Upper block: understanding-oriented models; lower block: unified understanding–
+generation models. PT data denotes representation pre-training data. Note: SPEAR-Gen uses external supervision only for
+TAFA target construction. SPEAR†: reproduced version of SPEAR on LS-960. Best in bold and second-best underlined.
+# Encoder
+Params
+SUPERB: linguistic
+SUPERB: paralinguistic / speaker
+Method
+PT data
+PR↓
+ASR↓
+KWS↑
+IC↑
+ER↑
+SID↑
+SV↓
+SD↓
+HuBERT Base [1]
+LS-960
+95M
+6.74
+6.97
+96.23
+96.36
+62.44
+61.45
+6.18
+7.19
+WavLM Base [2]
+LS-960
+95M
+5.59
+6.42
+96.36
+96.57
+61.35
+47.04
+8.01
+6.41
+SPEAR† [3]
+LS-960
+95M
+4.09
+3.90
+96.85
+98.37
+65.78
+55.47
+6.80
+3.23
+WavCube [14]
+LS-960
+350M
+9.91
+9.36
+97.42
+90.41
+63.47
+42.36
+5.86
+8.14
+SPEAR-Gen Base
+LS-960
+95M
+4.53
+3.71
+97.47
+98.73
+69.48
+70.23
+5.08
+3.26
+SPEAR-Gen Large
+LH-50k
+327M
+3.25
+3.41
+97.70
+99.21
+71.05
+74.62
+4.32
+2.56
+Table 3. Speech resynthesis results on LibriSpeech test-clean.
+Method
+PESQ↑
+ViSQOL↑
+UTMOS↑
+STOI↑
+WER↓
+SIM↑
+WavLM Base [2]
+1.16
+1.68
+3.37
+0.79
+2.50
+0.473
+SPEAR† [3]
+1.20
+1.70
+3.38
+0.81
+2.61
+0.467
+WavCube [14]
+2.93
+3.92
+3.72
+0.95
+2.26
+0.900
+SPEAR-Gen Base
+2.94
+4.12
+3.69
+0.95
+2.22
+0.892
+SPEAR-Gen Large
+2.98
+4.19
+3.78
+0.96
+2.19
+0.910
+stronger results across all reported SUPERB tasks while pro-
+viding comparable resynthesis quality with fewer encoder pa-
+rameters. SPEAR-Gen Large further improves the SUPERB
+results and, on resynthesis, matches WavCube in PESQ and
+STOI while improving ViSQOL, WER, SIM and UTMOS.
+The combined results show that SPEAR-Gen provides a bet-
+ter balance between understanding performance and acoustic
+recoverability within a single representation.
+5.2. Ablation Studies
+We conduct ablations on the Base model trained on Lib-
+riSpeech. Table 4 separates the effects of MTP target con-
+struction and generative supervision.
+Holding generative
+supervision fixed, TAFA improves all reported metrics over
+single-layer targets, both with and without generative train-
+ing. TAFA also consistently outperforms uniform layer av-
+eraging for MTP target construction, confirming the value of
+task-aligned fusion beyond aggregation alone. Holding TAFA
+targets fixed, adding generative supervision greatly enhances
+ViSQOL from 1.86 to 4.12 and SIM from 0.555 to 0.892,
+while improving ASR, ER, and SV. Conversely, generative-
+only training by removing MTP yields the highest ViSQOL
+and SIM but substantially degrades understanding, showing
+much weaker performance on SUPERB. These comparisons
+indicate that TAFA improves prediction targets, generative
+supervision strengthens acoustic recoverability, and MTP is
+important for preserving understanding.
+Table 5 examines the generative objectives. Doubling the
+mel decoder from 15M to 30M parameters yields mixed re-
+sults, indicating that decoder capacity alone does not improve
+the learned representation. Applying FM directly to the full
+mel target is also less effective for resynthesis. By contrast,
+the proposed coarse-to-fine objective provides the strongest
+Table 4. Ablation of MTP target and generative modelling
+(Gen.). MTP target specifies the representation from which
+MVQ prediction targets are constructed. None denotes train-
+ing without MTP. LayerAvg denotes uniform layer averaging.
+SUPERB
+Resynthesis
+MTP target
+Gen.
+ASR↓
+ER↑
+SV↓
+ViSQOL↑
+WER↓
+SIM↑
+Single-layer
+×
+3.90
+65.78
+6.80
+1.70
+2.61
+0.467
+TAFA
+×
+3.83
+68.32
+6.15
+1.86
+2.54
+0.555
+None
+✓
+20.72
+53.83
+14.42
+4.29
+2.23
+0.909
+Single-layer
+✓
+3.94
+66.70
+6.42
+4.07
+2.24
+0.866
+LayerAvg
+✓
+4.35
+66.91
+6.02
+4.06
+2.24
+0.873
+TAFA
+✓
+3.71
+69.48
+5.08
+4.12
+2.22
+0.892
+Table 5. Ablation of the generative objectives. #Params de-
+notes the total number of parameters in decoders.
+#Decoder
+Params
+SUPERB
+Resynthesis
+Gen. Obj.
+ASR↓
+ER↑
+SV↓
+PESQ↑
+UTMOS↑
+WER↓
+SIM↑
+Mel ℓ1
+15M
+3.79
+68.42
+5.41
+2.76
+3.55
+2.25
+0.883
+Mel ℓ1
+30M
+3.70
+69.28
+5.46
+2.73
+3.61
+2.22
+0.883
+Full-mel FM
+30M
+3.72
+68.92
+5.59
+2.61
+3.58
+2.26
+0.875
+SPEAR-Gen
+30M
+3.71
+69.48
+5.08
+2.94
+3.69
+2.22
+0.892
+overall balance between understanding and resynthesis, out-
+performing the capacity-matched mel decoder with only ℓ1
+loss. These results support the effectiveness of residual FM
+beyond simply increasing decoder capacity.
+6. CONCLUSIONS
+We introduce SPEAR-Gen, a speech representation model
+that learns a single output representation for both speech
+understanding and generation. In SPEAR-Gen, task-aligned
+feature aggregation fuses complementary linguistic and par-
+alinguistic cues into task-aligned prediction targets, while
+coarse-to-fine generative modelling encourages the same rep-
+resentation to preserve acoustic detail. Experiments demon-
+strate that SPEAR-Gen effectively balances speech under-
+standing and speech resynthesis within a single representa-
+tion, and generative supervision even improves ASR, ER, and
+SV in the controlled ablation. Future work will investigate its
+suitability as a prediction target for text-conditioned speech
+generation.
+
+
+7. REFERENCES
+[1] Wei-Ning Hsu, Benjamin Bolte, Yao-Hung Hubert Tsai,
+et al., “HuBERT: Self-Supervised Speech Representa-
+tion Learning by Masked Prediction of Hidden Units,”
+IEEE/ACM Trans. Audio, Speech, Language Process.,
+vol. 29, 2021.
+[2] Sanyuan Chen,
+Chengyi Wang,
+Zhengyang Chen,
+Yu Wu, et al., “WavLM: Large-Scale Self-Supervised
+Pre-Training for Full Stack Speech Processing,” IEEE
+J. Sel. Topics Signal Process., vol. 16, 2022.
+[3] Xiaoyu Yang, Yifan Yang, Zengrui Jin, Ziyun Cui,
+Wen Wu, Baoxiang Li, Chao Zhang, and Phil Wood-
+land, “SPEAR: A Unified SSL Framework for Learn-
+ing Speech and Audio Representations,” in Proc. ICML,
+Seoul, 2026.
+[4] Neil Zeghidour, Alejandro Luebs, Ahmed Omran, Jan
+Skoglund, and Marco Tagliasacchi, “SoundStream: An
+End-to-End Neural Audio Codec,” IEEE/ACM Trans.
+Audio, Speech, Language Process., vol. 30, 2022.
+[5] Alexandre D´efossez, Jade Copet, Gabriel Synnaeve, and
+Yossi Adi, “High Fidelity Neural Audio Compression,”
+arXiv preprint arXiv:2210.13438, 2022.
+[6] Dong
+Zhang,
+Shimin
+Li,
+Xin
+Zhang,
+et
+al.,
+“SpeechGPT: Empowering Large Language Models
+with Intrinsic Cross-Modal Conversational Abilities,”
+in Findings of ACL: EMNLP, Singapore, 2023.
+[7] Alexandre D´efossez, Laurent Mazar´e, Manu Orsini,
+et al., “Moshi: a speech-text foundation model for real-
+time dialogue,” arXiv preprint arXiv:2410.00037, 2024.
+[8] Jin
+Xu,
+Zhifang
+Guo,
+Jinzheng
+He,
+et
+al.,
+“Qwen2.5-Omni Technical Report,”
+arXiv preprint
+arXiv:2503.20215, 2025.
+[9] Shu-wen Yang, Heng-Jui Chang, et al., “A Large-Scale
+Evaluation of Speech Foundation Models,” IEEE/ACM
+Trans. Audio, Speech, Language Process., vol. 32, 2024.
+[10] Andy T. Liu, Shu-wen Yang, Po-Han Chi, Po-chun Hsu,
+and Hung-yi Lee, “Mockingjay: Unsupervised Speech
+Representation Learning with Deep Bidirectional Trans-
+former Encoders,” in Proc. ICASSP, Barcelona, 2020.
+[11] Andy T. Liu, Shang-Wen Li, and Hung-yi Lee, “TERA:
+Self-Supervised Learning of Transformer Encoder Rep-
+resentation for Speech,”
+IEEE/ACM Trans. Audio,
+Speech, Language Process., vol. 29, 2021.
+[12] Karl El Hajal and Mathew Magimai-Doss,
+“OLIVE:
+View-Augmented Latent Prediction with Waveform
+Reconstruction for Speech SSL,”
+arXiv preprint
+arXiv:2606.30356, 2026.
+[13] Alexander H. Liu, Sang-gil Lee, Chao-Han Huck Yang,
+et al.,
+“UniWav:
+Towards Unified Pre-training for
+Speech Representation Learning and Generation,”
+in
+Proc. ICLR, Singapore, 2025.
+[14] Guanrou Yang, Tian Tan, Qian Chen, et al., “WavCube:
+Unifying Speech Representation for Understanding and
+Generation via Semantic-Acoustic Joint Modeling,”
+arXiv preprint arXiv:2605.06407, 2026.
+[15] Shu-wen Yang, Po-Han Chi, Yung-Sung Chuang, et al.,
+“SUPERB: Speech processing universal performance
+benchmark,” in Proc. Interspeech, Brno, 2021.
+[16] Liyong Guo, Xiaoyu Yang, et al.,
+“Predicting multi-
+codebook vector quantization indexes for knowledge
+distillation,” in Proc. ICASSP, Rhodes, 2023.
+[17] Zengwei Yao, Liyong Guo, Xiaoyu Yang, Wei Kang,
+Fangjun Kuang, Yifan Yang, Zengrui Jin, Long Lin, and
+Daniel Povey, “Zipformer: A faster and better encoder
+for automatic speech recognition,” in Proc. ICLR, Vi-
+enna, 2024.
+[18] Zhuang Liu, Hanzi Mao, Chao-Yuan Wu, et al., “A Con-
+vNet for the 2020s,” in Proc. CVPR, New Orleans, 2022.
+[19] Changhan Wang, Morgane Rivi`ere, Ann Lee, et al.,
+“VoxPopuli: A Large-Scale Multilingual Speech Corpus
+for Representation Learning, Semi-Supervised Learning
+and Interpretation,” in Proc. ACL-IJCNLP, 2021.
+[20] Carlos Busso, Reza Lotfian, Kusha Sridhar, et al., “The
+MSP-Podcast Corpus,” IEEE Transactions on Affective
+Computing, vol. 17, 2026.
+[21] Vassil Panayotov, Guoguo Chen, Daniel Povey, and San-
+jeev Khudanpur, “LibriSpeech: An ASR Corpus based
+on Public Domain Audio Books,”
+in Proc. ICASSP,
+Brisbane, 2015.
+[22] Wei Kang, Xiaoyu Yang, Zengwei Yao, et al., “Libri-
+heavy: A 50,000 hours ASR corpus with punctuation
+casing and context,” in Proc. ICASSP, Seoul, 2024.
+[23] Jungil Kong, Jaehyeon Kim, and Jaekyoung Bae, “HiFi-
+GAN: Generative Adversarial Networks for Efficient
+and High Fidelity Speech Synthesis,” in Proc. NeurIPS,
+2020.
+[24] Andrew Hines, Jan Skoglund, Anil C. Kokaram, and
+Naomi Harte,
+“ViSQOL: an objective speech quality
+model,” EURASIP Journal on Audio, Speech, and Mu-
+sic Processing, 2015.
+[25] Takaaki Saeki, Detai Xin, Wataru Nakata, et al., “UT-
+MOS: UTokyo-SaruLab System for VoiceMOS Chal-
+lenge 2022,” in Proc. Interspeech, Incheon, 2022.
+
+
+[26] Brecht Desplanques, Jenthe Thienpondt, and Kris De-
+muynck,
+“ECAPA-TDNN: Emphasized Channel At-
+tention, Propagation and Aggregation in TDNN Based
+Speaker Verification,” in Proc. Interspeech, Shanghai,
+2020.

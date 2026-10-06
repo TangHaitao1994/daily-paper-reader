@@ -1,0 +1,1101 @@
+Mixture-Trained Merging for
+Unified Multi-Objective Models
+SeongHyeon Kim1∗
+Chaeyun Jang1∗
+Seungyoo Lee1
+Jiyeon Ham2
+Yunju Bak2
+Boseop Kim2
+Juho Lee1†
+1KAIST
+2Kakao
+{shkim0824, jcy9911, punctuate, juholee}@kaist.ac.kr
+{chloe.py, juliet.bak, mat.mul}@kakaocorp.com
+Abstract
+Unified language models are increasingly expected to combine heterogeneous
+capabilities, such as mathematics, code, instruction following, and controllable
+thinking behavior, within a single set of parameters. A common solution is se-
+quential post-training on multiple objectives, but this entangles all objectives along
+one optimization trajectory and makes the final model highly sensitive to training
+order, data ratios, schedules, and stopping criteria. Weight-space merging offers
+a modular alternative, but naive merging of single-objective experts often fails:
+domain capabilities degrade sharply, or think/non-think modes collapse into
+one dominant behavior. We attribute both failures to incompatible weight-space
+geometry: experts trained on single objectives drift to distant regions of parameter
+space, placing their interpolations outside any shared low-loss basin. We propose
+Mixture-Trained Merging (MTM), which trains each branch on an objective-
+biased data mixture rather than a single objective, exposing it to cross-objective
+interactions and making branches compatible at merge time. MTM uses merged-
+model evaluations as a low-cost signal for selecting branch mixtures, avoiding
+expensive data-mixture ablations. The procedure is iterative: each round promotes
+the base model using globally selected merge coefficients and refines each branch
+mixture using domain-preferred coefficients under constraints that preserve other
+objectives. To scale beyond simplex grid search, MTM uses qNEHVI-based multi-
+objective Bayesian optimization. Across code, mathematics, instruction following,
+and think/non-think control, MTM outperforms naive merging and preserves
+behavioral separation where single-objective merging collapses, suggesting that
+effective unified models require branches trained to be mergeable.
+1
+Introduction
+Recent large language models (LLMs) increasingly aim to unify diverse capabilities within a single
+model, including complex reasoning, direct response generation, coding, and instruction following [1,
+2, 3, 4]. Beyond performance, such unified models are practically appealing because they reduce
+the need for separate model stacks and offer a simpler deployment interface across heterogeneous
+workloads.
+A common practical approach to building such unified models is single-trajectory training, in which a
+model is post-trained across multiple objectives within a shared set of parameters [2, 4, 3]. While
+conceptually simple, this strategy introduces substantial engineering overhead. The final performance
+is often highly sensitive to training order, data mixing ratios, and scheduling choices, because these
+∗Equal contribution.
+†Corresponding author.
+40th Conference on Neural Information Processing Systems (NeurIPS 2026).
+arXiv:2610.01238v1  [cs.LG]  1 Oct 2026
+
+
+factors strongly affect objective interference and catastrophic forgetting [5, 6, 7]. As a result, finding
+a robust recipe typically requires extensive hyperparameter tuning over near-full-budget runs, making
+unified model construction costly and difficult to iterate on.
+Weight-space merging, which trains specialized branches separately and then combines them, offers
+an appealing alternative to optimizing all objectives along a single training trajectory [8, 9, 10]. This
+makes unified model construction more modular and avoids much of the optimization complexity of
+single-trajectory training. Merging aims to combine specialized branches into a single model that
+performs well on all target objectives. However, we empirically find that merging single-objective
+experts does not always lead to such a model. For example, when constructing a hybrid model that
+should support both non-think and think modes, merging a non-think expert with a think expert
+collapses the two modes toward the branch with the larger merge coefficient, producing uniformly
+verbose or concise outputs regardless of the requested format (Figure 3). Similarly, when constructing
+a multi-domain model that should handle both code and math, merging a code expert with a math
+expert leads to broad downstream degradation across both domain accuracy, as shown in Figure 2.
+We hypothesize that these failures arise because independently trained branches drift into different
+regions of weight space. Consistent with this view, we observe substantial accuracy drops along the
+linear interpolation path between high-performing branches, indicating that they do not lie on an
+accuracy-preserving path [11, 12]. This suggests that mergeability must be encouraged during training
+rather than imposed only through post-hoc merging. We therefore train each branch on a controlled
+mixture of objectives. By exposing branches to non-primary objectives, mixture training reduces
+inter-branch divergence while preserving specialization. Unlike single-trajectory multi-objective
+training, which searches for a single global data ratio, our setting requires branch-specific mixtures
+that yield specialized yet mutually mergeable branches.
+To identify these mixtures, we use the connection between weight-space merging and data-mixture
+training established by [13]: merge coefficients can approximate data-mixture ratios under first-order
+training dynamics. We use merged performance as a proxy signal and optimize per-branch mixtures
+with Multi-Objective Bayesian Optimization (MOBO) [14, 15]. Rather than running mixture search
+as a separate stage, we integrate it into an iterative branch specialization and merging procedure.
+Each round selects mixtures, continues branch training, and merges branches back into a common
+reference model to control divergence. Thus, mixture selection, specialization, and realignment are
+coupled within a single training loop.
+Our contributions are summarized as follows:
+• We show that merging hard single-objective experts induces task interference, manifesting
+as mode collapse in think/non-think merges and broad degradation in domain-level merges.
+• We connect this failure to weight-space incompatibility, showing that independently trained
+branches exhibit accuracy barriers along linear interpolation paths.
+• We introduce iterative branch specialization and merging, which optimizes branch-specific
+objective mixtures to preserve both specialization and mergeability.
+• We demonstrate consistent gains on Qwen3-4B and OLMo-7B across diverse math, code,
+and instruction-following benchmarks.
+2
+Related Works
+2.1
+Building Unified Models via Data Mixtures
+Modern LLMs are expected to handle multiple objectives such as math, code, and instruction
+following within a single model [2, 16], which makes the choice of the SFT data mixture a central
+design decision. A growing line of work therefore aims to determine mixture ratios in a principled
+way. DoReMi [17] reweights domains via a small proxy model trained with group distributionally
+robust optimization. RegMix [18] fits a regression model from many small-scale runs to predict
+performance of unseen mixtures. Data mixing laws [19] formulate scaling laws for the mapping
+from mixture proportions to validation loss. MergeMix [13] bypasses surrogate training entirely by
+approximating mixture-trained models with linear weight-space merges of objective-specific fine-
+tunes. Even with these advances, identifying a single global mixture that simultaneously balances all
+objectives still relies on heuristic choices and remains difficult to tune as the set of objectives grows.
+2
+
+
+0
+100
+200
+300
+400
+0.850
+0.875
+0.900
+0.925
+Validation Acc.
+avg. ceiling
+Single-domain SFT
+0
+100
+200
+300
+400
+R1
+R2
+R3
+MTM-multi
+0
+100
+200
+300
+400
+Training step
+Data mix
+Math
+Code
+IF
+0
+100
+200
+300
+400
+Training step
+Figure 1:
+Training dynamics of single-
+domain SFT vs. MTM-Multi in Qwen3-4B-
+Base. MTM-Multi replaces one long heteroge-
+neous trajectory with round-wise mixture-trained
+branches and promoted merges.
+0.2
+0.4
+0.6
+0.8
+Code expert ratio
+50
+60
+70
+80
+Acc.
+Hard
+0.2
+0.4
+0.6
+0.8
+Code expert ratio
+Soft
+MATH-500
+MBPP+
+Figure 2: Domain-expert merging on Qwen3-
+4B-Base. Following Section 5, Hard branches
+are trained on single domains, whereas Soft
+branches use complementary Math/Code mix-
+tures with a (0.7, 0.3) split.
+0.2
+0.4
+0.6
+0.8
+Think expert ratio
+2000
+4000
+6000
+# tokens
+Olmo-3-7B Hard
+0.2
+0.4
+0.6
+0.8
+Think expert ratio
+Olmo-3-7B Soft
+0.2
+0.4
+0.6
+0.8
+Think expert ratio
+0
+10000
+20000
+30000
+# tokens
+Qwen3-4B-Base Hard
+0.2
+0.4
+0.6
+0.8
+Think expert ratio
+Qwen3-4B-Base Soft
+GSM8K - no-think
+GSM8K - think
+MATH-500 - no-think
+MATH-500 - think
+Figure 3: Mode-expert merging on OLMo-7B and Qwen3-4B-Base.
+Following Section 5,
+Hard branches are trained on single response modes, while Soft branches use complementary
+think/non-think mixtures with a (0.7, 0.3) split. Merging hard experts loses mode control under
+large branch imbalance, leading to outputs that follow the dominant branch (think or non-think)
+regardless of the prompt, whereas mixture-trained branches better preserve mode distinction.
+2.2
+Weight-Space Model Merging
+Model merging offers a parameter-space alternative to multi-objective training, combining multiple
+specific objective models into a single model without increasing inference cost [20, 10, 9, 21,
+22]. Model Soups [20] showed that averaging weights from multiple fine-tuned checkpoints can
+outperform the best individual checkpoint, while task arithmetic [10] generalized this idea by
+representing fine-tuned models as task vectors and combining them through linear operations in
+weight space. For LLMs, Branch-Train-Merge [8] trains domain experts from a shared branching
+point to keep them close enough in parameter space to remain mergeable.
+A central challenge in merging is parameter interference between objectives. Several methods address
+this interference post hoc: TIES Merging [9] trims low-magnitude updates and resolves sign conflicts,
+DARE [21] sparsifies and rescales SFT deltas as a plug-in for existing mergers, and SCE [22] sets fine-
+grained fusion coefficients from update magnitudes. More recently, application-specific mergers such
+as RAIN-Merging [23] target the fusion of reasoning and instruction-tuned models by constraining
+thinking-format-aware subspaces. In contrast to these post-hoc correction methods, MTM does not
+take independently trained experts as fixed. Instead, it trains each branch on a domain-biased mixture,
+shaping task vectors to be mutually compatible before merging.
+3
+Background and Motivation
+Problem Setting
+We start from a base model M0 = M(θ0) and K objectives, each with a training
+corpus Dk and an evaluation metric fk normalized to a common scale. We seek a single parameter
+vector θ such that M(θ) performs well on all {fk}K
+k=1. Throughout, ∆K−1 denotes the (K−1)-
+simplex, MIX(D1:K; q) the mixture corpus that draws from Dk with probability q, and SFT(M, D)
+supervised fine-tuning of M on D. Given K models {Mk}K
+k=1 fine-tuned from a common reference
+3
+
+
+Mref = M(θref) and coefficients α ∈∆K−1, we write
+MERGE(M1:K; α) = M
+ 
+θref +
+K
+X
+k=1
+αk(θk −θref)
+!
+(1)
+for the linear merge.
+A standard approach to building such a multi-objective model is to train a single model on an
+appropriately chosen global data mixture. However, Figure 1 shows that single-domain SFT runs on
+math, code, and instruction following saturate at different training steps and at different metric values.
+A single-trajectory recipe must therefore compress this heterogeneity into one training schedule.
+This makes recipe design a high-dimensional engineering problem in which the mixture ratio, stage
+ordering, learning-rate schedule, and stopping criterion must all be chosen so that no objective is
+undertrained while others have already saturated, despite their intrinsically mismatched saturation
+profiles.
+A natural alternative is to train objective-specific branches in parallel and combine them in weight
+space. For each k, we fine-tune a hard expert Ek = SFT(M0, Dk) and merge with weights
+α ∈∆K−1 as MMERGE(α) = MERGE(E1:K; α). This decouples branches and reduces unified-
+model construction to many cheap, independent fine-tunes plus a simple mixing step. Most existing
+weight-space merging methods [10, 8] operate in this regime: take hard experts as given, then
+post-hoc combine them.
+3.1
+Failure Modes of Hard-Expert Merging
+In this section we examine two failure modes that arise across our experimental settings. First,
+hard-expert merging exhibits a sharp trade-off between target domains: gains on one domain come at
+the cost of another, so no merge ratio recovers all per-domain experts at once. Second, when merging
+a non-think expert with a think expert to obtain a hybrid model, the resulting model collapses into a
+single mode rather than retaining both behaviors as intended. Both failure modes are alleviated when
+the branches are trained on objective mixtures rather than as hard experts, motivating the approach
+we develop in Section 4.
+Specialization at the cost of other domains.
+Hard experts specialize in their target domain, but
+underperform the base model in other domains. As a result, their linear merge recovers expert-level
+performance only near the simplex endpoints, as shown in the left panel of Figure 2. As the code-
+expert ratio increases, MBPP+ accuracy improves, but MATH-500 accuracy drops sharply from about
+85 to below 50. Thus, no interior merge ratio reaches expert-level performance on both objectives. In
+contrast, the right panel shows that mixture-trained branches maintain strong performance on both
+tasks across a wide range of merge ratios, indicating that mixture-trained components are easier to
+combine.
+Mode collapse between qualitatively different branches.
+The problem becomes more pronounced
+when branches encode different generation behaviors. A non-thinking expert is trained to give short
+direct answers, whereas a thinking expert produces longer Chain-of-Thought (CoT) reasoning. A
+useful hybrid model should preserve both behaviors and switch between them according to an explicit
+mode signal, but linear interpolation of hard experts fails to do so. In the left panels of Figure 3,
+generation lengths under no-think and think prompts move together as the think-expert weight
+changes, so the mode gap largely disappears across the interior of the simplex; Qwen3-4B-Base
+additionally shows a length blow-up at one merge ratio. In contrast, the right panels show that
+mixture-trained branches preserve the separation across merge ratios, maintaining short no-think
+outputs and long think outputs simultaneously.
+4
+MTM: Mixture-Trained Merging
+We now present Mixture-Trained Merging (MTM), which addresses the failures of hard-expert
+merging identified in Section 3 by training each branch on a mixture of objectives. MTM has two
+variants. The single-round variant (Section 4.1), MTM-Single, trains mixture-biased branches once
+and selects merge weights on top of them using the MergeMix approximation. The iterative variant
+4
+
+
+(Section 4.2), MTM-Multi, spreads the same budget across several shorter rounds and reuses each
+round’s merged model as the starting point of the next, so that mixture search and model construction
+share a single training trajectory. The candidate merge weights evaluated in either variant are produced
+by multi-objective Bayesian optimization over the simplex (Section 4.3).
+4.1
+Merge-Based Mixture Search
+Section 3 showed that merging hard experts fails because the experts drift into mutually incompatible
+regions of weight space. MTM addresses this by replacing each hard expert with a soft-expert: a
+branch trained on a domain-biased mixture of objectives. Each soft-expert remains specialized toward
+its target domain keeping it close enough to the other branches in weight space. The unified model
+is then constructed by merging these K soft-experts. We initialize the reference model as the base
+model, M0 = M(θ0), and associate each branch k ∈[K] with its own mixture pk ∈∆K−1 that is
+biased toward domain k. Each soft-expert is trained on its mixture,
+Ek = SFT(M0, MIX(D1:K; pk)) ,
+(2)
+and the K soft-experts are combined with merge weights α ∈∆K−1 to form the final unified model,
+M(α) = MERGE(E1:K; α),
+F (j)(α) = fj(M(α)) ,
+(3)
+where F (j)(α) is the score of the merged model on objective j. Crucially, each pk is a branch-specific
+mixture: branch k leans toward Dk but contains controlled amounts of the other objectives, so that the
+K branches together cover the simplex of objectives from K different angles rather than collapsing
+onto a single shared mixture.
+This raises the question of how to choose the K branch mixtures {pk}K
+k=1 without fine-tuning a
+new model for every candidate. For this search step, we borrow the approximation of [13]: in a
+local fine-tuning regime, the behavior of a linear merge MERGE(E1:K; α) approximates that of a
+model trained on the corresponding data mixture MIX(D1:K; α). We can therefore evaluate candidate
+mixture ratios by evaluating merge weights on already-trained branches, turning mixture search into
+an evaluation problem over the merge simplex. Whereas MergeMix uses this approximation to pick a
+single global mixture and trains one model on it, MTM uses it to pick K branch-specific mixtures
+and deploys their merge. We refer to the resulting single-round procedure as MTM-Single.
+4.2
+Iterative Merging with Branch Reuse
+MTM-Single decouples mixture search from training, but at a cost: the branches trained for search
+and the model deployed at the end are different objects, so producing a final unified model still
+requires a second, full training pass on the chosen mixture. The total budget is roughly twice that of a
+single-trajectory baseline, and the final model never benefits from the merge evaluations carried out
+during search.
+A more efficient alternative is to spread the same total budget over several shorter rounds, and at
+each round use the merge-based search of Section 4.1 not only to inform the next mixture but also to
+construct the model itself. The merged model selected at round t becomes the reference model from
+which round t+1 branches are trained, so the search trajectory and the training trajectory are the same
+sequence of models. We call this iterative variant MTM-Multi. Each round t performs three steps:
+1. train branches E(t)
+1:K from the current reference model Mt−1 on mixtures {p(t)
+k };
+2. evaluate a set of candidate merges over the simplex to obtain a score landscape {F (j)
+t
+(α)};
+3. use this landscape to choose both the next reference model Mt and the next-round mixtures
+{p(t+1)
+k
+}.
+Reusing the round-t branches in step (iii) – rather than discarding them after search – is what brings
+the total training cost back in line with a single-trajectory baseline while preserving branch-level
+modularity. The remainder of this subsection details steps (i)–(iii).
+Training mixture-trained branches.
+We initialize the first-round mixtures at the simplex vertices,
+p(1)
+k
+= ek for k ∈[K], so round 1 starts from hard-domain branches. Round-t branches are obtained
+5
+
+
+by applying Eq. (2) from the current reference model Mt−1 with branch mixtures {p(t)
+k }. Round
+1 thus trains pure-domain experts from M0, and later rounds train mixture-biased branches from a
+merged starting point.
+Promoting the reference model.
+After evaluating a candidate set Xt ⊂∆K−1, whose construc-
+tion is deferred to Section 4.3, we select a global merge weight that maximizes mean normalized
+performance,
+α(t)
+⋆
+= arg max
+α∈Xt
+1
+K
+K
+X
+j=1
+F (j)
+t
+(α),
+(4)
+and promote the corresponding merged model to the next-round reference,
+Mt = MERGE
+
+E(t)
+1:K; α(t)
+⋆
+
+.
+(5)
+This step plays a dual role. It produces the unified model that MTM ultimately returns at round T,
+and it acts as a realignment operation between rounds: collapsing the branches back into a common
+reference prevents the cumulative drift that otherwise breaks weight-space compatibility over long
+fine-tuning horizons.
+Updating branch mixtures.
+For each branch k, we look for a merge weight that produces a strong
+domain-k specialist without sacrificing the other objectives,
+α(t)
+k
+= arg max
+α∈Xt F (k)
+t
+(α)
+s.t.
+F (j)
+t
+(α) ≥τ (t)
+j ,
+∀j̸ = k,
+(6)
+where τ (t)
+j
+is a per-objective preservation threshold expressed on normalized scores, e.g., the score of
+Mt−1 on objective j. The selected α(t)
+k
+then propagates back to the data mixture used to train branch
+k in the next round,
+p(t+1)
+k
+=
+K
+X
+ℓ=1
+α(t)
+k,ℓp(t)
+ℓ.
+(7)
+By the MergeMix approximation, α(t)
+k
+identifies a point in mixture space that sharpens domain k
+while preserving other objectives, and Eq. (7) uses this point as the next-round training mixture for
+branch k. Composing these updates across rounds carries information from each round’s merge
+evaluations into the next-round mixture, so p(t)
+k
+reflects the full search trajectory rather than the latest
+round alone.
+4.3
+Multi-Objective Bayesian Optimization over the Merge Simplex
+The candidate set Xt in Eqs. (4) and (6) is constructed by MOBO over the merge simplex. Each
+candidate α ∈∆K−1 defines a merged model M(t)(α) and a normalized score vector
+Ft(α) =
+ F (1)
+t
+(α), . . . , F (K)
+t
+(α)
+
+,
+F (j)
+t
+(α) = fj
+
+M(t)(α)
+
+.
+(8)
+A dense grid over ∆K−1 becomes expensive as K grows, while a coarse grid can miss useful interior
+trade-offs. We therefore use MOBO to adaptively propose merge weights that expand the Pareto
+frontier of Ft(α).
+Each round is initialized with a small anchor set consisting of the simplex vertices {ek}K
+k=1, the
+uniform weight 1
+K 1, and Dirichlet samples. Starting from these observations, BO proposes additional
+batches of merge weights under the simplex constraint α ∈∆K−1. We use qNEHVI [24] as the
+acquisition function, since it handles noisy batched evaluations and directly targets hypervolume
+improvement over multiple objectives.
+MOBO is used only to construct the Pareto-aware candidate set Xt, not to directly choose the final
+merge. Once Xt is obtained, MTM applies the scalarized selection rules in Eqs. (4) and (6): the
+averaged score promotes the next reference model, while constrained objective-specific scores update
+the branch mixtures. Thus, one batch of merge evaluations per round supports both model promotion
+and all branch-specific mixture updates. Algorithm 1 summarizes the full procedure.
+6
+
+
+Table 1: Results for Qwen3-4B-Base and OLMo-7B under the SFT setting (3-eval pass@1 avg
+± std). Bold marks the best result on the Avg. column and underline marks the second best.
+Qwen3-4B-Base
+OLMo-7B
+Method
+GSM8K
+MATH
+MBPP+
+LCB
+IFEval
+Avg.
+GSM8K
+MATH
+MBPP+
+LCB
+IFEval
+Avg.
+Math Expert
+92.85±0.22 84.40±0.93 64.02±1.63 20.59±0.48 55.95±0.39 63.56±0.73
+89.84±0.65 79.20±1.39 54.32±0.55 18.58±0.46 38.92±1.24 56.17±0.86
+Code Expert
+79.53±6.63 53.85±11.13 67.46±0.49 22.03±1.40 67.99±0.53 58.17±4.04
+63.46±3.72 66.20±0.80 63.67±0.15 16.01±0.51 50.51±1.29 51.97±1.29
+IF Expert
+90.01±0.47 76.40±0.71 67.92±0.82 18.72±0.78 80.57±0.50 66.72±0.66
+67.65±2.10 52.07±2.91 63.67±0.81 14.61±1.11 76.06±1.51 54.81±1.69
+Linear Merge 91.91±0.38 83.10±0.59 67.72±0.42 23.40±0.29 77.26±3.05 68.68±0.95
+83.83±1.30 75.00±0.53 64.55±0.00 14.61±0.64 61.62±2.10 59.92±0.91
+Ties Merge
+92.04±0.50 83.07±0.50 68.08±1.46 23.35±1.91 78.30±1.18 68.97±1.11
+87.87±0.39 76.20±1.97 63.05±1.76 14.90±1.04 60.76±2.35 60.56±1.50
+DARE-Ties
+91.61±0.38 81.67±2.00 64.20±1.76 19.53±0.71 76.77±1.42 66.76±1.25
+88.40±0.85 76.73±0.90 59.26±0.79 16.45±0.64 60.74±1.94 60.32±1.03
+SCE
+91.43±0.99 83.67±2.12 70.99±0.93 22.03±1.38 74.29±0.38 68.48±1.16
+81.15±1.21 75.53±2.05 59.61±4.71 14.24±3.77 56.95±1.80 57.50±2.71
+MergeMix
+88.64±0.87 80.35±1.69 67.46±0.82 21.81±0.64 80.65±0.65 67.78±0.93
+89.21±0.61 76.93±0.50 62.17±0.26 12.92±0.25 74.81±0.50 63.21±0.43
+MTM-Single 90.88±0.90 82.45±1.02 69.11±0.80 22.69±0.72 82.87±0.62 69.60±0.81
+89.76±0.66 78.13±0.46 62.35±1.36 13.00±0.58 74.10±0.15 63.47±0.64
+MTM-Multi
+92.32±0.93 82.40±0.80 68.78±0.75 21.04±0.62 84.16±0.59 69.74±0.74
+90.32±0.83 78.27±1.40 64.64±1.19 13.36±0.64 73.89±0.78 64.10±0.97
+5
+Main Experiments
+We evaluate MTM in two settings that reflect the failure modes identified in Section 3: a multi-
+domain setting that merges math, code, and instruction-following branches (Section 5.2), and a
+hybrid-mode setting that merges non-think and think branches (Section 5.3).
+5.1
+Experimental Setup
+Training.
+We use two open base models that differ in scale and pretraining recipe: Qwen3-4B-
+Base [2] and OLMo-3-1025-7B (referred to as OLMo-7B) [16]. For the multi-domain setting, we
+build math, code, and instruction-following data from Dolci-Instruct-SFT3 by sampling 10K examples
+from each corresponding category. We generate model-specific trajectories using Qwen3-4B-Instruct4
+for Qwen3-4B and OLMo-Instruct5 for OLMo-7B. For the hybrid-mode setting, we sample 10K
+non-think examples from Dolci-Instruct-SFT and 10K think examples from Dolci-Think-SFT-32B6,
+generating think trajectories with Qwen3-4B7 in think mode and the OLMo3-7B-Think for the
+respective experiments. Mixture datasets contain 10K examples sampled from the branch-specific
+datasets, matching the total training size of each individual branch. See Section A for details.
+Benchmarks.
+We evaluate along three axes that correspond to the target objectives. For Math,
+we report accuracy on GSM8K [25] and MATH-500 [26]. For Code, we report MBPP+ [27] and
+LiveCodeBench (LCB) [28]; For IF (Instruction Following), we report IFEval [29]. In the hybrid
+setting we additionally report the average response length (in tokens) under both no-think and
+think prompts, which measures whether the merged model preserves behavioral separation between
+the two modes. See Section A for evaluation prompts and additional details.
+Baselines.
+We compare MTM against several baselines constructed from the same set of single-
+objective experts. (1) Linear Merge [10] linearly combines expert updates, with merge weights
+chosen by grid search over the simplex. (2) MergeMix [13] uses the selected merge weights as data-
+mixture ratios and trains a single model on the resulting mixture, rather than merging at deployment
+time. (3) TIES-Merge [9] resolves interference by sparsifying updates, electing a shared sign, and
+averaging sign-consistent parameters. (4) DARE [21] randomly drops and rescales update entries,
+and we apply it as a preprocessing step before TIES. (5) SCE [22] assigns matrix-wise coefficients
+based on update magnitudes to enable fine-grained fusion without hard sparsification.
+5.2
+Multi-Domain
+?? shows that MTM-Multi achieves the highest average score on both Qwen3-4B-Base and OLMo-7B,
+outperforming all merging-only baselines. Across both models, MTM is the only method that keeps
+3https://huggingface.co/datasets/allenai/Dolci-Instruct-SFT
+4https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507
+5https://huggingface.co/allenai/Olmo-3-7B-Instruct
+6https://huggingface.co/datasets/allenai/Dolci-Think-SFT-32B
+7https://huggingface.co/Qwen/Qwen3-4B
+7
+
+
+Table 2: Relative epoch analy-
+sis. Cost denotes total training bud-
+get; Path denotes the effective opti-
+mization path length of the returned
+model. Merge-only includes Linear
+Merge, TIES Merge, and DARE-
+TIES. MTM-Multi reports Qwen3-
+4B-Base/OLMo-7B.
+Method family
+Cost
+Path
+Expert SFT
+1.0
+1.0
+Merge-only
+1.0
+1.0
+MergeMix / MTM-Single
+2.0
+1.0
+MTM-Multi
+0.70/0.75
+0.70/0.75
+103
+4 × 102 6 × 102
+2 × 103
+Avg. tokens (log scale)
+90
+91
+92
+93
+Acc.
+mode collapsed
+GSM8K
+non-think
+think
+3 × 103 4 × 103
+6 × 103
+Avg. tokens (log scale)
+84
+85
+86
+87
+88
+mode collapsed
+33% tokens
+14% tokens
+MATH-500
+MergeMix
+MTM
+Linear Merge
+Figure
+4:
+Length-accuracy
+frontier
+under
+non-think/think modes on OLMo-7B. Open/filled
+markers share a model; segment length = mode separation,
+Linear Merge collapses both modes.
+math, code, and instruction-following performance simultaneously close to the best single-objective
+experts, rather than recovering one axis at the cost of another. MTM also consistently improves over
+MergeMix, which uses merge-based search only to select a single global data mixture. This indicates
+that the gains come from combining branch-specific mixtures with deployment-time merging, not
+from mixture selection alone. The gap is most pronounced on IF metrics, where MTM can retain an
+IF-leaning branch and recombine it with other branches at merge time.
+Iterative refinement matters.
+MTM-Multi consistently outperforms MTM-Single, with the largest
+gains on interference-sensitive metrics such as IFEval. This supports the role of the iterative procedure
+in Section 4: each round realigns branches around the promoted shared reference model and adapts
+the next branch mixtures using specialist ratios.
+Training cost.
+Table 2 compares the relative training budget and effective optimization path length
+of each method. MTM introduces additional cost by training mixture-biased branches, but these
+branches are independent within each round and can be trained in parallel. Moreover, MTM-Multi
+reuses the initial experts as the first stage of the iterative procedure rather than discarding them. As
+a result, its wall-clock cost remains comparable to a single-trajectory mixture training run with the
+same number of stages, while preserving the deployment-time flexibility of weight-space merging.
+5.3
+Hybrid Mode
+We now turn to the harder hybrid setting in which the two branches encode behaviors rather than
+domains: a no-think branch trained to produce short, direct answers, and a think branch trained to
+produce long CoT reasoning. As shown in Section 3, naively merging these two branches collapses
+the two modes onto a single behavior, motivating mixture training and ultimately MTM as remedies.
+We probe this on OLMo-3-7B by comparing Linear Merge, Mixture Training, and MTM. Each
+method is evaluated on the same unified model under both no-think and think prompts, yielding
+two (token, accuracy) points per method (Figure 4). The horizontal extent between the two points
+measures how strongly the modes diverge in generation length, while their vertical positions reflect
+accuracy: a short segment means the two modes have collapsed into near-identical behavior, whereas
+a longer segment positioned further to the upper-left means modes remain distinct while overall using
+fewer tokens at comparable accuracy.
+MTM preserves mode separation and shifts the frontier.
+Reading Figure 4 under this convention,
+Linear Merge (gray) produces a near-degenerate segment, indicating that the two modes have
+collapsed into a single behavior. Mixture Training (blue) yields a clearly extended segment, recovering
+the separation between short no-think and long think generations. MTM (orange) preserves this
+separation and additionally shifts the segment toward the upper-left, using fewer tokens at no-think
+while matching or exceeding Mixture Training accuracy at think. Together, these results confirm
+that mode separation must be built in through mixture training rather than merging hard experts,
+and that MTM further exploits branch-level mixture control to push the hybrid model onto a more
+favorable length/accuracy trade-off than mixture training alone can reach.
+8
+
+
+math
+code
+ifeval
+MATH-500
+mean best
+math
+code
+ifeval
+IFEval (prompt-strict)
+mean best
+math
+code
+ifeval
+mean best
+math
+code
+ifeval
+mean best
+64
+72
+80
+Acc.
+68
+72
+76
+80
+Acc.
+Hard
+Soft
+Figure 5: Merge-simplex accuracy on Qwen3-
+4B-Base. Ternary heatmaps over α ∈∆2 for Hard
+vs.Soft branches on MATH-500 and IFEval. Soft
+branches yield a flatter, higher-valued interior.
+Table 3: Recipe transfer across architec-
+tures. MTM recipes (branch mixtures {pk}
+and merge coefficients α⋆) selected on Qwen3-
+4B-Base are reused on Qwen2.5-0.5B without
+re-running the search. For a controlled com-
+parison, all methods are trained for the same
+fixed budget of 3 epochs. Merge (Uniform
+Merge) and Mixture (Uniform Mixture) are
+size-matched baselines that ignore the source
+recipe.
+Method
+MATH-500
+MBPP+
+IFEval
+Avg.
+Merge
+37.00
+27.78
+37.65
+34.14
+Mixture
+32.40
+24.07
+43.63
+33.37
+MTM
+32.00
+34.66
+45.93
+37.53
+6
+Additional Experiments
+Merge-simplex landscape.
+To visualize how mixture training reshapes the weight-space geometry
+exploited by MTM, we evaluate M(t)(α) on a dense grid of α ∈∆2 for the three-branch (math,
+code, IF) setting on Qwen3-4B-Base, comparing Hard branches (single-domain SFT) against Soft
+branches (mixture-trained). Figure 5 shows that the Hard branches concentrate accuracy near the
+corresponding vertex and decay sharply along interior rays, consistent with independently drifted
+experts lying outside any shared high-accuracy basin. Soft branches yield a flatter, higher-valued
+interior, so the selectors α(t)
+⋆
+in Eq. (5) and α(t)
+k
+in Eq. (6) admit non-degenerate interior solutions
+that satisfy the cross-objective constraints τ (t)
+j . This is direct geometric evidence that mergeability is
+a property of the branches, not the merger.
+Cross-architecture recipe transfer.
+We next ask whether the recipe found by MTM is tied to
+the specific source model, or whether it captures a more general structure of the multi-objective
+search space. To test this, we take the branch mixtures {pk} and merge coefficients α⋆selected on
+Qwen3-4B-Base and apply them directly to Qwen2.5-0.5B, without any additional search or tuning.
+As shown in Table 3, MTM Transfer achieves a higher average score than both size-matched baselines.
+This suggests that the learned recipe can serve as a strong starting point for other architectures and
+model scales.
+7
+Conclusion
+We study multi-objective language models built through weight-space merging.
+Merging
+single-objective experts often produces sharp cross-domain trade-offs or mode collapse in
+think/non-think hybrids. We attribute these failures to weight-space incompatibility: indepen-
+dently trained experts drift away from a shared high-performing basin. We propose Mixture-Trained
+Merging (MTM), which trains each branch on an objective-biased mixture so that task vectors remain
+compatible. MTM uses merged-model evaluations as a proxy for data-mixture training and iterates
+between MOBO based mixture search, branch specialization, and merging. Across Qwen3-4B-Base
+and OLMo-7B, MTM-Multi achieves the best average performance, keeps all objectives close to their
+single-domain experts, and preserves think/non-think separation. The flatter, higher-valued sim-
+plex induced by mixture-trained branches supports our main conclusion: mergeability is determined
+by the branches, not only by the merging rule. Our study is limited to SFT-stage merging; extending
+MTM to larger objective sets and post-RL training remains an important direction for future work.
+9
+
+
+Acknowledgments and Disclosure of Funding
+Use unnumbered first level headings for the acknowledgments. All acknowledgments go at the
+end of the paper before the list of references. Moreover, you are required to declare funding
+(financial activities supporting the submitted work) and competing interests (related financial activities
+outside the submitted work). More information about this disclosure can be found at: https:
+//neurips.cc/Conferences/2026/PaperInformation/FundingDisclosure.
+Do not include this section in the anonymized submission, only in the final paper. You can use
+the ack environment provided in the style file to automatically hide this section in the anonymized
+submission.
+References
+[1] Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Peiyi Wang, Qihao Zhu, Runxin Xu, Ruoyu Zhang,
+Shirong Ma, Xiao Bi, et al. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement
+learning. arXiv preprint arXiv:2501.12948, 2025.
+[2] An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao,
+Chengen Huang, Chenxu Lv, et al. Qwen3 technical report. arXiv preprint arXiv:2505.09388, 2025.
+[3] Boxin Wang, Chankyu Lee, Nayeon Lee, Sheng-Chieh Lin, Wenliang Dai, Yang Chen, Yangyi Chen,
+Zhuolin Yang, Zihan Liu, Mohammad Shoeybi, et al. Nemotron-cascade: Scaling cascaded reinforcement
+learning for general-purpose reasoning models. arXiv preprint arXiv:2512.13607, 2025.
+[4] Qi Yang, Bolin Ni, Shiming Xiang, Han Hu, Houwen Peng, and Jie Jiang. R-4b: Incentivizing general-
+purpose auto-thinking capability in mllms via bi-mode annealing and reinforce learning. arXiv preprint
+arXiv:2508.21113, 2025.
+[5] Zhilin Wang, Yafu Li, Xiaoye Qu, and Yu Cheng. See: Continual fine-tuning with sequential ensemble of
+experts. In Findings of the Association for Computational Linguistics: ACL 2025, pages 7418–7432, 2025.
+[6] Yun Luo, Zhen Yang, Fandong Meng, Yafu Li, Jie Zhou, and Yue Zhang. An empirical study of catastrophic
+forgetting in large language models during continual fine-tuning. IEEE Transactions on Audio, Speech and
+Language Processing, 2025.
+[7] Woosung Koh, Jeyoung Jeon, Youngjin Song, Yujin Cheon, Soowon Oh, Jaehyeong Choi, and Se-Young
+Yun. msft: Addressing dataset mixtures overfiting heterogeneously in multi-task sft. arXiv preprint
+arXiv:2603.21606, 2026.
+[8] Margaret Li, Suchin Gururangan, Tim Dettmers, Mike Lewis, Tim Althoff, Noah A Smith, and Luke
+Zettlemoyer. Branch-train-merge: Embarrassingly parallel training of expert language models. arXiv
+preprint arXiv:2208.03306, 2022.
+[9] Prateek Yadav, Derek Tam, Leshem Choshen, Colin Raffel, and Mohit Bansal. TIES-merging: Resolving
+interference when merging models. In Advances in Neural Information Processing Systems (NeurIPS),
+2023.
+[10] Gabriel Ilharco, Marco Tulio Ribeiro, Mitchell Wortsman, Ludwig Schmidt, Hannaneh Hajishirzi, and Ali
+Farhadi. Editing models with task arithmetic. In Proceedings of the International Conference on Learning
+Representations (ICLR), 2023.
+[11] Timur Garipov, Pavel Izmailov, Dmitrii Podoprikhin, Dmitry P Vetrov, and Andrew G Wilson. Loss
+surfaces, mode connectivity, and fast ensembling of dnns. Advances in neural information processing
+systems, 31, 2018.
+[12] Pavel Izmailov, Dmitrii Podoprikhin, Timur Garipov, Dmitry Vetrov, and Andrew Gordon Wilson. Averag-
+ing weights leads to wider optima and better generalization. arXiv preprint arXiv:1803.05407, 2018.
+[13] Jiapeng Wang, Changxin Tian, Kunlong Chen, Ziqi Liu, Jiaxin Mao, Wayne Xin Zhao, Zhiqiang Zhang,
+and Jun Zhou. Mergemix: Optimizing mid-training data mixtures via learnable model merging. arXiv
+preprint arXiv:2601.17858, 2026.
+[14] Eric Brochu, Vlad M Cora, and Nando De Freitas. A tutorial on bayesian optimization of expensive cost
+functions, with application to active user modeling and hierarchical reinforcement learning. arXiv preprint
+arXiv:1012.2599, 2010.
+10
+
+
+[15] Peter I Frazier. Bayesian optimization. In Recent advances in optimization and modeling of contemporary
+problems, pages 255–278. Informs, 2018.
+[16] Team Olmo, Allyson Ettinger, Amanda Bertsch, Bailey Kuehl, David Graham, David Heineman,
+Dirk Groeneveld, Faeze Brahman, Finbarr Timbers, Hamish Ivison, et al. Olmo 3. arXiv preprint
+arXiv:2512.13961, 2025.
+[17] Sang Michael Xie, Hieu Pham, Xuanyi Dong, Nan Du, Hanxiao Liu, Yifeng Lu, Percy S Liang, Quoc V Le,
+Tengyu Ma, and Adams Wei Yu. Doremi: Optimizing data mixtures speeds up language model pretraining.
+Advances in Neural Information Processing Systems, 36:69798–69818, 2023.
+[18] Qian Liu, Xiaosen Zheng, Niklas Muennighoff, Guangtao Zeng, Longxu Dou, Tianyu Pang, Jing Jiang,
+and Min Lin. Regmix: Data mixture as regression for language model pre-training. arXiv preprint
+arXiv:2407.01492, 2024.
+[19] Jiasheng Ye, Peiju Liu, Tianxiang Sun, Jun Zhan, Yunhua Zhou, and Xipeng Qiu. Data mixing laws:
+Optimizing data mixtures by predicting language modeling performance. arXiv preprint arXiv:2403.16952,
+2024.
+[20] Mitchell Wortsman, Gabriel Ilharco, Samir Ya Gadre, Rebecca Roelofs, Raphael Gontijo-Lopes, Ari S
+Morcos, Hongseok Namkoong, Ali Farhadi, Yair Carmon, Simon Kornblith, et al. Model soups: averaging
+weights of multiple fine-tuned models improves accuracy without increasing inference time. In Proceedings
+of the International Conference on Machine Learning (ICML), 2022.
+[21] Le Yu, Bowen Yu, Haiyang Yu, Fei Huang, and Yongbin Li. Language models are super mario: Absorbing
+abilities from homologous models as a free lunch. In Proceedings of the International Conference on
+Machine Learning (ICML), 2024.
+[22] Fanqi Wan, Longguang Zhong, Ziyi Yang, Ruijun Chen, and Xiaojun Quan. Fusechat: Knowledge fusion
+of chat models. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language
+Processing, pages 21629–21653, 2025.
+[23] Zhehao Huang, Yuhang Liu, Baijiong Lin, Yixin Lou, Zhengbao He, Hanling Tian, Tao Li, and Xiaolin
+Huang. Rain-merging: A gradient-free method to enhance instruction following in large reasoning
+models with preserved thinking format. In Proceedings of the International Conference on Learning
+Representations (ICLR), 2026.
+[24] Samuel Daulton, Maximilian Balandat, and Eytan Bakshy. Parallel bayesian optimization of multiple noisy
+objectives with expected hypervolume improvement. Advances in neural information processing systems,
+34:2187–2200, 2021.
+[25] Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias
+Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, et al. Training verifiers to solve math word
+problems. arXiv preprint arXiv:2110.14168, 2021.
+[26] Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul Arora, Steven Basart, Eric Tang, Dawn Song,
+and Jacob Steinhardt. Measuring mathematical problem solving with the math dataset. arXiv preprint
+arXiv:2103.03874, 2021.
+[27] Jacob Austin, Augustus Odena, Maxwell Nye, Maarten Bosma, Henryk Michalewski, David Dohan, Ellen
+Jiang, Carrie Cai, Michael Terry, Quoc Le, et al. Program synthesis with large language models. arXiv
+preprint arXiv:2108.07732, 2021.
+[28] Naman Jain, King Han, Alex Gu, Wen-Ding Li, Fanjia Yan, Tianjun Zhang, Sida Wang, Armando Solar-
+Lezama, Koushik Sen, and Ion Stoica. Livecodebench: Holistic and contamination free evaluation of large
+language models for code. arXiv preprint arXiv:2403.07974, 2024.
+[29] Jeffrey Zhou, Tianjian Lu, Swaroop Mishra, Siddhartha Brahma, Sujoy Basu, Yi Luan, Denny Zhou, and
+Le Hou. Instruction-following evaluation for large language models. arXiv preprint arXiv:2311.07911,
+2023.
+11
+
+
+A
+Experimental Details
+A.1
+Detail for Qwen3-4B-Base
+We fine-tune Qwen3-4B-Base8 on trajectories generated by Qwen3-4B-Instruct-25079 in NOTHINK
+mode. Prompts are drawn from Dolci-Instruct-SFT10 across three domains: math, coding, and precise-
+IF. We construct a separate corpus for each domain. Trajectories are generated using vLLM11 with
+nucleus sampling (T=0.6, top-p=0.95, top-k=20) and a maximum of 8,192 new tokens. Samples
+exceeding 15,000 total tokens are filtered out, yielding 10,000 examples per training run. We use the
+same chat template for both training and inference.
+For mixture-data SFT (used in the BO branch retrains; §A.3), we sample domain proportions
+(λmath, λcode, λif) ∈∆2 from the per-domain corpora.
+Training is performed on 4× H200 GPUs using DeepSpeed ZeRO-2, bf16 weights, and TF32 matmul.
+The loss is computed only over assistant tokens.
+Instead of a fixed epoch budget, we apply plateau-based early stopping. Training stops when the
+EMA (β=0.9) of validation token-level accuracy (512 samples, evaluated every 20 steps) fails to
+improve by τ=0.02 for three consecutive evaluations after a 100-step warm-up.
+For BO branch retraining, we additionally impose a maximum step budget with geometric decay:
+Tc = T1rc−1, where r=0.5.
+Table 4: SFT hyperparameters for Qwen3-4B-Base.
+Optimizer / LR
+AdamW (fused), 2×10−5, constant w/ 0.03 warmup
+Weight decay / clip
+0.01 / 1.0
+Effective batch size
+128 (2 × 16 × 4 GPUs)
+Max sequence length
+10,000
+Precision
+bf16 weights, tf32 matmul, grad ckpt
+Distributed
+DeepSpeed ZeRO-2
+Plateau stop (τ, K, β)
+0.02, 3, 0.9 (val 512, every 20 steps)
+Seed
+42
+A.2
+Detail for OLMo-7B
+We fine-tune OLMo-3-1025-7B12 under two settings: (1) multi-domain and (2) hybrid-mode (think /
+nothink).
+In the multi-domain setting, we generate math, coding, and precise-IF trajectories using Olmo-3-7B-
+Instruct13 with prompts from Dolci-Instruct-SFT. Each domain forms a separate corpus.
+In the hybrid-mode setting, we additionally include THINK trajectories generated by Olmo-
+3-7B-Think14 using prompts from Dolci-Think-SFT-32B15. These trajectories prepend a
+⟨think⟩. . . ⟨/think⟩reasoning block before the final answer, while NOTHINK trajectories directly
+output the answer.
+The sampling configuration matches that of the Qwen setup.
+Training is conducted on 4× H200 GPUs with DeepSpeed ZeRO-2, bf16 weights, and TF32 matmul.
+The loss is computed over assistant tokens only, including the reasoning block in THINK mode.
+Unlike Qwen, we use a fixed epoch budget without early stopping. Hyperparameters are summarized
+in Table 5.
+8https://huggingface.co/Qwen/Qwen3-4B-Base
+9https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507
+10https://huggingface.co/datasets/allenai/Dolci-Instruct-SFT
+11https://github.com/vllm-project/vllm
+12https://huggingface.co/allenai/Olmo-3-1025-7B
+13https://huggingface.co/allenai/Olmo-3-7B-Instruct
+14https://huggingface.co/allenai/Olmo-3-7B-Think
+15https://huggingface.co/datasets/allenai/Dolci-Think-SFT-32B
+12
+
+
+Table 5: SFT hyperparameters for OLMo-7B. Identical across THINK and NOTHINK runs; only the
+input corpus and trajectory length cap differ (16,384 vs. 8,192 new tokens).
+Optimizer / LR
+AdamW (fused), 2×10−5, constant w/ 0.03 warmup
+Weight decay / clip
+0.01 / 1.0
+Effective batch size
+64 (1 × 16 × 4 GPUs)
+Max sequence length
+10,000
+Precision
+bf16 weights, tf32 matmul, grad ckpt
+Distributed
+DeepSpeed ZeRO-2
+Early stopping
+disabled (fixed epoch budget)
+Seed
+42
+A.3
+Bayesian Optimization Details
+We use Bayesian optimization to search over merge coefficients on the simplex. At each MTM
+iteration, the initial design includes the simplex vertices, a central or previously best merge point,
+and a small number of space-filling random candidates. Each candidate corresponds to a merged
+checkpoint, which is evaluated on all objectives.
+Each objective is modeled with an independent Gaussian process surrogate using a Matérn-5/2
+kernel with automatic relevance determination and outcome standardization. The surrogates are
+fit by maximizing the marginal likelihood and refit after each new observation. We use qNEHVI
+as the acquisition function, optimized sequentially with batch size q = 1. The reference point is
+defined relative to the single-objective expert scores, encouraging hypervolume improvement only
+for candidates that approach the expert frontier while maintaining balanced performance across
+objectives.
+After exhausting the BO budget, we select a global merge coefficient from the observed candidates
+using a balanced multi-objective score that prioritizes the weakest objective and avoids near-vertex
+solutions. We also select specialist merge coefficients for the next MTM iteration by requiring
+the target objective to remain close to its expert score while constraining degradation on the other
+objectives. These coefficients are then used for base promotion and mixture propagation in the next
+iteration.
+A.4
+Evaluation Settings
+Table 6: Evaluation settings for each benchmark. n denotes the number of generations per prompt. All
+benchmarks use one greedy generation and three sampled generations with T=0.7 and top-p=0.95
+across different random seeds.
+Benchmark
+# Samples
+n
+Metric
+IFEval16
+541
+4
+prompt/inst. acc. (strict, avg.)
+MBPP+17
+378
+4
+pass@1 (avg.)
+MATH-50018
+500
+4
+pass@1 (avg.)
+GSM8K19
+1,319
+4
+exact match (avg.)
+LiveCodeBench20
+268 (v5, 2024-08 – 2025-02)
+4
+pass@1 (avg.)
+We evaluate all models using the NeMo-Skills framework21, serving checkpoints with vLLM22 on
+16× NVIDIA H200 80GB GPUs. We use tensor parallelism TP ∈{2, 4} and bfloat16 weights. The
+maximum generation length is set between 8,196 and 30,000 tokens depending on the benchmark.
+Generations are scored using the official evaluators bundled with NeMo-Skills. For each prompt, we
+generate four responses: one greedy response with T=0 and three sampled responses using T=0.7,
+top-p=0.95, and different random seeds. We report the average score across these four generations.
+Dataset sizes and metrics are summarized in Table 6.
+21https://github.com/NVIDIA/NeMo-Skills
+22https://github.com/vllm-project/vllm
+13
+
+
+Algorithm 1 Iterative Mixture–Merge with Bayesian Optimization
+Require: Base model M0; corpora {Dk}K
+k=1; iterations T; BO budget B; thresholds {τ (t)
+j }
+1: Initialize p(1)
+k
+←ek for all k
+2: for t = 1, . . . , T do
+3:
+Train experts: E(t)
+k
+←FINETUNE
+
+Mt−1, MIX(D1:K; p(t)
+k )
+
+for all k
+4:
+Initialize candidate set Xt with vertices {ek}, the uniform weight, and random Dirichlet
+samples
+5:
+for b = 1, . . . , B do
+6:
+αb ←BO-PROPOSE(Xt)
+7:
+Evaluate f (t)
+k (αb) ←EVALk
+
+MERGE(E(t)
+1:K; αb)
+
+for all k
+8:
+Xt ←Xt ∪{αb}
+9:
+end for
+10:
+Select global ratio r(t)
+⋆
+←arg maxα∈Xt
+1
+K
+PK
+j=1 f (t)
+j (α)
+11:
+Select each specialist ratio r(t)
+k
+by constrained target-domain performance
+12:
+Promote base: Mt ←MERGE(E(t)
+1:K; r(t)
+⋆)
+13:
+Update mixtures: p(t+1)
+k
+←PK
+j=1 r(t)
+k,j p(t)
+j
+for all k
+14: end for
+15: return MT
+B
+Algorithm
+Algorithm 1 provides the full MTM iteration, including branch training, BO-based merge-ratio search,
+base promotion, and mixture updates.
+14

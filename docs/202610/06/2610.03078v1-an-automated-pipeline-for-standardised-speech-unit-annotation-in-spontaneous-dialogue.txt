@@ -1,0 +1,1105 @@
+An automated pipeline for standardised speech-unit annotation in spontaneous
+dialogue
+Hanlu He ID 1,∗, Harald Vilhelm Skat-Rørdam ID 1, Ingvi ¨Orn´olfsson ID 1, Ivana Konvalinka ID 1
+1 Department of Applied Mathematics and Computer Science, Technical University of Denmark
+hahea@dtu.dk, harsk@dtu.dk, rinor@dtu.dk, ivako@dtu.dk
+Abstract
+Quantifying conversational dynamics requires reliable iden-
+tification of interactional units and their temporal boundaries, but
+speech activity alone does not distinguish conversational turns
+from listener feedback or within-turn pauses.
+We present an
+automated pipeline for extracting turns and backchannels from
+separate-channel recordings of spontaneous dyadic conversation,
+designed to provide a consistent first-pass annotation for subse-
+quent human review. The pipeline combines voice activity de-
+tection, channel-energy filtering, temporal merging, automatic
+speech recognition, and context-based post-processing. We eval-
+uated the pipeline on 99 ten-minute Danish conversations from
+33 dyads using segment-level detection reliability and temporal
+boundary error. Conversations were recorded under both normal
+and asymmetric listening conditions. In the latter, speech-shaped
+noise was delivered to one participant through bone-conduction
+headphones. Overall detection reliability was F1 = 0.621, with
+similar performance for turns (F1 = 0.624) and backchannels
+(F1 = 0.618). For successfully matched segments, median ab-
+solute onset and offset errors were 0.150 and 0.160 s for turns
+and 0.130 and 0.180 s for backchannels, respectively. Mean er-
+rors were substantially larger for turn boundaries, indicating a
+smaller number of large boundary mismatches. Performance did
+not differ significantly across the two experimental listening con-
+ditions. In a four-conversation case study, pipeline–human agree-
+ment was lower and more variable than human inter-annotator
+agreement and varied across parameter settings. These results
+support the pipeline as an automated first pass within a semi-
+automated annotation workflow, providing a consistent basis for
+more standardised and reproducible annotation of conversational
+dynamics.
+Index Terms: VAD, Turn-taking, Conversation, Speech signals
+1. Introduction
+Spontaneous conversation is a highly coordinated form of so-
+cial interaction in which speakers continuously manage when to
+speak, when to yield the floor, and how to respond - all while
+listening to another person speaking [1, 2, 3, 4].
+Conversa-
+tional dynamics can be quantified through both the occurrence
+of interactional events, such as turns and backchannels, and their
+temporal organization, including turn duration, transition timing,
+pauses, and overlap. These measures characterize how interlocu-
+tors distribute and coordinate their contributions over time and
+have been associated with social connection, rapport, and inter-
+action quality [5, 6, 7]. They are also relevant to applied areas
+such as hearing and clinical research [8, 9]. Reliable identifica-
+tion of these interaction-level units from recordings is therefore
+*Indicates the corresponding author.
+an important methodological step in the analysis of natural con-
+versation.
+Extracting such units directly from conversational audio is
+challenging. While voice activity detection (VAD) can identify
+regions containing speech, speech activity does not map directly
+onto conversational structure. Pauses can occur within an ongo-
+ing turn, speaker transitions can occur with little or no silence,
+and genuine contributions from two speakers can overlap [10, 2].
+In separate-channel recordings, speech from one participant may
+also leak into the interlocutor’s microphone, creating apparent
+speech activity on both channels [11]. An automated method
+must therefore distinguish recording artefacts and fragmented
+speech activity from interactionally meaningful speaker contri-
+butions. This distinction is particularly important because con-
+versational turns are not defined by acoustic boundaries alone.
+Turn transitions are jointly organized and can depend on syntac-
+tic, lexical, prosodic, and temporal information [1, 12, 3, 13].
+Consequently, a pause does not necessarily terminate a turn, and
+a new speech segment does not necessarily represent a new at-
+tempt to take the floor. Segmentation based only on speech ac-
+tivity can therefore produce acoustically valid regions that do not
+correspond to the units required for analysis of conversational
+dynamics.
+Listener responses introduce an additional classification
+problem. Backchannels, for example, provide feedback to the
+current speaker without attempting to take the conversational
+floor [14, 15]. They may occur during an ongoing turn and vary
+in lexical form, duration, and complexity [16, 15]. Some consist
+of short conventional responses such as mhm or yeah, whereas
+others contain multiple units and extend beyond the duration ex-
+pected of a minimal response [15]. Hence, backchannels cannot
+be identified using duration or a fixed lexical dictionary alone, as
+their classification depends on conversation context.
+How these units are operationalized directly affects down-
+stream measures of conversational dynamics. Correct classifica-
+tion determines which events contribute to measures such as turn
+and backchannel frequency, while temporal boundary detection
+affects measures of turn duration, transition timing, pauses, and
+overlap. Reliable analysis therefore requires both accurate iden-
+tification of conversational units and sufficiently precise temporal
+segmentation. Differences in these operational criteria can also
+limit comparison across studies. Consistent segmentation crite-
+ria are therefore important for both annotation reliability and the
+reproducibility of quantitative conversation research [10, 4, 15].
+These requirements create a gap between the output of
+general speech-processing tools and the interaction-level la-
+bels needed for conversation analysis.
+VAD estimates when
+speech is present, while automatic speech recognition (ASR) es-
+timates what was said. Neither alone determines whether de-
+tected speech is a continuation of an existing turn, a new floor-
+arXiv:2610.03078v1  [cs.CL]  2 Oct 2026
+
+
+holding contribution, or listener feedback. Recent work has be-
+gun to address this problem at the transcript level.
+Natural-
+Turn [17] is a deterministic post-processing method that trans-
+forms speaker-specific ASR output into more naturalistic conver-
+sational turns. It merges successive utterances belonging to the
+same floor-holding contribution and separates listener speech oc-
+curring within these turns into non-primary contributions, includ-
+ing backchannels and longer secondary turns. Backchannels are
+identified using configurable lexical cues and simple rules based
+on the content and length of the listener contribution. In this way,
+NaturalTurn enables the reconstruction of conversational struc-
+ture from already transcribed speech without requiring annotated
+training data.
+The problem that our pipeline aims to solve begins at an
+earlier stage of processing. In separate-channel recordings of
+face-to-face conversation, the speaker-specific speech segments
+from which such transcripts are constructed must first be identi-
+fied. Cross-channel leakage can produce apparent speech activ-
+ity on both channels, while natural within-turn pauses can frag-
+ment a single conversational contribution into multiple detected
+speech segments [11, 18, 19].
+Deriving turns and backchan-
+nels from the audio therefore requires cross-channel leakage
+to be distinguished from target-speaker activity and fragmented
+speech segments to be merged before conversational units can
+be classified. Unlike NaturalTurn, which takes speaker-specific
+word-level ASR output as its input, our pipeline derives speaker-
+specific temporal units directly from the audio, with transcription
+used subsequently to help classify these units.
+The present study therefore develops an automated audio-to-
+annotation pipeline for extracting turns and backchannels from
+separate-channel recordings of spontaneous dyadic conversation,
+where participants converse freely without a prescribed topic or
+task. The pipeline combines VAD, channel-energy filtering, tem-
+poral merging, automatic transcription, and conversational-unit
+classification. Backchannels are identified from the transcribed
+speech and its conversational context rather than from a prede-
+fined list of backchannel expressions or simple thresholding. The
+resulting annotations are intended as a consistent first pass for
+subsequent human review.
+For the present analysis, a turn is defined as a continuous
+contribution by one participant while holding the conversational
+floor. Within-turn pauses, hesitations, and filled pauses do not
+necessarily terminate the turn. A backchannel is defined as a
+listener contribution that provides feedback to the current speaker
+without attempting to take the conversational floor [20, 15].
+We evaluate the pipeline on 99 ten-minute face-to-face Dan-
+ish conversations from 33 dyads.
+The evaluation addresses
+two aspects required for quantifying conversational dynamics:
+whether turns and backchannels are correctly identified, and how
+accurately their temporal boundaries are located. We addition-
+ally examine performance across listening conditions and param-
+eter settings. A subset of four conversations independently anno-
+tated by a second human annotator provides an initial benchmark
+against human inter-annotator agreement.
+2. Methods
+2.1. Conversation unit definitions
+Two conversational units were defined, in order to guide the hu-
+man annotators:
+• Turn: A continuous stretch of speech produced by a single
+participant before yielding the conversational floor.
+Minor
+pauses, hesitations, and filled pauses within the same floor-
+holding contribution do not constitute separate turns.
+• Backchannel: A listener-produced utterance that provides
+feedback relevant to the ongoing turn without attempting to
+take the conversational floor. Backchannels may be lexical
+(e.g., yes, okay) or non-lexical (e.g., uh-huh, mm), and may
+vary in form, duration, and function [15].
+Two additional terms were used for the technical implemen-
+tation of the annotation pipeline:
+• Crosstalk: Acoustic leakage in which speech produced by one
+participant is captured on the interlocutor’s microphone chan-
+nel. Crosstalk is treated as a recording artefact and is distin-
+guished from genuine conversational overlap, in which both
+participants produce speech simultaneously.
+• Overlapped turn: An algorithmic label assigned to a candi-
+date turn that is fully temporally contained within a turn pro-
+duced by the interlocutor. The label describes the temporal
+relationship between the two segments and does not, by itself,
+imply successful or attempted floor-taking.
+2.2. Human reference annotation
+Human reference annotations were produced manually using the
+conversational-unit definitions described in Section 2.1. One
+annotator annotated all 99 conversations and these annotations
+served as the human reference for the main pipeline evaluation.
+The two participant audio channels were imported separately
+into ELAN. During annotation, the annotator could inspect both
+waveforms and switch between the two audio channels, allowing
+contributions from one participant to be interpreted in relation
+to the speech of the interlocutor. Each conversational unit was
+manually labelled as a turn or backchannel, and its onset and
+offset were marked on the corresponding participant channel by
+listening to the audio while inspecting the waveform.
+To investigate inter-annotator agreement, a second annotator
+independently annotated four conversations from distinct dyads
+using the same definitions and annotation procedure.
+These
+annotations were compared with the corresponding annotations
+from the primary annotator using the same segment-matching
+criteria subsequently used for pipeline – human evaluation.
+2.3. Pipeline architecture
+The automated annotation pipeline transforms separate audio
+channels from each participant into a structured set of speech
+events labelled as turns or backchannels. The pipeline consists of
+seven stages, as illustrated in Fig. 1. The stages combine speech
+activity detection, channel-energy filtering, automatic transcrip-
+tion, and rule-based post-processing to produce an initial anno-
+tation that can subsequently be reviewed by a human annotator.
+In Stage I, mild audio preprocessing is applied separately
+to each participant’s original audio channel. A 5th-order Butter-
+worth high-pass filter with a cut-off frequency of 60 Hz is applied
+using the scipy package [21]. This removes low-frequency sig-
+nal components while otherwise limiting modification of the au-
+dio prior to voice activity detection and channel-energy compar-
+ison.
+In Stage II, speech activity is detected separately in each par-
+ticipant’s audio channel using rVAD [22]. rVAD was selected be-
+cause it is an unsupervised and computationally lightweight VAD
+method designed for robust speech activity detection across vari-
+able acoustic conditions, without requiring task-specific training
+data. This makes it suitable as an initial speech-detection stage
+in the present pipeline, where subsequent processing further re-
+solves cross-channel leakage and conversational structure.
+
+
+Speech activity is estimated on 25-ms frames with a 10-ms
+step size. The rVAD decision threshold, denoted τVAD, controls
+the criterion used by the algorithm to classify frames as speech
+or non-speech. The pipeline uses the default τVAD = 0.4. The
+sensitivity of pipeline performance to this parameter is examined
+separately in the parameter analysis.
+In Stage III, an energy-based filter is applied to reduce
+crosstalk between the two participant channels. For each speech
+segment k identified by rVAD, the root-mean-square (RMS) am-
+plitude is calculated as
+RMSk =
+v
+u
+u
+t 1
+Nk
+Nk
+X
+n=1
+xk[n]2,
+(1)
+where xk[n] is the amplitude of sample n in segment k, and
+Nk is the number of samples in that segment. RMS amplitude is
+converted to decibels as
+EdB,k = 20 log10 (RMSk + ϵ) ,
+(2)
+where ϵ = 10−8 prevents taking the logarithm of zero.
+Because absolute recording levels may differ between par-
+ticipants, the filtering threshold is defined separately for each
+speaker channel c relative to the maximum segment energy ob-
+served on that channel:
+θc = Emax,c −τdB,
+(3)
+where Emax,c is the maximum segment energy observed for
+channel c. The value τdB = 50 dB was selected during prelimi-
+nary inspection of recordings not included in the evaluation, as a
+conservative threshold that retained low-amplitude target speech
+while excluding low-energy cross-channel leakage. Speech seg-
+ments for which EdB,k < θc are removed from that channel
+before subsequent merging.
+In Stage IV, VAD segments are merged into longer candi-
+date conversational units using a 3-s forward-looking window.
+Same-speaker segments separated by ≤0.5 s are merged di-
+rectly. Segments separated by longer gaps may also be merged
+when their combined speech duration equals or exceeds the in-
+tervening gap, preventing longer contributions from being frag-
+mented by pauses in speech activity.
+At this stage, merged
+segments are capped at 60 s for computational efficiency dur-
+ing subsequent Whisper transcription. This is a processing con-
+straint rather than a maximum conversational-unit duration, and
+no corresponding duration limit is imposed on the final turns or
+backchannels.
+Segments shorter than 1.0 s are treated as short utterances
+for the purposes of this merging procedure. When a short utter-
+ance from an interlocutor occurs between two segments from the
+same speaker, the algorithm can bridge across it and continue the
+original speaker’s candidate unit. The intervening utterance is
+nevertheless retained as a separate candidate event, allowing po-
+tential backchannels and overlapping speech to be classified in
+subsequent stages.
+The 0.5-s gap threshold is a theory-informed criterion rather
+than a definition of a turn boundary. Danish has comparatively
+long response offsets in question–response sequences [2], while
+backchannels can consist of multiple units and extend beyond
+500 ms [15]. The merging procedure therefore allows tempo-
+ral flexibility while reducing fragmentation introduced by frame-
+level speech activity detection.
+In Stage V, stronger audio preprocessing is applied to the
+original audio channels prior to automatic transcription, to pro-
+vide a more consistent input signal for ASR. The preprocess-
+ing consists of the 60-Hz high-pass filter described in Stage
+I, followed by stationary spectral-gating noise reduction using
+the noisereduce package [23]. The resulting signal is then
+loudness-normalized to −23 LUFS following EBU R 128 [24].
+Loudness normalization is skipped when the signal is already
+within ±3 LU of the target, and the applied gain is capped at
++20 dB to avoid excessive amplification.
+Finally, signal am-
+plitude is limited to ±0.95 (approximately −0.45 dBFS) using
+numpy.clip [25]. The processed audio is used only for the
+subsequent transcription stage. Speech-event boundaries remain
+those obtained from the previous stages.
+In Stage VI, the preprocessed speech segments are tran-
+scribed using the multilingual Whisper-large-v3 ASR
+model [26]. In the pipeline, the transcription serves as an inter-
+mediate representation for the initial classification of candidate
+segments rather than as the final annotation output.
+For each transcribed segment k, word-level Shannon entropy
+is calculated from the empirical distribution of word tokens:
+Hk = −
+X
+w∈Vk
+pk(w) log2 pk(w),
+(4)
+where Vk is the set of unique word tokens in the transcription
+of segment k, and
+pk(w) = ck(w)
+Mk ,
+(5)
+where ck(w) is the number of occurrences of token w in seg-
+ment k and Mk is the total number of word tokens in that seg-
+ment. Prior to entropy calculation, transcriptions are converted
+to lowercase and tokenized at the word level. Empty transcrip-
+tions and transcriptions containing a single token are assigned an
+entropy of 0. This measure provides a simple proxy for lexical
+diversity within a segment: short or repetitive transcriptions tend
+to produce lower entropy, whereas segments containing a broader
+distribution of word types tend to produce higher entropy.
+Segments with Hk < τH are initially classified as backchan-
+nels, whereas segments with Hk ≥τH are initially classified as
+turns. The pipeline default uses τH = 1.5; the sensitivity of
+pipeline performance to this parameter is examined separately
+in the parameter analysis section. These labels are preliminary
+and are subsequently re-evaluated using the criteria described in
+Stage VII.
+In Stage VII, the preliminary classifications are refined us-
+ing the temporal context of the two speakers. A segment initially
+classified as a turn is relabelled as an overlapped turn when it is
+fully contained within a turn produced by the interlocutor.
+The algorithm then performs a final context-based merging
+step. Two turns from the same speaker may be merged when
+the second begins within 3.0 s of the current turn. Merging is
+allowed when no intervening segment is present, or when the
+intervening segments consist only of backchannels or overlapped
+turns with durations of at most 1.0 s. These intervening segments
+are retained as separate annotations rather than absorbed into the
+merged turn.
+Before evaluation, the pipeline output and human reference
+annotations were both subjected to the same context-based nor-
+malization. Same-speaker turns were merged unless they were
+separated by either a backchannel from that speaker or a turn
+from the other interlocutor. Backchannels that did not overlap
+with an interlocutor contribution were relabelled as turns, while
+turns fully contained within an interlocutor turn were relabelled
+as backchannels. These merging and relabelling rules were ap-
+
+
+plied repeatedly until no further changes occurred, up to a maxi-
+mum of 20 iterations.
+Experiments were conducted using GPUs with at least 16 GB
+of VRAM. Whisper-large-v3 inference was performed on the
+GPU, whereas rVAD processing was CPU-based. Processing a
+10-min conversation through the complete pipeline required ap-
+proximately 2 min on average, i.e., approximately 5× real-time
+processing.
+Input: Separate-channel Audio Recordings
+Ch 2
+(P2)
+. ..
+Ch 1
+(P1)
+Ch N
+(Pn)
+Stage 1: Audio Preprocessing (Mild)
+Stage 2: Voice Activity Detection (VAD)
+Segmented Speaker Recordings
+P1
+P2
+Pn
+Stage 3: Energy Filtering
+Stage 4: Initial Merging
+Stage 5: Audio Preprocessing (Strong)
+Stage 6: Transcription
+Stage 7: Context-based
+Classification and Merging
+Segment labels
+Segment
+Spk
+Start
+End
+Type
+Text
+Sest,1
+P1
+3.71
+8.03
+Turn
+Hej, jeg...
+Sest,2
+P2
+12.5
+17.9
+Turn
+Om et par...
+Sest,3
+P1
+49.5
+49.6
+BC
+Ja.
+Figure 1: Architecture of the automated pipeline for processing
+separate-channel conversation recordings.
+2.4. Dataset and recording protocol
+The dataset was collected as part of a larger multimodal study
+of spontaneous dialog between same-gender dyads. Participants
+were native Danish speakers between 18 and 35 years of age,
+with normal hearing and no reported communication difficulties,
+and were unacquainted prior to the experiment. The maximum
+age difference within a dyad was four years. Each dyad com-
+pleted three 10-min face-to-face conversations in Danish, result-
+ing in approximately 30 min of conversational speech per dyad.
+Participants were not assigned a topic or conversational task and
+were instructed to converse freely. Speech was recorded sep-
+arately for each participant using head-worn directional micro-
+phones (DPA 4188) at 48 kHz.
+The three conversations were conducted in different listen-
+ing conditions. In the noise-free condition, neither participant
+received experimental auditory interference. The two other con-
+versations were conducted in an asymmetric-noise condition. In
+these, speech-shaped noise was delivered to only one partici-
+pant through bone-conduction headphones, while the interlocu-
+tor conversed without auditory interference. The order of con-
+ditions was counterbalanced across dyads. Participants were in-
+formed that noise could occur during the experiment but were
+not told in advance when or to whom it would be presented, and
+were instructed not to disclose the manipulation during the con-
+versation.
+The level of the noise was calibrated using masked detection
+thresholds obtained in an independent sample of 10 participants
+aged 18–35 years. The level matched that which was required
+to achieve 70% detection of a spoken digit presented at 45 dBA.
+Importantly, the noise from the bone-conduction headphones did
+not interfere with the recorded audio signal. Thus, the asymmet-
+ric noise condition represents variation in the listening conditions
+under which speech was produced, rather than variation in back-
+ground noise within the recordings themselves.
+The present analysis includes 99 conversations from 33
+dyads, corresponding to approximately 16.5 hours of conversa-
+tional audio. Four conversations from distinct dyads were addi-
+tionally annotated by a second human annotator for evaluation of
+inter-annotator agreement.
+2.5. Evaluation Metrics
+2.5.1. Detection reliability
+Detection reliability was evaluated by matching automatically
+estimated segments to the human reference annotations using
+temporal intersection over union (IoU). For a reference seg-
+ment Sref,i and an estimated segment Sest,j, IoU was defined
+as
+IoU(i, j) = dur (Sref,i ∩Sest,j)
+dur (Sref,i ∪Sest,j).
+(6)
+Example: if a reference turn extends from 10.0
+to 12.0 s and the corresponding estimated turn ex-
+tends from 10.5 to 12.5 s, their intersection is 1.5 s
+and their union is 2.5 s, giving an IoU of 1.5/2.5 =
+0.60. Similarly, for a short backchannel extending
+from 10.0 to 10.5 s in the reference annotation and
+from 10.4 to 10.9 s in the pipeline output, the inter-
+section is 0.1 s and the union is 0.9 s, giving an IoU
+of approximately 0.11.
+Candidate matches were restricted to segments assigned to
+the same speaker and the same conversational-unit type. A refer-
+ence and estimate segment were considered a match when their
+IoU was at least 0.50 for turns or 0.10 for backchannels. A lower
+threshold was used for backchannels because their shorter dura-
+tions make IoU more sensitive to small absolute differences in
+onset and offset timing.
+When multiple candidate segments satisfied the overlap cri-
+terion, competing matches were resolved by retaining the candi-
+date with the highest IoU, such that each segment contributed to
+at most one match. Matched reference segments were counted as
+true positives (TP), unmatched reference segments as false nega-
+tives (FN), and unmatched estimated segments as false positives
+(FP). Precision, recall, and F1 scores were calculated from these
+
+
+classifications for turns and backchannels separately. An overall
+F1 score was additionally calculated across turns and backchan-
+nels combined.
+2.5.2. Temporal precision
+For successfully matched segments, temporal precision was eval-
+uated by comparing the estimated onset and offset boundaries
+with those of the corresponding human reference segment. Ab-
+solute onset and offset errors were defined as
+∆ton,i = |tref,on,i −test,on,i| ,
+(7)
+and
+∆toff,i = |tref,off,i −test,off,i| ,
+(8)
+where tref and test denote the reference and estimated
+boundaries, respectively.
+Example: if a human reference segment spans 2.0–
+3.0 s and the matched pipeline segment spans 2.1–
+2.9 s, the onset and offset errors are both 0.1 s.
+Temporal precision was summarized from the pooled abso-
+lute boundary errors of successfully matched segments across all
+conversations, separately for turn onsets, turn offsets, backchan-
+nel onsets, and backchannel offsets. The median absolute error
+(MedAE) and interquartile range (IQR) were used to describe the
+typical error and its spread. Mean absolute error (MAE) and stan-
+dard deviation (SD) were additionally reported to characterize
+the influence of larger errors. For comparisons between listening
+conditions, MedAE was calculated separately for each conversa-
+tion to provide one temporal-error measure per conversation.
+3. Results
+3.1. Effect of context-based post-processing
+Figure 2 illustrates the effect of context-based post-processing
+(Stage VII) on one example conversation.
+Before post-
+processing, the pipeline output is considerably more fragmented
+than the manual annotation. After post-processing, many of these
+fragments are joined into longer same-speaker units, and the
+broader pattern of speaker alternation is visually similar to that of
+the manual annotation. Agreement for individual backchannels
+was less consistent, with some manually annotated backchannels
+not captured by the pipeline.
+For this example, post-processing reduced the manual an-
+notation from 69 to 55 segments and the pipeline output from
+125 to 58 segments (Table 1). Across all 99 conversations, the
+mean number of segments per conversation decreased from 186.6
+to 172.2 for the manual annotations (7.7%) and from 158.8 to
+154.1 for the pipeline (3.0%). The corresponding mean number
+of turns decreased from 78.8 to 71.8 for the manual annotations
+and from 51.4 to 49.3 for the pipeline, while the mean number of
+backchannels decreased from 107.8 to 100.4 and from 107.5 to
+104.8, respectively.
+Together, the example illustrates the intended use of the
+pipeline as an assistive first pass. It provides a structured approx-
+imation of the conversation that preserves the broader turn-taking
+pattern, while leaving individual events available for subsequent
+human review. This study did not directly evaluate annotation
+time, and potential annotation efficiency gains are therefore not
+quantified here.
+Source
+Stage
+Turn
+BC
+Overlapped
+Total
+Manual annotation
+Before
+36
+27
+6
+69
+After
+28
+27
+0
+55
+Pipeline
+Before
+55
+66
+4
+125
+After
+31
+27
+0
+58
+Table 1: Segment counts for the conversation shown in Fig. 2, be-
+fore and after context-based post-processing of the manual ref-
+erence annotation and pipeline output.
+3.2. Overall pipeline performance
+Across the full set of 99 conversations, pipeline-generated turns
+and backchannels were evaluated against the human reference
+annotations using the matching criteria described in Section 2.5.
+Mean detection reliability was similar for turns (F1 = 0.624 ±
+0.143) and backchannels (F1 = 0.618 ± 0.160), with an overall
+F1 score of 0.621 ± 0.151 across conversations (Table 2).
+For successfully matched segments, absolute boundary er-
+rors were smaller for backchannels than for turns. Median ab-
+solute errors were 0.130 s for backchannel onsets and 0.180 s for
+backchannel offsets, compared with 0.150 s and 0.160 s for turn
+onsets and offsets, respectively. Mean absolute errors showed a
+larger difference, with values of 0.994 s and 0.984 s for turn on-
+sets and offsets, compared with 0.152 s and 0.219 s for backchan-
+nels.
+These absolute errors should be interpreted in relation
+to segment duration, as backchannels are typically substantially
+shorter than turns. Nevertheless, the large difference between
+MedAE and MAE within the turn category indicates that most
+matched turn boundaries had relatively small errors, while a
+smaller number of large errors increased the mean.
+Metric
+Mean F1
+MedAE (s)
+MAE (s)
+Detection reliability
+Overall
+0.621 ± 0.151
+–
+–
+Turn
+0.624 ± 0.143
+–
+–
+Backchannel
+0.618 ± 0.160
+–
+–
+Temporal precision
+Turn onset
+–
+0.150 [0.100–0.910]
+0.994 ± 2.383
+Turn offset
+–
+0.160 [0.080–0.530]
+0.984 ± 2.662
+Backchannel onset
+–
+0.130 [0.090–0.160]
+0.152 ± 0.185
+Backchannel offset
+–
+0.180 [0.120–0.230]
+0.219 ± 0.260
+Table 2: Global pipeline performance against human reference
+annotations across 99 conversations from 33 dyads. Detection
+reliability is reported as the mean F1 score ± standard devi-
+ation (SD) across conversations. Temporal precision pools the
+absolute boundary error of every correctly matched segment
+(n = 19, 958) and summarises that one distribution twice: as the
+median with its inter-quartile range (MedAE) and as the mean ±
+SD (MAE). Absolute errors are bounded below by zero and right-
+skewed, so the median is paired with an IQR rather than an SD.
+All temporal errors are in seconds.
+3.3. Performance across listening conditions
+To examine whether pipeline performance differed between lis-
+tening conditions, we compared all 99 conversations using two-
+sided Mann–Whitney U tests (Fig. 3). Detection reliability did
+not differ significantly between noise-free and asymmetric-noise
+conditions for either turn F1 (p = .885) or backchannel F1 (p =
+.113). Temporal precision likewise did not differ significantly for
+turn onset (p = .389), turn offset (p = .747), backchannel onset
+
+
+Manual annotation
+before
+after
+Pipeline
+before
+after
+60 s
+P1 turn
+P1 backchannel
+P2 turn
+P2 backchannel
+overlapped turn
+Figure 2: Example showing the effect of context-based post-processing on one conversation. Manual reference annotations (top) and
+pipeline output (bottom) are shown before and after post-processing. Colours distinguish turns and backchannels produced by the two
+participants, while outlined segments indicate overlapped turns.
+(p = .809), or backchannel offset (p = .627). Hence, there was
+no evidence of a systematic difference in pipeline performance
+between the two listening conditions.
+3.4. Case study:
+Benchmarking against inter-annotator
+agreement
+To examine sensitivity to parameter selection and benchmark
+pipeline performance against human inter-annotator agreement,
+we conducted a case study using four conversations indepen-
+dently annotated by two human annotators. The same segment-
+matching criteria used for pipeline–human evaluation were ap-
+plied to the human annotations, providing a directly comparable
+measure of segment-level agreement.
+We evaluated 80 parameter combinations, comprising 10 val-
+ues of the rVAD threshold (τVAD; 0.1–1.0) and eight values of
+the entropy threshold (τH; 0.5–3.0). Applied to each of the four
+conversations, this resulted in 320 pipeline runs.
+Across the 320 runs, mean pipeline detection reliability was
+F1 = 0.626 ± 0.225 overall, 0.668 ± 0.179 for turns, and
+0.585±0.256 for backchannels (Table 3). Human inter-annotator
+agreement on the same four conversations was higher, with F1 =
+0.845±0.118 overall, 0.868±0.051 for turns, and 0.821±0.168
+for backchannels.
+Temporal differences were also smaller between human an-
+notators. Median absolute boundary errors for the pipeline were
+0.190 s and 0.210 s for turn onsets and offsets, respectively, com-
+pared with 0.080 s and 0.110 s between human annotators. For
+backchannels, the corresponding values were 0.140 s and 0.200 s
+for the pipeline and 0.050 s and 0.040 s between human annota-
+tors.
+As shown in Fig. 4, pipeline performance also varied sub-
+stantially across parameter combinations. The pipeline distribu-
+tions were much broader than the inter-annotator distributions,
+particularly for backchannel F1 and temporal boundary errors,
+and included a greater number of large-error cases. One con-
+versation produced a turn F1 of 1.0 for some parameter settings.
+This conversation contained long stretches of speech from one
+participant with few interruptions or short responses from the
+interlocutor, resulting in a comparatively simple turn structure.
+Overall, performance varied substantially across parameter set-
+tings and across the four conversations included in the case study.
+No inferential statistical comparison was performed between
+pipeline-human and human–human agreement. The 320 pipeline
+observations represent repeated parameter combinations applied
+to the same four conversations and are therefore not independent
+observations, while the human benchmark is based on only those
+four conversations. Inferential tests treating these values as inde-
+pendent samples would therefore overstate the effective sample
+size.
+Metric
+Pipeline
+Human agreement
+(320 runs)
+(4 conversations)
+Detection reliability (F1, mean ± SD across runs)
+Overall
+0.626 ± 0.225
+0.845 ± 0.118
+Turn
+0.668 ± 0.179
+0.868 ± 0.051
+Backchannel
+0.585 ± 0.256
+0.821 ± 0.168
+Temporal precision — MedAE (median [IQR], s)
+Turn onset
+0.190 [0.100–1.600]
+0.080 [0.050–0.202]
+Turn offset
+0.210 [0.090–0.930]
+0.110 [0.060–0.289]
+Backchannel onset
+0.140 [0.090–0.180]
+0.050 [0.040–0.080]
+Backchannel offset
+0.200 [0.130–0.260]
+0.040 [0.020–0.070]
+Temporal precision — MAE (mean ± SD, s)
+Turn onset
+1.688 ± 3.907
+0.649 ± 2.213
+Turn offset
+1.044 ± 2.236
+0.561 ± 1.207
+Backchannel onset
+0.168 ± 0.257
+0.083 ± 0.145
+Backchannel offset
+0.234 ± 0.289
+0.096 ± 0.204
+Table 3: Case study: pipeline performance across 320 grid runs
+(80 parameter combinations on 4 conversations) benchmarked
+against human inter-annotator agreement on the same conversa-
+tions. F1 is the mean ± SD across runs. Temporal precision
+pools the absolute boundary error of every correctly matched
+segment (n = 54, 146 pipeline, n = 928 human) and sum-
+marises that distribution twice: as the median with its inter-
+quartile range (MedAE) and as the mean ± SD (MAE). The
+pipeline pool spans the whole grid, so each conversation con-
+tributes its segments once per parameter combination.
+4. Discussion
+This study evaluated an automated pipeline for identifying turns
+and backchannels in spontaneous dyadic conversation, intended
+
+
+Turn
+Backchannel
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+F1 Score
+Turn
+Onset
+Turn
+Offset
+0.0
+0.5
+1.0
+1.5
+2.0
+MedAE (Seconds)
+Backchannel
+Onset
+Backchannel
+Offset
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+MedAE (Seconds)
+Noise-free
+Asymmetric noise
+Figure 3: Pipeline performance across noise-free and asymmetric-noise listening conditions for all 99 conversations. Left: F1 scores
+for turn and backchannel detection. Centre: median absolute error (MedAE) for turn onset and offset boundaries. Right: MedAE for
+backchannel onset and offset boundaries. Differences between listening conditions were assessed using two-sided Mann–Whitney U
+tests; none of the comparisons was statistically significant.
+for use within a semi-automated annotation workflow. A cen-
+tral challenge in large-scale conversation research is not only
+identifying conversational units, but doing so consistently across
+recordings.
+Manual annotation requires repeated judgements
+about turn boundaries and interactional function, which can be
+time-consuming and may vary between annotators.
+An auto-
+mated first pass offers a way to apply the same operational
+criteria systematically across a corpus, with subsequent human
+review to resolve ambiguous cases.
+This can support more
+standardized and reproducible annotation while retaining human
+judgement where interactional context is important.
+Across 99 Danish conversations, the pipeline achieved simi-
+lar segment-level detection reliability for turns and backchannels,
+with an overall F1 score of approximately 0.62. For successfully
+matched segments, median temporal errors were relatively small,
+with median absolute errors of 0.150 s and 0.160 s for turn onsets
+and offsets, respectively. Mean absolute errors were substantially
+larger, at approximately 1 s for both boundaries. The mean there-
+fore does not represent the typical boundary difference between
+matched pipeline and human segments. Instead, the distribution
+contains a smaller number of substantially larger errors. Such
+errors may arise in part from the temporal complexity of sponta-
+neous speech, including hesitations, filled pauses, and disfluen-
+cies [27], but they also identify cases in which the segmentation
+procedure requires further improvement. Backchannel bound-
+aries showed smaller differences between median and mean er-
+rors, indicating fewer extreme timing errors.
+Pipeline performance did not differ significantly between the
+noise-free and asymmetric-noise listening conditions.
+Impor-
+tantly, the experimental manipulation altered the listening con-
+text under which participants produced speech rather than intro-
+ducing noise into the recorded microphone signal. These results
+therefore show that the pipeline performance was comparable
+across the recordings obtained from the two experimental listen-
+ing conditions.
+The four-conversation case study provided a complementary
+comparison with human inter-annotator agreement.
+Pipeline-
+human agreement was numerically lower and more variable than
+human-human agreement for both detection and temporal preci-
+sion. These comparisons were descriptive rather than inferen-
+tial. The 320 pipeline runs represent repeated parameter com-
+binations applied to the same four conversations and cannot be
+treated as independent observations, while the human compari-
+son was based on only four conversations. The case study should
+therefore be interpreted as a descriptive benchmark rather than as
+a statistical comparison of pipeline and human performance.
+The case study also highlights an important issue in evaluat-
+ing automated conversation annotation: human reference annota-
+tions themselves contain variability. The two annotators differed
+in both segment classification and temporal boundary placement.
+Classifying turns and backchannels can require judgement about
+conversational context and communicative function [28, 29]. Hu-
+man agreement should therefore not be treated as a strict perfor-
+mance ceiling but a descriptive benchmark. A larger, system-
+atic study of inter-annotator agreement is needed to characterize
+variability in both conversational-unit classification and temporal
+boundary estimation.
+Performance also varied across pipeline parameter settings,
+particularly for backchannel detection. This indicates sensitivity
+to the rVAD and entropy thresholds and reinforces the impor-
+tance of parameter selection. Backchannels present a particu-
+lar challenge because they are often short and may contain little
+lexical information. A further limitation is the reliance on au-
+tomatic transcription for conversational-unit classification. Short
+or non-lexical backchannels may be omitted or inaccurately tran-
+scribed by the ASR system, which can affect the lexical-entropy
+measure and consequently the assigned turn or backchannel la-
+bel. Transcription accuracy was not evaluated separately in the
+present study. Future work should evaluate ASR performance
+specifically for these short conversational responses and evaluate
+parameter selection on independent data.
+Two additional limitations concern the practical use and gen-
+eralizability of the pipeline. Annotation time was not measured
+directly, so the extent to which the proposed workflow reduces
+manual annotation effort remains to be quantified. The present
+evaluation was also limited to dyadic, separate-channel Danish
+conversation. Future work should examine annotation efficiency
+and test the approach across languages, recording configurations,
+and interactional settings, including multi-party conversation.
+
+
+Turn
+Backchannel
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+F1 Score
+Turn
+Onset
+Turn
+Offset
+0
+1
+2
+3
+4
+MedAE (Seconds)
+Backchannel
+Onset
+Backchannel
+Offset
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+MedAE (Seconds)
+Pipeline vs. Reference
+Annotator Agreement
+Figure 4: Case-study comparison of pipeline–human agreement across 320 pipeline runs (80 parameter combinations applied to four
+conversations) and human inter-annotator agreement on the same four conversations. Left: F1 scores for turn and backchannel
+detection. Centre: median absolute error (MedAE) for turn onset and offset boundaries. Right: MedAE for backchannel onset
+and offset boundaries. Pipeline distributions reflect variation across parameter combinations, whereas human agreement reflects the
+four independently annotated conversations. The distributions are shown descriptively and were not subjected to inferential group
+comparison because the repeated pipeline runs are not independent observations.
+5. Conclusion
+This study presents an automated pipeline for identifying turns
+and backchannels in spontaneous dyadic conversation, designed
+for use within a semi-automated annotation workflow. Across
+99 conversations, the pipeline provided a consistent first-pass
+segmentation with comparable detection reliability for turns
+and backchannels and relatively small median temporal errors
+for successfully matched segments. Although performance re-
+mained more variable than human inter-annotator agreement and
+was sensitive to parameter selection, the pipeline provides a con-
+sistent starting point for human review. By applying the same
+operational criteria across recordings, the pipeline can support
+more standardized and reproducible annotation procedures.
+6. Data and Code Availability
+The conversation recordings cannot be made publicly available
+due to privacy restrictions. The code supporting the findings of
+this study is available in the project repository on GitHub.
+7. Ethics
+All study procedures were approved by the Capital Region Com-
+mittees of the Danish Science-Ethics Committee (reference H-
+16036391). All participants provided informed consent prior to
+participation.
+8. Author Contributions
+H.H.: Conceptualization, Methodology, Software, Formal anal-
+ysis, Investigation, Data curation, Writing – original draft, Writ-
+ing – review & editing. H.V.S.R.: Conceptualization, Method-
+ology, Software, Formal analysis, Writing – review & editing.
+I.O.: Methodology, Writing – review & editing. I.K.: Funding
+acquisition, Supervision, Writing – review & editing.
+9. Funding
+This work is supported by the Carlsberg Foundation’s Semper
+Ardens: Accelerate grant, “Self, other, and we: mechanisms and
+dynamics of self-other integration in social observation and in-
+teraction”, no. CF22-1251, and the Innovation Fund Denmark
+grant, no. 4354-00015B.
+10. Declaration of competing interest
+The authors declare no competing interests.
+11. Generative AI Use Disclosure
+During the preparation of this manuscript, the authors used gen-
+erative AI to help edit and refine the text and to assist with code.
+After using this tool, the authors reviewed and edited all content
+as needed and take full responsibility for it.
+12. References
+[1] H. Sacks, E. A. Schegloff, and G. Jefferson, “A simplest
+systematics for the organization of turn-taking for conversation,”
+Language, vol. 50, no. 4, pp. 696–735, 1974. [Online]. Available:
+https://www.jstor.org/stable/412243
+[2] T. Stivers, N. J. Enfield, P. Brown, C. Englert, M. Hayashi,
+T. Heinemann, G. Hoymann, F. Rossano, J. P. de Ruiter, K.-E.
+Yoon, and S. C. Levinson, “Universals and cultural variation in
+turn-taking in conversation,” Proceedings of the National Academy
+of Sciences, vol. 106, no. 26, pp. 10 587–10 592, 2009.
+[3] S. C. Levinson, “Turn-taking in human communication–origins and
+implications for language processing,” Trends in cognitive sciences,
+vol. 20, no. 1, pp. 6–14, 2016.
+[4] A. S. Meyer, “Timing in conversation,” Journal of Cognition, vol. 6,
+no. 1, p. 20, 2023.
+[5] E. M. Templeton,
+L. J. Chang,
+E. A. Reynolds,
+M. D.
+Cone LeBeaumont, and T. Wheatley, “Fast response times signal
+social connection in conversation,” Proceedings of the National
+Academy of Sciences, vol. 119, no. 4, p. e2116915119, 2022.
+[6] T. Yokozuka, H. Miyamoto, M. Kasai, Y. Miyake, and T. Nozawa,
+“The relationship between turn-taking, vocal pitch synchrony, and
+rapport in creative problem-solving communication,” Speech Com-
+munication, vol. 129, pp. 33–40, 2021.
+[7] T. N. West, S. Huston, K. R. Chandler, J. Zhou, and B. L. Fredrick-
+son, “High-quality listening behaviors linked to social connection
+
+
+between strangers,” Communications Psychology, vol. 3, no. 1, p.
+165, 2025.
+[8] E. B. Petersen, E. N. MacDonald, and A. Josefine Munch Sørensen,
+“The effects of hearing-aid amplification and noise on conver-
+sational dynamics between normal-hearing and hearing-impaired
+talkers,” Trends in Hearing, vol. 26, p. 23312165221103340, 2022.
+[9] L. J. Van Scoy, A. M. Scott, M. J. Green, P. D. Witt, E. Wasserman,
+V. M. Chinchilli, and B. H. Levi, “Communication quality analysis:
+A user-friendly observational measure of patient–clinician commu-
+nication,” Communication methods and measures, vol. 16, no. 3,
+pp. 215–235, 2022.
+[10] M. Heldner and J. Edlund, “Pauses, gaps and overlaps in
+conversations,” Speech Communication, vol. 52, no. 6, pp.
+443–452, 2010. [Online]. Available:
+https://www.sciencedirect.
+com/science/article/pii/S0167639309001300
+[11] P. K. Ghosh, A. Tsiartas, P. G. Georgiou, and S. S. Narayanan,
+“Robust voice activity detection in stereo recording with crosstalk,”
+in Proceedings of Interspeech 2010, 2010, pp. 3098–3101.
+[12] M. Selting, “The construction of units in conversational talk,” Lan-
+guage in society, vol. 29, no. 4, pp. 477–517, 2000.
+[13] A. Gravano and J. Hirschberg, “Turn-taking cues in task-oriented
+dialogue,” Computer Speech & Language, vol. 25, no. 3, pp. 601–
+634, 2011.
+[14] G. Kjellmer, “Where do we backchannel?: On the use of mm, mhm,
+uh huh and such like,” International Journal of Corpus Linguistics,
+vol. 14, no. 1, pp. 81–112, 2009.
+[15] D. Mereu, F. Cangemi, and M. Grice, “Backchannels are not always
+very short utterances. the case of italian multi-unit backchannels,”
+Journal of Pragmatics, vol. 228, pp. 1–16, 2024.
+[16] R. Gardner, When listeners talk.
+John Benjamins Amsterdam,
+2001.
+[17] G. Cooney and A. Reece, “NaturalTurn: a method to segment
+speech into psychologically meaningful conversational turns,” Sci-
+entific Reports, vol. 15, p. 39155, 2025.
+[18] Z.-Q. Wang, A. Kumar, and S. Watanabe, “Cross-talk reduction,”
+in Proceedings of the Thirty-Third International Joint Conference
+on Artificial Intelligence, 2024, pp. 5171–5180.
+[19] M. Dourado, H. Gert Hassager, J. Udesen, and S. Serafin, “The
+GaMMA corpus of danish polyadic conversations with gaze speech
+and motion data in quiet and noise,” Scientific Data, vol. 13, p. 494,
+2026.
+[20] S. Duncan Jr and G. Niederehe, “On signalling that it’s your turn to
+speak,” Journal of experimental social psychology, vol. 10, no. 3,
+pp. 234–247, 1974.
+[21] P. Virtanen, R. Gommers, T. E. Oliphant, M. Haberland, T. Reddy,
+D. Cournapeau, E. Burovski, P. Peterson, W. Weckesser, J. Bright,
+S. J. van der Walt, M. Brett, J. Wilson, K. J. Millman, N. May-
+orov, A. R. J. Nelson, E. Jones, R. Kern, E. Larson, C. J. Carey,
+˙I. Polat, Y. Feng, E. W. Moore, J. VanderPlas, D. Laxalde, J. Perk-
+told, R. Cimrman, I. Henriksen, E. A. Quintero, C. R. Harris, A. M.
+Archibald, A. H. Ribeiro, F. Pedregosa, P. van Mulbregt, and SciPy
+1.0 Contributors, “SciPy 1.0: Fundamental Algorithms for Scien-
+tific Computing in Python,” Nature Methods, vol. 17, pp. 261–272,
+2020.
+[22] Z.-H. Tan, A. K. Sarkar, and N. Dehak, “rVAD: An unsupervised
+segment-based robust voice activity detection method,” Computer
+Speech & Language, vol. 59, pp. 1–21, 2020.
+[23] T. Sainburg, M. Thielk, and T. Q. Gentner, “Finding, visualizing,
+and quantifying latent structure across diverse animal vocal reper-
+toires,” PLoS computational biology, vol. 16, no. 10, p. e1008228,
+2020.
+[24] European Broadcasting Union, “Loudness normalisation and per-
+mitted maximum level of audio signals,” European Broadcasting
+Union, Tech. Rep. EBU R 128, 2023. [Online]. Available:
+https://tech.ebu.ch/publications/r128
+[25] C. R. Harris, K. J. Millman, S. J. van der Walt, R. Gommers,
+P. Virtanen, D. Cournapeau, E. Wieser, J. Taylor, S. Berg, N. J.
+Smith, R. Kern, M. Picus, S. Hoyer, M. H. van Kerkwijk,
+M. Brett, A. Haldane, J. F. del R´ıo, M. Wiebe, P. Peterson,
+P. G´erard-Marchant, K. Sheppard, T. Reddy, W. Weckesser,
+H. Abbasi, C. Gohlke, and T. E. Oliphant, “Array programming
+with NumPy,” Nature, vol. 585, no. 7825, pp. 357–362, Sep. 2020.
+[Online]. Available: https://doi.org/10.1038/s41586-020-2649-2
+[26] A. Radford, J. W. Kim, T. Xu, G. Brockman, C. McLeavey, and
+I. Sutskever, “Robust speech recognition via large-scale weak su-
+pervision,” 2022.
+[27] E. Shriberg, “To ‘errrr’is human: ecology and acoustics of speech
+disfluencies,” Journal of the international phonetic association,
+vol. 31, no. 1, pp. 153–169, 2001.
+[28] J. Carletta, “Assessing agreement on classification tasks: the kappa
+statistic,” Computational linguistics, vol. 22, no. 2, pp. 249–254,
+1996.
+[29] R. Artstein and M. Poesio, “Survey article: Inter-coder agreement
+for computational linguistics,” Computational linguistics, vol. 34,
+no. 4, pp. 555–596, 2008.
