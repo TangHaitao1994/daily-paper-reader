@@ -1,0 +1,128 @@
+Title: Hiding Tool Latency in On-Device Cascaded Voice Agent through Speculative Execution
+
+URL Source: https://arxiv.org/pdf/2610.07641v1
+
+Published Time: Wed, 07 Oct 2026 00:42:38 GMT
+
+Number of Pages: 5
+
+Markdown Content:
+## HIDING TOOL LATENCY IN ON-DEVICE CASCADED VOICE AGENT THROUGH SPECULATIVE EXECUTION 
+
+## Kyudan Jung 1,2 , Hyunsin Park 1, Yoonhyung Lee 1, Jinhwan Park 1,Jinhyeok Yang 1, KiHyun Nam 1, Jaegul Choo 2, Jinkyu Lee 11Qualcomm AI Research, 2KAIST AI 
+
+ABSTRACT 
+
+Tool-augmented speech assistants typically serialize au-tomatic speech recognition, large language model inference, and external tool execution. As a result, tool latency is in-curred only after the user has finished speaking and the LLM has identified the required tool calls. We present specu-lative tool execution for on-device cascaded voice agents, which predicts tool requests from partial ASR hypotheses and initiates tool execution while speech is still being re-ceived, thereby reducing end-to-end response latency. Our approach introduces a Predictor module that anticipates tool calls during speech recognition, executes them speculatively, and caches the results. The cached outputs are then injected into the LLM prompt, enabling faster responses. Addition-ally, to mitigate errors caused by user self-corrections during speech, we employ a rule-based validation mechanism that selectively injects only valid cached results. As a final safe-guard, the LLM retains the ability to issue tool calls directly, ensuring that the latency of our framework is upper-bounded by the baseline serial execution pipeline in the worst case. We evaluate our method using live measurements from a fully implemented Android voice assistant. Our approach reduces the median time-to-first-audio from 5.79 s to 4.60 s and decreases the standard deviation from 3.49 s to 2.81 s, resulting in more predictable response latency. 
+
+Index Terms — speech assistant, speculative execution, tool calling, cascaded ASR-LLM-TTS system 
+
+1. INTRODUCTION 
+
+Cascaded speech assistants connect automatic speech recog-nition (ASR), a large language model (LLM), and text-to-speech (TTS) in sequence [1, 2], allowing explicit text editing between modules and thus providing greater reliability than end-to-end systems. These assistants can invoke tools for a wide range of tasks, from adding calendar events to searching the web [3, 4, 5, 6, 7]. Unlike end-to-end speech systems that     
+
+> This publication was created by Kyudan Jung while an intern at Qual-comm Technologies, Inc. (QTI) and currently attends Korea Advanced Insti-tute of Sceience and Technology (KAIST). Non-streaming ASR
+> Cascaded Baseline
+> LLM Tool Tool LLM TTS
+> Pred
+
+t!"# t$$%&'(( t)**( t$$%+,-. t))"   
+
+> Streaming ASR (per word) LLM TTS
+> cache hit
+> Tool Tool
+> Speculative Tool Execution (Ours)
+
+t/,+012 
+
+> LLM
+
+t3
+
+> Lower latency
+
+Fig. 1 . Timing block diagram of speculative tool calling. Un-like the cascaded baseline, our method hides part or all of the tool-calling latency during ASR. The figure illustrates a case where one of two required tool calls results in a cache hit. can initiate tool calls during streaming generation [8], con-ventional cascaded assistants must wait for the user to fin-ish speaking, finalize the transcript, and obtain a tool request from the LLM before invoking external tools. While the la-tency of simple local tools may be negligible, remote opera-tions such as time-consuming web search and can introduce substantial delays that are directly perceived by users. Re-ducing this latency is therefore important for responsive voice interactions on mobile devices [9, 10]. Streaming speech provides an opportunity to reduce this delay because user intent can often become apparent before the utterance is complete [1, 11]. For example, when a re-quest can be predicted from a partial transcript, its execu-tion can begin while the user is still speaking, overlapping tool latency with the remaining ASR time. This perspective treats streaming speech not only as an input modality but also as an opportunity for anticipatory computation [12, 13, 14]. Based on this observation, we introduce a rule-based predic-tor that continuously observes partial ASR words, predicts likely long-latency tool requests, and launches them before the LLM explicitly requests the corresponding tools. The re-sulting outputs are stored in a speculative result cache and can later be reused by the LLM execution pipeline [8, 15, 16]. We then inject the retrieved result directly into the LLM prompt before response generation, allowing the model to use infor-mation obtained while the user is still speaking. The LLM retains its standard tool-calling path as a fallback when no suitable speculative result is available. We evaluated our method in an on-device to analyze its arXiv:2610.07641v1 [cs.SD] 6 Oct 2026 LLM Llama3.2 3B W4A16@on-device NPU Search API  
+
+> Streaming ASR@on-device CPU Tool Call Predictor
+> searchWeb(query="the current price of flights to Seoul") searchWeb (query=“directions from Incheon Airport to Gangnam")
+> “Look up the current price of flights to Seoul, and tell me how to get from Incheon Airport to Gangnam.”
+> Speculative Results Cache (searchWeb, directions, “Incheon to Gangnam”) “Take a subway…” (searchWeb, exchange, “USD to KRW exchange rate”) “ 1346 won…” (b) Direct injection (c) Verifyed fallback (a) Normal tool call transcript
+
+Fig. 2 . Overview of our methodology. During streaming ASR processing, the Predictor anticipates potential tool calls and retrieves relevant information via a Search API. The retrieved results are stored in the Speculative Results Cache and directly injected into the LLM through path (b). When the LLM later issues the corresponding tool call, the system first checks the cached results through path (c) for verification. As a fallback, the standard tool-calling workflow is executed through path (a), corresponding to the conventional LLM tool invocation process. In our setup, the ASR model runs on the CPU, while the W4A16 quantized LLM runs on the NPU. performance under resource-constrained conditions. The me-dian waiting time from the end of the user’s speech to the system’s response decreased from 5.79 seconds to 4.60 sec-onds. In particular, fewer high-latency outliers led to reduced variance and more predictable response times, while the tool-calling F1 score increased from 44.8% to 60.6%. The abla-tion study shows that direct cache injection is the main source of the latency improvement but also accuracy, while verified fallback increases cache reuse and reduces wasted speculative calls. The system remains robust to hard-negative and adver-sarial requests, and the neural predictor analysis suggests that the lightweight rule-based predictor provides a practical bal-ance between early prediction and on-device inference cost. 
+
+2. METHODOLOGY 
+
+We first formulate the problem and define the relevant times-tamps. We then describe the proposed algorithm, including the execution timing of each component. 
+
+2.1. Problem Formulation 
+
+Based on Figure 1 baseline, we define the timestamp first. Let 
+
+t0 denote the start time of the user’s utterance. Let tASR be the time at which the ASR system finalizes the transcript. Af-ter transcript finalization, the first LLM inference determines whether a tool should be invoked and, if so, which tool to call. We denote the completion time of this stage as tLLM -call .The selected tool is then executed, and its completion time is denoted by tTool . Subsequently, a second LLM inference gen-erates the textual response to be provided to the user, whose completion time is denoted by tLLM -resp which means LLM response. Finally, the generated response is passed to the text-to-speech (TTS) system, and tTTS denotes the comple-tion time of speech synthesis. The timeline can therefore be expressed as t0 < t ASR < t LLMcall < t Tool < t LLMresp <tTTS = tEnd . We will hide time tTool − tASR with ongoing ASR processing, thereby reducing the total time tTTS − t0.
+
+2.2. Predicting Which Tool to Call 
+
+To determine which tool to call while ASR is operating, we introduce a predictor module which checks each partial ASR hypothesis during streaming. It runs after a minimum number of words Nmin is observed, after every ∆N additional words, or when a utterance ended pause longer than τpause is de-tected. Based on the real case distribution, we use Nmin = 6 ,
+
+∆N = 5 , and τpause = 300 ms. The predictor first divides the current partial ASR hypoth-esis into non-overlapping clauses. The accumulated partial hypothesis available at each prediction step is segmented us-ing sentence-boundary punctuation and coordinating expres-sions such as and , but , also , then , and while . Each resulting clause is examined independently. As the ASR hypothesis grows, the predictor repeats this procedure at the predefined trigger points. For example, the partial hypothesis “ Check the weather in Boston, then find nearby restaurants, and tell me the yen exchange rate ” is divided into three clauses: “ Check the weather in Boston, ” “ find nearby restaurants, ” and “ tell me the yen exchange rate. ” These clauses may produce the candidate tuples (searchWeb, weather, “weather in Boston”), (searchWeb, place, “nearby restaurants”), and (searchWeb, exchange, “JPY–USD exchange rate”), respectively. The topic field is drawn from a fixed set of 12 coarse-grained information-seeking categories. Thus, the clause-level anal-ysis allows multiple independent information-seeking intents in a single utterance to be dispatched in parallel. Our Prdic-tor is motivated by the idea of incremental spoken-language understanding [17]. 
+
+2.3. Direct Injection and Cache Matching 
+
+At tASR , the finalized transcript and completed speculative results are directly inserted into the LLM prompt before de-coding begins, as shown in Figure 2(b). The LLM first gen-erates an output y conditioned on both the transcript and the cached results. Nevertheless, in our evaluation set, the LLM still issued tool calls in 13% of cases, and due to the limi-tations of the small quantized language model, 7% of cases Table 1 . Main results. Cascaded denotes the non-speculative baseline. TTFA is measured from the end of speech input to the first TTS audio output. FT denotes the time from ASR completion to the First Tool call. System p50 p99 FT p99 Mean ± Std F1 (s) (s) (s) (s) (%) Cascaded 5.79 19.76 22.44 6.69 ± 3.49 44.8        
+
+> Speculative (Ours) 4.60 15.10 11.71 5.99 ±2.81 60.6
+
+redundantly requested tools for information that had already been provided. If the LLM nevertheless issues a tool call, the system checks whether a matching result is already available in the speculative cache at time tverify in Figure 1, thereby pre-venting redundant retrieval requests, as shown in Figure 2(c). When a matching entry exists, the cached result is reused and returned to the LLM. Otherwise, the requested tool is exe-cuted through the normal path, as in Figure 2(a). This de-sign enables the immediate use of results obtained during the user’s speech while retaining LLM-directed tool calling and normal tool execution as reliable fallback paths. An ablation study was conducted to evaluate the contributions of direct injection and cache-verification fallback. 
+
+3. EXPERIMENTS 3.1. Experimental Setup 
+
+We evaluate on a Samsung Galaxy S26 Ultra (SM-S948N, Snapdragon Elite Gen 5) with the hardware organization. Model inference uses a streaming Conformer ASR model [11] and a TTS model [18] running on the CPU, while a quan-tized Llama-3.2-3B QAIRT LLM bundle [19, 20] is executed through the Qualcomm QNN stack on the NPU. CPU-side components handle audio I/O, the rule-based speculative pre-dictor, cache management, and HTTP dispatch to the EXA remote web-search API [21]. 
+
+3.2. Evaluation Dataset 
+
+There is no public dataset designed to evaluate tool use in an Android voice assistant with tasks such as web search including android calendar events, and alarms. We there-fore construct an evaluation set that covers these tasks and includes both normal requests and challenging cases. The dataset contains 100 manually written English utterances cov-ering single- and multi-search requests, calendar and alarm requests, and also requests that require no tool. Each utter-ance is annotated with the expected tools and arguments. We additionally include 22 hard-negative examples that contain search-related expressions but do not require a search, and 24 adversarial examples that include corrections, retractions, late intents, or topic changes. This gives a total of 146 eval-uation samples. For reproducible evaluation, we synthesize each utterance using Gemini-2.5-Flash-Preview-TTS [22] 
+
+Table 2 . Ablation study. Components are added incremen-tally to the cascaded baseline. Ready measures cache avail-ability when a search result is needed, and Wasted counts speculative tool calls whose outputs are never consumed. Variant p50 p95 Mean ± Std F1 Ready Wasted (s) (s) (s) (%) (%) calls cascaded 5.79 11.92 6.69 ± 3.49 44.8 0.0 0speculative prefetch only 6.03 11.19 6.42 ± 2.69 44.8 0.0 47 verified fallback 6.05 11.35 6.53 ± 2.97 43.5 10.2 38 direct cache injection 5.72 11.05 6.17 ± 2.68 63.0 46.6 6        
+
+> direct injection + verified fallback 4.60 11.39 5.99 ±2.81 60.6 47.7 5
+
+and stream the generated audio into the device in real time. The full evaluation dataset contains approximately 1.5 hours of audio, therefore a complete run takes approximately 3 hours including TTS generation and live network calls. 
+
+3.3. Metrics 
+
+Our primary latency metric is time-to-first-audio (TTFA). We measure TTFA from the end of the input speech to the first TTS audio output. We evaluate search performance sepa-rately from general tool planning. A read request is counted as successful when the required searchWeb tool result is used in the final answer. We report precision, recall, F1, and exact accuracy for tool requests. False read measures the fraction of turns that do not require a search tool but still use a search re-sult. Wasted calls are speculative tool calls that results are not required to make a response. Cache-ready rate measures the fraction of required tool calls for which a matching specula-tive result is already available before the tool result is needed. 
+
+4. RESULTS 4.1. Main Results 
+
+Table 1 shows that our speculative system achieves faster and more consistent response times than the cascaded baseline. Its primary advantage comes from overlapping remote tool execution with the user’s speech, thereby hiding a substantial portion of the search latency. For example, for a 15-second user query requiring approximately 10 seconds of search-tool execution, our method reduced the time to first audio (TTFA) from 17 seconds to 8 seconds. By mitigating such latency outliers in p99, speculative execution improves both the re-sponsiveness and the perceived reliability of the voice agent. Our method also improves tool-selection accuracy, lead-ing to a higher F1 score and fewer unnecessary speculative tool calls. We hypothesize that this improvement arises from providing the small 3B language model with additional task-relevant context during tool selection. This observation is consistent with prior work showing that smaller language models can benefit substantially from informative prompts and in-context examples [23]. Thus, the proposed system improves not only the timing of tool execution but also the efficiency and accuracy with which tools are selected. Speculative execution also makes response timing less sensitive. In the cascaded baseline, remote tool calls begin Table 3 . Robustness diagnostics, with key outcomes in bold. N/A denotes an inapplicable metric. Set n p50 F1 False read Spec calls Wasted (s) (%) (%) calls Hard negatives 22 6.24 N/A 9.1 2 2Adversarial 24 8.40 90.2 12.3 21 21 
+
+only after ASR and LLM-based tool selection have com-pleted, causing end-to-end latency to depend heavily on potentially unstable network delays. In contrast, our method shifts a substantial portion of this variable latency into the user’s speaking time. Consequently, the latency remaining after the user finishes speaking is dominated by local model inference, which is comparatively stable. This results in a faster and more predictable interaction experience without increasing the final-answer failure rate. 
+
+4.2. Ablation Study 
+
+Table 2 summarizes the contribution of each component. The “Speculative prefetch only” variant runs speculative tool calls concurrently with on-device ASR while retaining the remain-ing baseline pipeline. Although its median latency increases slightly, its mean and p95 latency remain comparable to or lower than those of the cascaded baseline. This suggests that concurrent ASR and speculative prefetching introduce no no-ticeable latency penalty. The “Verified fallback” variant allows the system to con-sult the cache only after the LLM has selected a tool. Its la-tency and F1 score remain close to those of the baseline, in-dicating that cache reuse alone provides limited benefit when the full tool-selection process still occurs after ASR. We at-tribute this result to the fact that the LLM must complete tool selection before the system can determine whether a matching result is available, leaving most of the tool-selection latency exposed and introducing an additional cache lookup. Directly injecting prefetched results into the prompt pro-vides a larger improvement, reducing mean latency from 6.69 to 6.17 seconds and increasing F1 score from 44.8% to 63.0%. We attribute this improvement to the in-context learning effect discussed in Section 4.1. Our final method adds a verified fallback to this design and achieves the lowest median and mean latency, the highest Ready rate, and the fewest wasted calls. Although its p95 latency and F1 are slightly worse than those of direct cache injection alone, it provides the best over-all balance between response speed, cache utilization, and speculative-call efficiency. These results indicate that direct cache injection is primarily responsible for the improvement in tool-selection accuracy, while verified fallback improves the effective reuse of speculative results. 
+
+4.3. Hard Negatives and Adversarial Cases 
+
+Table 3 evaluates robustness under two challenging con-ditions. Hard negatives contain search-related keywords 
+
+Table 4 . Offline router accuracy reference. Fire position is the mean fraction of transcript words observed before the first prediction. Bold is the best value per column. Router input F1 ↑ Exact count ↑ False read ↓ Fire position ↓                           
+
+> (%) (%) (%) (%) Rule word prefix 37.5 49.0 22.2 50.6 Rule clause prefix 36.5 49.0 22.2 70.6 Rule full utterance 39.4 50.0 22.2 100.0 LLM prefix 50% 40.0 67.0 8.9 49.8
+> LLM prefix 75% 51.9 68.0 22.2 74.8 LLM full utterance 59.9 83.0 22.2 100.0
+
+but do not actually require a search action, whereas adver-sarial examples include user corrections, retractions, and topic changes that alter the intended tool request during speech. The system achieves a low false read rate of 9.1% on hard negatives, indicating that it rarely triggers unnecessary searches based on keywords alone. F1 score is not reported for this set because no ground-truth search requests exist. On adversarial examples, the system maintains a F1 score of 90.2% with a false read rate of 12.3%, showing that specu-lative results are usually discarded correctly when the user’s intent changes. The 21 wasted calls reflect the additional net-work cost of speculative execution, but because speculation is restricted to read-only tools, such errors do not revise alarms, calendars, or other user data. 
+
+4.4. Can an LLM based Predictor Perform Better? 
+
+Table 4 shows that a neural predictor can provide substan-tially higher routing accuracy than the proposed rule-based predictor. However, these results are obtained from an offline experiment using the on-device LLM as the same in experi-ments and do not account for its inference latency. In practical deployment, the LLM predictor should complete tool-routing decisions while the user is still speaking in order to create an overlap window for speculative execution. Given the runtime cost of on-device LLM inference, it is unlikely that the pre-diction can consistently finish before ASR finalization, which limits the opportunity for hiding tool latency. Running the LLM predictor earlier provides only a modest advantage over the lightweight rule-based predictor while introducing addi-tional competition for on-device NPU resources. Therefore, our design favors a simple rule-based predictor, while dele-gating final semantic verification to the main LLM. 
+
+5. CONCLUSION 
+
+We presented a speculative tool execution method for an on-device voice agent that starts tool calls during streaming ASR. On a commercial Android device, our method reduced the la-tency and improved F1 accuracy. The results show that direct cache injection is the main source of the accuracy improve-ment, while verified fallback increases cache reuse and re-duces wasted calls. Overall, our method makes voice-agent responses faster, more accurate, and more stable. 6. ACKNOWLEDGMENTS 
+
+The authors used Copilot for implement and refactor the ex-perimental scripts used in Section 4. No text, figures, or ex-perimental results were generated without author verification. 
+
+7. REFERENCES 
+
+[1] Yanzhang He et al., “Streaming end-to-end speech recognition for mobile devices,” in Proceedings of the IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , 2019. [2] Bo Li et al., “Acoustic modeling for google home,” in Proceedings of the Annual Conference of the Inter-national Speech Communication Association (INTER-SPEECH) , 2017. [3] Yujia Qin et al., “ToolLLM: Facilitating large language models to master 16000+ real-world APIs,” in Proceed-ings of the International Conference on Learning Rep-resentations (ICLR) , 2024. [4] Minghao Li et al., “API-Bank: A comprehensive bench-mark for tool-augmented LLMs,” in Proceedings of the 2023 Conference on Empirical Methods in Natural Lan-guage Processing , 2023. [5] Yue Huang et al., “MetaTool benchmark for large lan-guage models: Deciding whether to use tools and which to use,” in Proceedings of the International Conference on Learning Representations (ICLR) , 2024. [6] Timo Schick, Jane Dwivedi-Yu, Roberto Dessì, Roberta Raileanu, Maria Lomeli, Luke Zettlemoyer, Nicola Can-cedda, and Thomas Scialom, “Toolformer: Language models can teach themselves to use tools,” in Advances in Neural Information Processing Systems , 2023. [7] Shunyu Yao et al., “ReAct: Synergizing reasoning and acting in language models,” in Proceedings of the International Conference on Learning Representations (ICLR) , 2023. [8] Siddhant Arora et al., “StreamRAG: Instant and accu-rate spoken dialogue systems with streaming tool us-age,” 2025. [9] Sehoon Kim et al., “An LLM compiler for parallel func-tion calling,” in Proceedings of the 41st International Conference on Machine Learning , 2024. [10] In Gim, Seung-seob Lee, and Lin Zhong, “Asyn-chronous LLM function calling,” 2024. [11] Anmol Gulati et al., “Conformer: Convolution-augmented transformer for speech recognition,” in Pro-ceedings of the Annual Conference of the International Speech Communication Association (INTERSPEECH) ,2020. [12] Dong Zhang et al., “SpeechGPT: Empowering large lan-guage models with intrinsic cross-modal conversational abilities,” in Findings of the Association for Computa-tional Linguistics: EMNLP 2023 , 2023. [13] Alexandre Défossez, Laurent Mazaré, Manu Orsini, Amélie Royer, Yossi Adi, Jade Copet, Eugene Kharitonov, et al., “Moshi: A speech-text foundation model for real-time dialogue,” 2024. [14] NAVER Cloud HyperCLOVA X Team, “HyperCLOVA X 8b omni,” 2026. [15] Maximillian Chen, Xuanming Zhang, Michael Peng, Zhou Yu, Alexandros Papangelis, and Yohan Jo, “MIST: Multimodal interactive speech-based tool-calling con-versational assistants for smart homes,” 2026. [16] Md Tahmid Rahman Laskar, Xue-Yong Fu, Seyyed Saeed Sarfjoo, Quinten McNamara, Jonas Robertson, and Shashi Bhushan TN, “From text to voice: A reproducible and verifiable framework for evaluating tool calling LLM agents,” 2026. [17] Fredrik Jørgensen, “Clause boundary detection in transcribed spoken language,” in Proceedings of the 16th Nordic Conference of Computational Linguistics (NODALIDA 2007) , Joakim Nivre, Heiki-Jaan Kaalep, Kadri Muischnek, and Mare Koit, Eds., Tartu, Estonia, May 2007, pp. 235–239, University of Tartu, Estonia. [18] Yi Ren, Chenxu Hu, Xu Tan, Tao Qin, Sheng Zhao, Zhou Zhao, and Tie-Yan Liu, “FastSpeech 2: Fast and high-quality end-to-end text to speech,” arXiv preprint arXiv:2006.04558 , 2020. [19] Aaron Grattafiori et al., “The llama 3 herd of models,” 2024. [20] Qualcomm AI Hub, “Llama-v3.2-3b-instruct model on qualcomm AI hub,” 2024. [21] Exa, “AI web search for agents: Exa search API,” 2026, Accessed: 2026-09-01. [22] Google API Division, “Gemini API pricing: Gemini 2.5 flash preview audio/TTS,” 2026. [23] Tianyu Gao, Adam Fisch, and Danqi Chen, “Making pre-trained language models better few-shot learners,” in Proceedings of the 59th Annual Meeting of the Asso-ciation for Computational Linguistics and the 11th In-ternational Joint Conference on Natural Language Pro-cessing (Volume 1: Long Papers) . 2021, pp. 3816–3830, Association for Computational Linguistics.
