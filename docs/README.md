@@ -48,17 +48,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-10-07</span>
+      <span class="dpr-home-dashboard-kicker">2026-10-08</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 13 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 12 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>7</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>6</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>3</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>9</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-10-08 00:08:44 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-10-09 00:06:38 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -69,9 +69,10 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日扫描13篇AI论文，精读7篇、速读6篇，重点关注全双工语音模型与数据自动化。</p>
-<p>最值得看的是HiPLEX的层次策略分解实现全双工语音语言模型（10分），以及AutoDataBench数据中心测试台（9分）。</p>
-<p>建议先读这两篇高分精读，再跟进速读里的CuratorMAS等多智能体数据管理工作，快速把握主动语音与数据自动化的新进展。</p>
+<p>今日共生成 12 篇推荐（精读 3 篇，速读 9 篇）</p>
+<p>精读：《LeCuration: A Tiny World Model as a Data Curation Multi-Tool》（9.0/10）, 《Steering Follows Geometry, Not Labels: Emotion Directions in a Full-Duplex Speech Model》（8.0/10）</p>
+<p>速读：《Personalized Automatic Speech Recognition for a Dysarthric and Tracheostomic Speaker using Artificial Conversations》（7.0/10）, 《InteractionBench: A Real-Time Interaction Benchmark for Streaming Video Systems》（7.0/10）, 《BanglaBox: A Phonetically-Balanced Corpus and Data-Efficient Foundation-Model Adaptation for Bangla Text-to-Speech with Zero-Shot Voice Cloning》（7.0/10）</p>
+<p>这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -80,12 +81,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">7 篇</strong>
+    <strong class="dpr-home-dashboard-count">3 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="HiPLEX: Hierarchical Policy Factorization for Full Duplex Speech Language Models">HiPLEX: Hierarchical Policy Factorization for Full Duplex Speech Language Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="AutoDataBench: A Data-centric Testbed for Accelerating Auto Research">AutoDataBench: A Data-centric Testbed for Accelerating Auto Research</span></li><li><span class="dpr-home-dashboard-paper-title" title="Hiding Tool Latency in On-Device Cascaded Voice Agent through Speculative Execution">Hiding Tool Latency in On-Device Cascaded Voice Agent through Speculative Execution</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="LeCuration: A Tiny World Model as a Data Curation Multi-Tool">LeCuration: A Tiny World Model as a Data Curation Multi-Tool</span></li><li><span class="dpr-home-dashboard-paper-title" title="Steering Follows Geometry, Not Labels: Emotion Directions in a Full-Duplex Speech Model">Steering Follows Geometry, Not Labels: Emotion Directions in a Full-Duplex Speech Model</span></li><li><span class="dpr-home-dashboard-paper-title" title="PVSync: A Unified Lip-Sync Expert for Timing and Articulation">PVSync: A Unified Lip-Sync Expert for Timing and Articulation</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">duplex-agent <strong>6</strong></span><span class="dpr-home-dashboard-tag">data-agent <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">data-agent <strong>2</strong></span><span class="dpr-home-dashboard-tag">duplex-agent <strong>1</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -93,12 +94,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">6 篇</strong>
+    <strong class="dpr-home-dashboard-count">9 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="CuratorMAS: Automating Dataset Curation via Multi-Agent Orchestration">CuratorMAS: Automating Dataset Curation via Multi-Agent Orchestration</span></li><li><span class="dpr-home-dashboard-paper-title" title="Proactive AI: From Turns to Replannable Dialogue Timelines">Proactive AI: From Turns to Replannable Dialogue Timelines</span></li><li><span class="dpr-home-dashboard-paper-title" title="Jarvis: A Proactive Speech Agent for Multi-Party Conversations">Jarvis: A Proactive Speech Agent for Multi-Party Conversations</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Personalized Automatic Speech Recognition for a Dysarthric and Tracheostomic Speaker using Artificial Conversations">Personalized Automatic Speech Recognition for a Dysarthric and Tracheostomic Speaker using Artificial Conversations</span></li><li><span class="dpr-home-dashboard-paper-title" title="InteractionBench: A Real-Time Interaction Benchmark for Streaming Video Systems">InteractionBench: A Real-Time Interaction Benchmark for Streaming Video Systems</span></li><li><span class="dpr-home-dashboard-paper-title" title="BanglaBox: A Phonetically-Balanced Corpus and Data-Efficient Foundation-Model Adaptation for Bangla Text-to-Speech with Zero-Shot Voice Cloning">BanglaBox: A Phonetically-Balanced Corpus and Data-Efficient Foundation-Model Adaptation for Bangla Text-to-Speech with Zero-Shot Voice Cloning</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">duplex-agent <strong>4</strong></span><span class="dpr-home-dashboard-tag">data-agent <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">duplex-agent <strong>6</strong></span><span class="dpr-home-dashboard-tag">data-agent <strong>3</strong></span></div>
 </section>
 </div>
 

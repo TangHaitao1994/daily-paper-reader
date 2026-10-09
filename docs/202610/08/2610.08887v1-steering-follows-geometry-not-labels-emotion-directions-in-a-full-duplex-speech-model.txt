@@ -1,0 +1,584 @@
+Title: Steering Follows Geometry, Not Labels: Emotion Directions in a Full-Duplex Speech Model
+
+URL Source: https://arxiv.org/pdf/2610.08887v1
+
+Published Time: Thu, 08 Oct 2026 00:03:38 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+# Steering Follows Geometry, Not Labels: Emotion Directions in a Full-Duplex Speech Model 
+
+Pulak Kuli 
+
+Independent Researcher 
+
+pulakkuli72@gmail.com 
+
+## Abstract 
+
+Full-duplex voice agents need to modulate emotion and delivery during real-time conversations, when de-escalating a complaint, carrying urgency in dispatch, soft-ening a clinical result. Emotion and delivery control is well studied for TTS and turn based models through prompt-conditioned synthesis, reference-conditioned synthesis and activation steering; PersonaPlex [10] controls identity in a duplex model but not affect. We study emotion steering in Moshi, a fully open sourced full-duplex speech language model, across four emotions, using mean-difference activation steering, which costs only a few vector additions per frame and no retraining. We show that emotion is linearly decodable from Moshi’s residual stream, but activation steering is only partially achievable, and unevenly so; as happy, angry and surprise steer towards a shared direction while sad is distinctly steerable. We also show that the shared component across the three emotions cannot simply be projected away from all the emotions equally. 
+
+## 1 Introduction 
+
+Emotion and delivery control is a well understood problem statement for voice agents with use-cases spanning across various real time voice interactions involving de-escalating a complaint by modulating delivery, carrying urgency in dispatch, or softening clinical results. Different scenarios require varying degrees of emotion control in voice agents which humans are able to gauge and dictate quite effectively. Mechanisms such as prompt-conditioned and reference-audio-conditioned audio synthesis have been studied extensively [1,2], which suits turn based or Text-to-Speech (TTS) synthesizers. Activation steering [3,4] is another effective and efficient methodology to control emotion or delivery, as shown in EmoSteer-TTS [5]. Full-duplex speech models are superseding turn-based voice agents due to improved natural communication with humans. With Full duplex models becoming more powerful and feasible in the modern world, the effect of activation steering becomes more relevant in the context of emotion and delivery control. At the same time prior work understudies its impact on newer full-duplex speech language models such as Moshi [6], which listens and speaks at once, emits audio frame by frame at 12.5 Hz through a neural codec, and carries its own dialogue state. Recent full duplex models, such as PersonaPlex [10], which is an extension to Moshi, focus primarily on identity control via prompt conditioning, instead of dynamic delivery or emotion control. Whether a mean-difference vector direction still controls emotion effectively, under those conditions is untested. In this paper we analyze Moshi’s[6] capability to steer towards four emotions; angry, sad, happy and surprise. Our contributions include: 
+
+> Preprint. arXiv:2610.08887v1 [cs.CL] 6 Oct 2026
+
+(i) A linear probe that is able to read the emotions accurately off the residual stream (§5.1). 
+
+(ii) A diagnosis about the effectiveness of mean-difference activation steering for all the four emotions (§5.4) 
+
+(iii) A demonstration of shared common axis across happy, angry and surprise emotions that explain the gaps, with their cosine similarity being very high compared to a cross-speaker variance of the residual stream. 
+
+(iv) A method to project out the shared component to fix angry, but not as effectively for surprise. (§5.5) 
+
+(v) An analysis of the model’s own generative limitations to produce emotions in audio (§5.6). 
+
+## 2 Related work 
+
+Activation steering for emotion in full duplex models. Adding a direction to hidden states controls behaviour in text language models [3,4]. EmoSteer-TTS [5] brings this to speech, applying difference vectors to a searched subset of activations in flow-matching synthesisers, training-free. Two recent studies question whether a single direction is the right instrument at all. Du et al. [15] find with sparse autoencoders that emotional variation in an LLM-based TTS model is distributed over several latent features rather than one global shift, and that intervening on a chosen subset outperforms global steering. Wang et al. [16] compare steering sites geometrically and report that a flow-matching module generalises poorly across speakers because speaker and emotion are entangled there, while the speech-LM module offers a cleaner low-dimensional emotion subspace. Braun et al. [17,18] make the same kind of geometric argument in text language models, predicting steering reliability from the cosine structure of the activation differences a vector is built from - measured within one behaviour, where ours is measured between emotions. Our result is the duplex counterpart of both observations. Steering has reached full-duplex models, though not for delivery: Chang et al. [12] add a perception vector to reduce the state inertia that makes a model miss the opening of an interruption, training-free, on Moshi among others. Duplex systems that do control delivery train for it - F-Actor [13] conditions on voice, topic and conversational behaviour, and JoyAI-Talker [14] takes delivery instructions at inference after fine-tuning on expressive speech. We are not aware of prior work controlling emotion in a streaming duplex model by editing activations. 
+
+## 3 Method 
+
+3.1 Construction of emotion direction vectors 
+
+We write real ESD [7] recordings into Moshi’s output codebooks, with their transcripts forced through Moshi’s inner monologue, and let it run a forward pass. Moshi’s audio output is a stream of Mimi codebook tokens that can be overridden. For those frames the model is producing that recording. We read the residual stream over the last few frames before the override ends, by which point the model has been carried through the whole utterance rather than its opening. Averaging over frames and clips and subtracting the same quantity on neutral recordings gives one direction per layer, 
+
+vl = mean( hl | e) − mean( hl | neutral) , (1) which we unit-normalise. Whether that state is genuinely emotional is measured at §5.6. 
+
+3.2 Injecting direction vectors to steer emotion 
+
+At the injection stage, we interpolate the output of layers 0, 8 and 24, at every frame (Figure 1) towards the desired emotion, by adding α · w(l) · rl · ˆvl. Here rl is that layer’s median residual norm, so α is relative to the activations it is added to, and w(l) = 1 − l/ 31 weights deeper layers down. The depformer that predicts the audio codebooks, the codec and the other 29 layers are left untouched. We use α = 0 .30 and this three-layer schedule throughout the experiments. Both were chosen in preliminary work on held-out sentences: strength peaks at 0.30 and falls away past it as intelligibility 2degrades faster than the emotion improves, and spreading the push across layers 0, 8 and 24 beat concentrating it at specific layers.              
+
+> user audio Mimi encoder +L0 L8 L24 temporal transformer, 32 layers, d=4096 +α w (l)rlˆvlat layers 0, 8, 24 every frame from speech onset
+> text head depformer ×88 audio codes Mimi decoder
+> speech out its own previous codes and text token, fed back next frame §3.1: a real recording’s codes are written here instead
+> Figure 1: Where the vector enters. Moshi is frozen; the only change is one direction added to the output of the three layers marked in red - 0, 8 and 24 - every frame from speech onset. The injection sits upstream of the split into the text head and the audio depformer, so it can shape delivery without touching the codec.
+
+3.3 Probing the residual stream 
+
+To determine whether Moshi is able to distinguish the emotions accurately, we fit one multinomial logistic regression per layer to 60 clips per emotion drawn from the same states. Inputs are standardised and reduced to 30 principal components inside each split, since 4096 features against 240 rows is ill-conditioned. Accuracy is cross-validated over five splits, each holding out two of the ten speakers, so no speaker appears in both training and test. 
+
+## 4 Experimental setup 
+
+Model. All experiments use kyutai/moshika-pytorch-q8 , the int8 release of Moshi [6], with its Mimi codec at 12.5 Hz, on a single 16 GB RTX 4090 laptop GPU, which the int8 checkpoint is chosen to fit. Quantization raises word error rate across all unsteered and steered generated audio, so we report word error as a difference from the unsteered baseline on the same sentence and seed rather than as an absolute measure. 
+
+Vectors. For emotion direction vector construction we use 800 clips per emotion from the English half of ESD [7], which covers angry, happy, sad, surprise and neutral over ten speakers, across all ten speakers. 
+
+Audio Generation. We use two different modes for audio generation in Moshi. 
+
+Forced text mode fixes what is said so that only delivery can vary: all 720 Harvard sentences [11] - the 72 phonetically balanced lists of ten from the IEEE speech-quality standard, whose content is emotionally neutral - are forced through the inner monologue, and the model renders each one. Any change in the emotion score is then attributable to delivery, since the words are identical across conditions. 
+
+Free duplex mode is the setting the model is built for and gives up that control: Moshi hears an emotional ESD utterance on its input stream and answers in its own words, with nothing forced, 50 clips for each of five input emotions. Content is free to vary, so an emotion score there reflects delivery and wording together, and replies are short - the model often says little. Vectors, injection schedule and α are identical in both. 
+
+Metrics and Evaluation. emotion2vec+ large [8] ( iic/emotion2vec_plus_large ) is used for emotion probability labels and emotion embeddings. Emotion is scored only on clips with at least 1.5 s of voiced audio, since emotion2vec reads silence as sad and averaging over near-silent clips invents a sad result that is not there. Every emotion number is reported against the score real ESD speech of that emotion receives from the same classifier, which we call its ceiling : held out from the clips building the similarity centroids, referring to the mean classifier score and not a theoretical bound from human level speech. Similarity to real speech is reported as a mean-centred cosine: raw cosine between two unrelated real recordings is already 0.713, so uncentred values compress into the top quarter of their range. Whisper large-v3 [9] ( openai/whisper-large-v3 ) is used for word error rate (WER), against the imposed sentence under the forced text mode and against the model’s own inner monologue in free 
+
+3duplex mode where no reference sentence exists. The two therefore measure different things - fidelity to a script, and agreement between what the model planned to say and what its codec produced - and are not directly comparable across settings, only across conditions within one. 
+
+## 5 Results 
+
+5.1 Probing the Residual Stream 
+
+The probe successfully reads emotion out of the residual stream at every layer (Table 1). We report accuracy at layers 0, 8 and 24, the three the directions are injected into, with the best of all 32 alongside. Layer 0 is weaker throughout, which is consistent with the emotion being progressively linearly separable with depth rather than present at the input. The contrast that will be apparent in following sections is the three-way accuracy over angry, happy and surprise - the emotions found to share highly similar steering directions (§5.4) reaches reasonably high accuracy of 0.661 at layer 8 and 0.678 at layer 24, against a chance rate of 0.333. The information distinguishing these emotions is therefore present in the residual stream, and the limitations in steering highlights the shortcoming to be present in the steering vectors instead of the representation.                                                                     
+
+> Table 1: Probe accuracy on the same states the directions are built from, L0, L8 and L24 are the layers the steering vectors are injected into; the last column gives the best of all 32 layers, with that layer in brackets. Bold is the strongest of the three injected layers; shaded cells sit within 30% of the headroom above chance. contrast chance L0 L8 L24 best (layer) angry vs happy 0.500 0.567 0.692 0.750 0.767 (27) angry vs surprise 0.500 0.717 0.908 0.875 0.925 (11) happy vs surprise 0.500 0.717 0.758 0.742 0.792 (17) angry vs sad 0.500 0.767 0.867 0.850 0.892 (31) happy vs sad 0.500 0.800 0.892 0.892 0.933 (13) sad vs surprise 0.500 0.783 0.942 0.933 0.967 (13) angry vs neutral 0.500 0.683 0.908 0.875 0.908 (31) happy vs neutral 0.500 0.583 0.892 0.833 0.908 (9) sad vs neutral 0.500 0.642 0.758 0.808 0.850 (16) surprise vs neutral 0.500 0.833 0.925 0.917 0.958 (10) angry / happy / surprise 0.333 0.517 0.661 0.678 0.683 (19) all five 0.200 0.470 0.603 0.547 0.607 (10)
+
+5.2 Activation Steering 
+
+Table 2 displays steering accuracy for both audio generation modes together. Only sad reaches its own target, and it overshoots: 0.650 against the 0.448 genuine ESD sad scores. Angry reaches a quarter of its ceiling and surprise under a third, and in both the strongest rival is happy rather than the emotion asked for. The two settings agree closely. Angry reaches 25% of ceiling with the forced text mode and 26% when the model chooses its own words; surprise 30% and 31%. Sad is steered exceptionally well. Word error is lower in duplex - 13.5% for angry against 32.2% - but reasonably so as explained in WER experimental setup section. We notice that for angry, surprise and happy, where the probability goes is systematic rather than diffuse. Table 4 demonstrates the full distribution under both modes against the unsteered baseline. In both modes, we observe the audio being steered towards happy for all these three emotions. We, additionally, provide results of steering against arbitrarily chosen random vectors as control to reinforce the observations above. (Table 3) compares the probability scores of Neutral and Happy across four arbitrary vectors against the steered counterparts. Injecting the four arbitrary vectors leaves emotion distribution virtually unaltered while the ESD constructed steering vectors differ significantly in terms of P(emotion), and WER. 4Table 2: Steering with the text forced (720 sentences per condition) and in free duplex dialogue (50 per input emotion). % c. is the percentage of the real-speech ceiling reached, arg% the share of clips whose top label is the requested emotion. Shading on a rival marks where it beats that emotion. See Appendix A. real speech forced text free duplex condition P arg% P(tgt) (% c.) arg% rival WER P(tgt) (% c.) arg% rival WER 
+
+unsteered 0.924 92.2 0.635 65.7 — 24.3 0.505 48.6 — 10.7 
+
+angry steered 0.717 71.9 0.177 (25%) 18.3 0.328 happ 32.2 0.189 (26%) 19.2 0.370 happ 13.5 happy steered 0.633 64.1 0.481 (76%) 49.3 0.276 surp 61.8 0.331 (52%) 31.4 0.150 surp 20.2 sad steered 0.448 45.3 0.650 (145%) 68.6 0.037 happ 51.4 0.313 (70%) 32.1 0.199 happ 23.5 surprise steered 0.458 45.3 0.136 (30%) 13.6 0.463 happ 71.5 0.143 (31%) 13.3 0.464 happ 35.6 
+
+Table 3: Four random directions injected at the same norm, through the same hooks and schedule as the emotion directions, on 240 forced-text sentences each. condition P(neutral) P(happy) WER% voiced s 
+
+unsteered 0.599 0.181 24.7 1.98 random 0 0.569 0.159 26.1 1.93 random 1 0.526 0.197 21.8 1.98 random 2 0.601 0.189 21.3 1.98 random 3 0.537 0.237 28.7 1.96 angry steered 0.042 0.328 32.2 2.32 happy steered 0.018 0.481 61.8 3.04 sad steered 0.134 0.037 51.4 3.59 surprise steered 0.013 0.463 71.5 2.47 
+
+The ordering is not an end-of-clip effect. Scoring only the first 1.2 s of each forced-text clip (Table 5) already gives 0.241 happy against 0.122 angry, and 0.376 happy against 0.125 surprise. Intelligibility degrades under both conditions, especially under forced text mode with 71.5% for surprise being the worst. 
+
+Table 4: emotion2vec probability by label: forced text on the left, free duplex on the right. Each steered row is followed by real ESD speech of that emotion, the most any clip could score. Cell depth is proportional to the value in that emotion’s colour; underline marks the emotion requested and bold the largest in the row. condition angry happy sad surpr. neutral 
+
+unsteered 0.001 0.163 0.035 0.004 0.635 
+
+angry 0.177 0.328 0.032 0.084 0.042 
+
+real 0.717 0.030 0.001 0.001 0.154 
+
+happy 0.007 0.481 0.057 0.276 0.018 
+
+real 0.005 0.633 0.002 0.006 0.160 
+
+sad 0.008 0.037 0.650 0.015 0.134 
+
+real 0.001 0.047 0.448 0.000 0.392 
+
+surprise 0.002 0.463 0.186 0.136 0.013 
+
+real 0.044 0.177 0.010 0.458 0.080 
+
+condition angry happy sad surpr. neutral 
+
+unsteered 0.001 0.234 0.113 0.025 0.505 
+
+angry 0.189 0.370 0.027 0.071 0.040 
+
+real 0.717 0.030 0.001 0.001 0.154 
+
+happy 0.008 0.331 0.146 0.150 0.105 
+
+real 0.005 0.633 0.002 0.006 0.160 
+
+sad 0.004 0.199 0.313 0.114 0.207 
+
+real 0.001 0.047 0.448 0.000 0.392 
+
+surprise 0.003 0.464 0.134 0.143 0.044 
+
+real 0.044 0.177 0.010 0.458 0.080 
+
+Table 5: Forced-text clips scored over a growing prefix rather than in full, against the strongest rival in each window. Bold is the larger of the two; shading marks the windows where a rival beats the requested emotion. n falls with the window because not every clip is that long. first 1.2 s first 2.0 s whole clip condition P(tgt) rival ( n) P(tgt) rival ( n) P(tgt) rival angry steered 0.122 0.241 happ (710) 0.154 0.248 happ (555) 0.177 0.328 happ happy steered 0.409 0.080 sad (718) 0.433 0.086 surp (676) 0.481 0.276 surp sad steered 0.361 0.084 happ (717) 0.450 0.051 surp (699) 0.650 0.037 happ surprise steered 0.125 0.376 happ (714) 0.104 0.333 happ (600) 0.136 0.463 happ 
+
+55.3 Embedding-Similarity shows a Similar Pattern 
+
+Table 6 measures the same clips a second way: mean-centred cosine to the centroid of real ESD speech of each emotion, built from recordings disjoint from the clips scored against them. The pattern is the same, though both readings come from emotion2vec and are therefore not independent of one another. 
+
+Table 6: Centred cosine to the centroid of real ESD speech of each emotion, unsteered baseline in the first row; shading, underline and bold as in Table 4. For angry and surprise the nearest centroid is not the requested one. condition angry happy sad surpr. neutral 
+
+unsteered -0.363 0.118 0.305 -0.414 0.579 
+
+angry steered -0.023 0.284 -0.043 -0.048 -0.118 
+
+real angry 0.677 -0.199 -0.075 -0.353 0.011 
+
+happy steered -0.261 0.394 -0.197 0.330 -0.339 
+
+real happy -0.182 0.563 0.036 -0.287 0.067 
+
+sad steered -0.262 -0.018 0.665 -0.422 0.228 
+
+real sad -0.146 -0.137 0.645 -0.529 0.382 
+
+surprise steered -0.389 0.381 0.076 0.139 -0.191 
+
+real surprise -0.130 0.117 -0.235 0.347 -0.217 
+
+5.4 Direction Cosine explains Off-Steering 
+
+The steering result is reasonably explained when the steering vectors themselves are analysed against each other. A cosine between two directions needs a scale to be read against, so we build every direction from one half of the ten speakers and compare it with the other half’s (Figure 2, right). angry happy sad surprise angry happy sad surprise                         
+
+> 1.00 0.69 0.12 0.78 0.69 1.00 0.10 0.80 0.12 0.10 1.00 0.19 0.78 0.80 0.19 1.00
+> cosine from all ten speakers, layer 24
+> −1.00
+> −0.75
+> −0.50
+> −0.25 0.00 0.25 0.50 0.75 1.00 angry happy sad surprise angry happy sad surprise
+> 0.65 0.43 0.04 0.60 0.45 0.60 -0.09 0.59 0.06 0.11 0.73 0.15 0.57 0.57 0.10 0.81 +0.05 +0.01 +0.58 +0.24
+> margin
+> cosine across disjoint speaker halves, layer 24
+
+Figure 2: Cosine between emotion directions at layer 24. Left: directions built from all ten speakers, so each pair shares voices. Right: built from disjoint halves, so none do; the bold diagonal is an emotion against itself and margin its lead over the nearest other. 
+
+Angry agrees with itself at 0.65 and with surprise at 0.60; happy with itself at 0.60 and with surprise at 0.59, the margins beside each row. For these high-arousal emotions a different emotion is nearly as close as the same emotion recorded by different speakers. Sad’s nearest neighbour is 0.58 away. Cosine across the entire corpus of speakers varies from the similarity scores on disjoint halves (Figure 2, left). Roughly a third of the apparent similarity between two emotion directions is shared speaker identity rather than shared emotion - the entanglement Wang et al. [16] report for flow-matching modules, measured here directly. The contrast in the margins of 0.01 to 0.05 against 0.58, for self versus cross emotion similarity, separates the emotions that reach their own target from those that do not, and it is apparent in the direction vectors themselves prior to any audio generation. 65.5 Removing the shared direction does not fix it completely 
+
+We may assume that if the mean difference is dominated by what these emotions share, projecting that component out should separate them. To test this, we take the shared direction sl at layer l to be the first right singular vector of the four unit-normalised directions stacked as a 4 × 4096 matrix -their leading principal component, about the origin rather than their mean since there are only four. It carries 61–64% of the total squared singular value at layers 0, 8 and 24. Subtracting a fraction of each unnormalised mean difference’s component along it, 
+
+ve,l (β) = ve,l − (1 − β) ( v⊤
+
+> e,l
+
+sl) sl, (2) leaves the plain vector at β = 1 and removes the shared component entirely at β = 0 , where angry and happy move from +0 .69 to −0.56 at layer 24. Each is unit-normalised before injection (§3.2), so every setting enters at the same magnitude. 240 sentences each.                                                                        
+
+> Table 7: Keeping a fraction βof the direction the emotions share. Bold marks the settings where the requested emotion beats its strongest rival. clips with ≥1.5s of voiced audio. The intermediate β= 0 .25 is in Appendix C. condition βP(tgt) % ceil. strongest rival WER% angry steered 1.0 0.184 26 0.334 (happ) 32.2 0.5 0.288 40 0.162 (happ) 22.6 0.0 0.016 20.040 (happ) 23.0 happy steered 1.0 0.503 79 0.279 (surp) 62.4 0.5 0.510 80 0.175 (surp) 65.2 0.0 0.205 32 0.115 (sad) 73.5 sad steered 1.0 0.647 145 0.050 (happ) 46.9 0.5 0.644 144 0.043 (happ) 50.1 0.0 0.701 157 0.027 (happ) 54.8 surprise steered 1.0 0.139 30 0.414 (happ) 77.6 0.5 0.044 10 0.427 (happ) 82.5 0.0 0.031 70.389 (sad) 79.1
+> unsteered —0.601 ——24.7
+
+Removing the shared direction entirely leaves nothing to steer with - angry falls to 0.016, below the unsteered rate - implying it carries the direction that makes angry sound angry. Removing half separates angry from happy for the first time here: P(angry) rises from 0.184 to 0.288, 26% to 40% of ceiling, the happy rival falls from 0.334 to 0.162, and word error falls from 32.2% to 22.6%, marginally under the 24.7% unsteered baseline. The sweep leaves sad almost untouched, at 0.647 to 0.701 across all four settings. That is the control the construction provides: sad is the one direction not aligned with the shared component (| cos | = 0 .245 at layer 24 against 0.89 –0.94 for the others), so the manipulation barely changes it, and the movement in angry cannot be a generic effect of perturbing the vectors. Surprise is not recovered at any setting, and removal makes it worse rather than better: it falls from 0.139 to 0.031 as β goes to zero, and never beats its strongest rival - happy at β ≥ 0.5, sad below that. Partial removal resolves one of the three merged emotions, not all of them. 
+
+5.6 Analyzing Moshi’s limitations in rendering emotions 
+
+§5.2 scored steered speech against real speech, which may be a harsher baseline to compare against. Some of that loss is the model’s own limitation as the model tries to propagate the stream via one forward pass. Driving a real recording through its output codebooks and scoring the model’s re-rendering of it — the prime condition — bounds how much of an emotion can reach the waveform at all through Moshi (Table 8). The bound is non uniform. The re-rendering keeps 85% of the recording’s happy score but only 40% of its angry, and the lost probability moves to neutral instead of another emotion, implying that the codec may be discarding the prosodic extremes to keep what it needs for intelligible reconstruction. Angry loses most. Surprise is the only exception with a good re-render capacity of 0.459 compared to 0.593 for real recordings but a sharp drop in the continuation audio to 0.151; as it loses emotions partially towards happy .7Table 8: Prime and release, 100 recordings per emotion, over clips clearing the 1.5 s voiced threshold ( n in brackets). gains most is the label taking the largest share of what the re-rendering loses. See Appendix A. emotion recording ( n) prime ( n) continuation ( n) prime/rec.% gains most silent% angry 0.791 (67) 0.315 (59) 0.073 (15) 40 neutral 0.06 →0.27 85 happy 0.663 (64) 0.563 (52) 0.234 (16) 85 neutral 0.03 →0.12 84 sad 0.720 (68) 0.470 (63) 0.314 (15) 65 neutral 0.17 →0.33 85 surprise 0.593 (75) 0.459 (66) 0.151 (14) 77 happy 0.08 →0.20 86                               
+
+> Table 9: Steering against two references: real ESD speech, and the model’s own re-rendering of it. The real speech column is measured differently from Table 8’s recording column; Appendix A says how. condition P(tgt) real speech % real through codec % codec angry 0.177 0.717 25 0.315 56 happy 0.481 0.633 76 0.563 85 sad 0.650 0.448 145 0.470 138 surprise 0.136 0.458 30 0.459 30
+
+Scored against that bound instead (Table 9), angry rises from 25% to 56% of ceiling and happy from 76% to 85%: about half of angry’s shortfall is the codec rather than the direction. Surprise does not recover at all. Its bound is 0.459 against the 0.458 real surprised speech scores, though those are different clip sets (Appendix A); on the same clips the re-rendering retains 77% of the recording’s surprise. Either way the codec carries most of it, so most of the gap between 0.136 and its ceiling belongs to the direction we inject. But much of the confusion the steering vectors produce is already present in the shared direction and Moshi’s internal incapabilities in rendering emotions, before any direction is added, leaving aside surprise which remains unexplained after above analyses. 
+
+## 6 Limitations 
+
+We test one model, one corpus, one extraction point and one injection schedule; we do not establish that other duplex speech models behave the same way. The int8 checkpoint puts unsteered word error at 24.3% before any intervention, and we cannot rule out that a bf16 model carries emotion differently. The WER is high for many steered audio samples, hence we offer a diagnosis rather than a comprehensive method of delivery control. Every measurement comes from emotion2vec with no human listening test. The four emotions are ESD’s, and we make no claim about how emotion is organised in general. Modern steering algorithms such as Sparse Auto Encoders (SAEs), LoRA or full retraining/fine-tuning remain unexplored in the paper. 
+
+## 7 Conclusion 
+
+We study whether activation steering controls emotion in a full-duplex speech model, where fast and dynamic controls to delivery control is highly beneficial. We derive steering directions from the residual stream and find that a linear probe separates the emotions in the activations while the mean-difference directions built from them barely do. For the high-arousal emotions, two different directions agree to within a few hundredths of what a single emotion’s direction agrees with itself across a change of speaker. Steering follows that geometry rather than the requested label, and only the emotion whose direction stands apart is controlled as its label implies. The result holds with the text forced as well as in a full duplex dialogue. We propose a generation-free check that explains it from the vectors alone, and show that the shared component is necessary rather than incidental: removing it entirely leaves a direction that steers nothing, while retaining half of it restores one of the merged emotions. Modern estimators built to discriminate smartly rather than to average, and the same comparison applied to a model finetuned for controllability, fall under further extensions to this work. 8References 
+
+[1] D.-H. Cho, H.-S. Oh, S.-B. Kim, S.-H. Lee and S.-W. Lee. EmoSphere-TTS: emotional style and intensity modeling via spherical emotion vector for controllable emotional text-to-speech. Interspeech , 2024. arXiv:2406.07803. [2] T. Bott, F. Lux and N. T. Vu. Controlling emotion in text-to-speech with natural language prompts. 
+
+Interspeech , 2024. arXiv:2406.06406. [3] A. M. Turner, L. Thiergart, G. Leech, D. Udell, J. J. Vazquez, U. Mini and M. MacDiarmid. Steering language models with activation engineering, 2023. arXiv:2308.10248. [4] N. Rimsky, N. Gabrieli, J. Schulz, M. Tong, E. Hubinger and A. M. Turner. Steering Llama 2 via contrastive activation addition. Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics , 2024. [5] EmoSteer-TTS: fine-grained and training-free emotion-controllable text-to-speech via activation steering, 2025. arXiv:2508.03543. [6] A. Défossez, L. Mazaré, M. Orsini, A. Royer, P. Pérez, H. Jégou, E. Grave and N. Zeghidour. Moshi: a speech-text foundation model for real-time dialogue, 2024. arXiv:2410.00037. [7] K. Zhou, B. Sisman, R. Liu and H. Li. Emotional voice conversion: theory, databases and ESD. Speech Communication , 137:1–18, 2022. [8] Z. Ma, Z. Zheng, J. Ye, J. Li, Z. Gao, S. Zhang and X. Chen. emotion2vec: self-supervised pre-training for speech emotion representation, 2023. arXiv:2312.15185. [9] A. Radford, J. W. Kim, T. Xu, G. Brockman, C. McLeavey and I. Sutskever. Robust speech recognition via large-scale weak supervision, 2022. arXiv:2212.04356. [10] PersonaPlex: voice and role control for full duplex conversational speech models. NVIDIA, 2026. arXiv:2602.06053. [11] IEEE Subcommittee on Subjective Measurements. IEEE recommended practice for speech quality mea-surements. IEEE Transactions on Audio and Electroacoustics , 17(3):225–246, 1969. [12] C.-K. Chang, K.-W. Chang, A. H. Liu and J. Glass. Overcoming state inertia in full-duplex spoken language models via activation steering, 2026. arXiv:2606.11386. [13] M. Züfle, O. Klejch, R. Sanders, J. Niehues, A. Birch and P. Lam. F-Actor: controllable conversational behaviour in full-duplex models, 2026. arXiv:2601.11329. [14] JoyAI-Talker: full-duplex speech interactive large model built for empathetic voice agents. JD.com, 2026. arXiv:2608.01119. [15] H. Du, J. Shi, S. Lu, G. Zhou and Y. Gao. Sparse autoencoders for interpretable emotion control in text-to-speech, 2026. arXiv:2606.01479. [16] S. Wang, J. Bailey and T. Dang. A geometric perspective on composable emotion steering in text-to-speech models, 2026. arXiv:2607.00946. [17] J. Braun, C. Eickhoff, D. Krueger, S. A. Bahrainian and D. Krasheninnikov. Understanding (un)reliability of steering vectors in language models. ICLR 2025 Workshop on Foundation Models in the Wild , 2025. arXiv:2505.22637. [18] J. Braun. Understanding unreliability of steering vectors in language models: geometric predictors and the limits of linear approximations. Master’s thesis, University of Tübingen, 2026. arXiv:2602.17881. 
+
+9A Reading the tables 
+
+Which clips a number covers. Emotion scores are taken over clips with at least 1.5 s of voiced audio, since emotion2vec reads silence as sad. Table 10 reports how many that removes from each condition. 
+
+Two different real-speech references. Table 8’s recording column is the 100 clips per emotion that were actually primed, under the voiced filter. Table 9’s real speech column is a separate set of 64 clips per emotion, held out from those used to build the similarity centroids and scored without the filter. They are therefore not the same measurement, and differ most for sad and surprise, whose clips are quietest: 0.720 against 0.448 for sad, 0.593 against 0.458 for surprise. The second is the ceiling every “% of ceiling” figure in the paper is taken against, so those percentages compare filtered generated speech with unfiltered real speech. 
+
+Prime and release. Each recording yields three clips: the original, the model’s re-rendering of it while its output codebooks are overridden, and its free continuation once the override is lifted. silent 
+
+is the percentage of continuations falling below the voiced threshold, so that column rests on a small and non-random subset and is not a retention rate. 
+
+Cosine panels. In Figure 2 (right) every direction is built from one half of the ten speakers and compared with the other half’s, so no two directions being compared share a voice. The left panel builds both directions from all ten. The off-diagonal falls by roughly a third between the panels, and that difference is speaker identity rather than emotion. 
+
+## B Clips excluded by the voiced-audio threshold 
+
+emotion2vec scores silence as sad, so every emotion number in the paper is taken over clips with at least 1.5 s of voiced audio. Table 10 reports what that removes. The filter is not neutral between conditions. Under forced text it drops 8.1% of unsteered clips but only 0.3–1.4% of steered ones, because steering lengthens the utterance - voiced duration rises from 1.91 s unsteered to 2.30–3.58 s. The unsteered baseline that every comparison rests on is therefore measured over a differently filtered subset than the conditions it is compared with. In duplex the threshold removes 58–71% of clips in every condition, which is why its numbers are noisier than the forced-text ones.                                              
+
+> Table 10: Clips reaching the 1.5 s voiced-audio threshold. run condition kept total dropped% forced text unsteered 662 720 8.1 forced text angry 710 720 1.4 forced text happy 718 720 0.3 forced text sad 717 720 0.4 forced text surprise 714 720 0.8 duplex unsteered 72 250 71.2 duplex angry 73 250 70.8 duplex happy 105 250 58.0 duplex sad 81 250 67.6 duplex surprise 75 250 70.0
+
+## C Every setting of the shared-direction sweep 
+
+Table 11 adds the β = 0 .25 setting omitted from Table 7. It sits where the trend predicts and changes no conclusion: angry at 0.119 is already past its optimum on the way down to 0.016, and no emotion’s ordering against its strongest rival differs from the neighbouring settings. 10 Table 11: All four settings of β.condition β P(tgt) % ceil. strongest rival WER% angry steered 1.0 0.184 26 0.334 (happ) 32.2 0.5 0.288 40 0.162 (happ) 22.6 0.25 0.119 17 0.081 (happ) 15.3 0.0 0.016 2 0.040 (happ) 23.0 happy steered 1.0 0.503 79 0.279 (surp) 62.4 0.5 0.510 80 0.175 (surp) 65.2 0.25 0.534 84 0.092 (sad) 68.7 0.0 0.205 32 0.115 (sad) 73.5 sad steered 1.0 0.647 145 0.050 (happ) 46.9 0.5 0.644 144 0.043 (happ) 50.1 0.25 0.658 147 0.034 (happ) 49.9 0.0 0.701 157 0.027 (happ) 54.8 surprise steered 1.0 0.139 30 0.414 (happ) 77.6 0.5 0.044 10 0.427 (happ) 82.5 0.25 0.043 9 0.385 (sad) 84.1 0.0 0.031 7 0.389 (sad) 79.1 
+
+unsteered — 0.601 — — 24.7 
+
+## D Implementation 
+
+Both listings are the code as run. 
+
+D.1 Injection 
+
+A per-layer tensor of shape [batch , 4096] is added to that layer’s output; zeroing a row steers nothing, which is how the unsteered condition shares a batch with the steered ones. The direction is unit-normalised and scaled by the layer’s own median residual norm, so α means the same thing at every depth.  
+
+> 1
+
+def install_steering ( lm , batch_size , vector_dir = None ) :  
+
+> 2
+
+deltas = { layer : torch . zeros ( batch_size , 4096 , device = " cuda " ) for layer in INJECT_LAYERS }  
+
+> 3
+
+for layer in INJECT_LAYERS :  
+
+> 4
+
+lm . transformer . layers [ layer ]. re gis ter _f orw ar d_h ook (  
+
+> 5
+
+( lambda l : ( lambda mod , inp , out : out + deltas [ l ][: , None , :]. to ( out . dtype ) ) ) ( layer ) )  
+
+> 67
+
+source = vector_dir or GENERATED / " vectors "  
+
+> 8
+
+layer_norms = json . load ( open ( source / " layer_norms . json " ) )  
+
+> 9
+
+vectors = { path . stem [4:]: np . load ( path ) for path in sorted ( source . glob ( " vec_ *. npy " ) ) }  
+
+> 10 11
+
+def make_delta ( emotion , layer , alpha =0.30) :  
+
+> 12
+
+direction = vectors [ emotion ][ layer ]  
+
+> 13
+
+direction = direction / np . linalg . norm ( direction )  
+
+> 14
+
+scale = alpha * max (0.0 , 1 - layer / 31) * layer_norms [ str ( layer ) ]  
+
+> 15
+
+return torch . tensor ( scale * direction , device = " cuda " )  
+
+> 16 17
+
+return deltas , make_delta 
+
+D.2 Reading the state 
+
+The recording is written into the model’s own output codebooks in place of what the depformer would emit, while the transcript is forced through the inner monologue. Forward hooks record the residual stream, and the last few frames before the override ends are averaged to give one state per clip.  
+
+> 1
+
+def _prime_one_batch ( mimi , lm , tok , clips , waveforms , n_frames , layers , keep , continuation ,  
+
+> 2
+
+per_frame = False ) :  
+
+> 3
+
+batch = len ( clips )  
+
+> 4
+
+recorded = { layer : [] for layer in layers }  
+
+> 5
+
+handles = [ lm . transformer . layers [ layer ]. reg is ter _fo rw ard _h ook (  
+
+> 6
+
+( lambda l : ( lambda mod , inp , out : recorded [ l ]. append ( out [: , 0]. float () . cpu () ) ) ) ( layer ) ) 
+
+11 7 for layer in layers ]  
+
+> 89
+
+padded = torch . zeros ( batch , 1 , n_frames * FRAME , device = " cuda " )  
+
+> 10
+
+for slot , wav in enumerate ( waveforms ) :  
+
+> 11
+
+padded [ slot , 0 , : len ( wav ) ] = wav . cuda ()  
+
+> 12
+
+codes = mimi . encode ( padded ) [: , :8]  
+
+> 13 14
+
+set_seed (4242)  
+
+> 15
+
+force , _ = force_text ( lm , tok , [ c [ " text " ] for c in clips ] , batch )  
+
+> 16
+
+step = [0]  
+
+> 17 18
+
+def on_text ( tokens ) :  
+
+> 19
+
+if step [0] < n_frames :  
+
+> 20
+
+force ( tokens )  
+
+> 21
+
+step [0] += 1 
+
+> 22 23
+
+silence = lambda t : torch . zeros ( batch , 1 , FRAME , device = " cuda " )  
+
+> 24
+
+audio , text = generate ( mimi , lm , batch , n_frames + continuation , silence , on_text = on_text ,  
+
+> 25
+
+replace_output = lambda t : codes [: , : , t : t + 1] if t <n_frames else None )  
+
+> 26
+
+for handle in handles :  
+
+> 27
+
+handle . remove ()  
+
+> 28 29
+
+if per_frame :  
+
+> 30
+
+stacked = { layer : torch . stack ( recorded [ layer ]) for layer in layers }  
+
+> 31
+
+offset = stacked [ layers [0]]. shape [0] - len ( text )  
+
+> 32
+
+assert offset >= 0 , ( stacked [ layers [0]]. shape [0] , len ( text ) )  
+
+> 33
+
+return [( np . stack ([ stacked [ layer ][ offset : , slot ]. numpy () for layer in layers ] ,  
+
+> 34
+
+axis =1) . astype ( np . float16 ) , text [: , slot ])  
+
+> 35
+
+for slot in range ( batch ) ]  
+
+> 36 37
+
+calls = len ( recorded [ layers [0]])  
+
+> 38
+
+window = { layer : torch . stack ( recorded [ layer ][ calls - keep : calls ]) for layer in layers }  
+
+> 39
+
+return [( np . stack ([ window [ layer ][: , slot ]. numpy () . mean (0) for layer in layers ]) ,  
+
+> 40
+
+audio [ slot , 0][: n_frames * FRAME ] ,  
+
+> 41
+
+audio [ slot , 0][ n_frames * FRAME :] ,  
+
+> 42
+
+waveforms [ slot ]. numpy () )  
+
+> 43
+
+for slot in range ( batch ) ] 
+
+D.3 The probe 
+
+Fitted per layer on the states the directions are built from. groups holds a speaker-pair index, so 
+
+LeaveOneGroupOut never places a speaker in both training and test, and the scaler and projection are refitted inside each fold.  
+
+> 1
+
+def probe_accuracy ( features , target , groups ) :  
+
+> 2
+
+def pipeline ( n_train ) :  
+
+> 3
+
+components = min (30 , n_train - 1)  
+
+> 4
+
+return make_pipeline ( StandardScaler () , PCA ( components , random_state =0) ,  
+
+> 5
+
+LogisticRegression ( max_iter =2000) )  
+
+> 6
+
+scores = [ pipeline ( len ( train ) ) . fit ( features [ train ] , target [ train ]) . score (  
+
+> 7
+
+features [ test ] , target [ test ])  
+
+> 8
+
+for train , test in LeaveOneGroupOut () . split ( features , target , groups ) ]  
+
+> 9
+
+return float ( np . mean ( scores ) ) 
+
+D.4 Removing the shared direction 
+
+The shared direction is the first right singular vector of the four unit-normalised directions at each layer; beta is how much of each emotion’s component along it the swept vector keeps.  
+
+> 1
+
+unit = lambda v : v / ( np . linalg . norm ( v ) + 1e -9)  
+
+> 2
+
+neutral = states [ emotion == " neutral " ]. mean (0)  
+
+> 3
+
+plain = { e : states [ emotion == e ]. mean (0) - neutral for e in EMOTIONS }  
+
+> 45
+
+shared_direction = {}  
+
+> 6
+
+for index , layer in enumerate ( layers ) :  
+
+> 7
+
+stacked = np . stack ([ unit ( plain [ e ][ index ]) for e in EMOTIONS ])  
+
+> 8
+
+_ , singular , right = np . linalg . svd ( stacked , full_matrices = False )  
+
+> 9
+
+shared_direction [ index ] = right [0]  
+
+> 10
+
+share = singular [0] ** 2 / ( singular ** 2) . sum ()  
+
+> 11
+
+alignment = { e : round ( float ( unit ( plain [ e ][ index ]) @ right [0]) , 3) for e in EMOTIONS } 
+
+12 12 print ( f " layer { layer : <3} shared direction explains {100 * share :.1 f }% of the four ; " 
+
+> 13
+
+f " cosine to it { alignment } " )  
+
+> 14 15
+
+for beta in RETENTION :  
+
+> 16
+
+for e in EMOTIONS :  
+
+> 17
+
+vector = np . zeros ((32 , 4096) , np . float32 )  
+
+> 18
+
+for index , layer in enumerate ( layers ) :  
+
+> 19
+
+direction = plain [ e ][ index ]  
+
+> 20
+
+along = float ( direction @ shared_direction [ index ])  
+
+> 21
+
+residue = direction - along * shared_direction [ index ]  
+
+> 22
+
+vector [ layer ] = residue + beta * along * shared_direction [ index ]  
+
+> 23
+
+np . save ( out_dir / f " vec_ { e } _b { beta }. npy " , vector ) 
+
+13

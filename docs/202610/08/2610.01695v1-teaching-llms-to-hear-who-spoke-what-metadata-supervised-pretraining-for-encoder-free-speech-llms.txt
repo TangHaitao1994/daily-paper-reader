@@ -1,0 +1,187 @@
+Title: Teaching LLMs to Hear Who Spoke What: Metadata-Supervised Pretraining for Encoder-Free Speech-LLMs
+
+URL Source: https://arxiv.org/pdf/2610.01695v1
+
+Published Time: Fri, 02 Oct 2026 02:20:06 GMT
+
+Number of Pages: 5
+
+Markdown Content:
+# TEACHING LLMS TO HEAR WHO SPOKE WHAT: METADATA-SUPERVISED PRETRAINING FOR ENCODER-FREE SPEECH-LLMS 
+
+# Mohan Shi 1,2∗, Ruchao Fan 2, Sunit Sivasankaran 2, Keqi Deng 2, Jinyu Li 21University of California, Los Angeles, USA 
+
+> 2
+
+# Microsoft CoreAI, Redmond, USA 
+
+ABSTRACT 
+
+Encoder-based speech large language models (Speech-LLMs) com-monly employ pretrained speech encoders that prioritize linguistic content but may discard fine-grained acoustic cues essential for speaker discrimination and paralinguistic understanding. Encoder-free Speech-LLMs instead map Mel-spectrogram features directly into the LLM input space through lightweight embedding layers, en-abling the LLM to learn from low-level acoustic features. However, systematic pretraining strategies for encoder-free Speech-LLMs re-main underexplored, limiting their ability to compensate for the absence of large-scale pretrained speech encoders. We propose metadata-supervised pretraining (MSP), which leverages speech attributes such as speaker identity and emotion to develop speaker-discriminative and paralinguistic capabilities. We further introduce speaker-aware utterance composition (SAUC) to strengthen speaker discrimination and apply random span masking to regularize pre-training. We primarily evaluate our approach on joint ASR and speaker diarization in multi-speaker conversations, complemented by experiments on paralinguistic speech-understanding tasks. Under matched training-data conditions, our encoder-free model outper-forms its randomly initialized encoder-based counterpart. With limited metadata-annotated data, it is competitive with models using speech encoders pretrained on substantially larger corpora, outper-forming them in several settings. These results demonstrate the potential of encoder-free architectures for building native multi-modal LLMs that acquire diverse speech capabilities. 
+
+Index Terms — Encoder-free Speech-LLM, Metadata-supervised Pretraining, Joint ASR and Diarization, Speech Understanding 
+
+1. INTRODUCTION 
+
+Speech large language models (Speech-LLMs) [1–3] typically con-sist of a pretrained speech encoder, a modality projector, and an LLM [4, 5]. The speech encoder, often based on Transformer [6] or Conformer [7] architectures and pretrained on large-scale speech corpora, transforms speech into high-level representations that are mapped by the projector into the LLM embedding space. However, speech encoders in Speech-LLMs are often optimized with seman-tically oriented objectives [8, 9], such as ASR, and therefore tend to prioritize linguistic content over fine-grained acoustic informa-tion. Consequently, their representations may not preserve sufficient acoustic cues for capturing diverse paralinguistic attributes, such as speaker identity and emotion. Previous studies have addressed this issue using dual-encoder architectures [10–12] to separately cap-ture semantic and acoustic information or auxiliary objectives [13] 
+
+> ∗Work done during an internship at Microsoft.
+
+that encourage a single encoder to learn richer speech representa-tions. Nevertheless, these approaches increase architectural or train-ing complexity and typically require dedicated encoder training. Recent works [14, 15] have explored encoder-free architectures for Speech-LLMs, replacing heavy speech encoders with lightweight embedding layers that extract audio representations. This design not only simplifies the architecture but also allows the LLM itself to di-rectly access low-level spectral features or raw audio, preserving the full acoustic information available in the input. The encoder-free model in Gemma [14] demonstrates reasonable performance on ASR and speech translation, but does not evaluate paralinguistic capabili-ties. Mel-LLM [15] further demonstrates promising performance on ASR and paralinguistic audio-understanding tasks without relying on a speech encoder pretrained on large-scale data. Nevertheless, it does not introduce an explicit training strategy to promote the acqui-sition of fine-grained speaker-discriminative or paralinguistic repre-sentations. Moreover, performance on audio-understanding bench-marks may also reflect instruction-following and reasoning abilities, making it difficult to isolate the model’s ability to capture such in-formation. It therefore remains unclear to what extent encoder-free Speech-LLMs can acquire and retain speaker-related and other par-alinguistic information from low-level acoustic features. To address this gap, we introduce metadata-supervised pretrain-ing (MSP) for encoder-free Speech-LLMs, using speech attributes such as speaker identity and emotion to promote speaker discrim-ination and paralinguistic understanding. We further introduce speaker-aware utterance composition (SAUC) to strengthen speaker discrimination by constructing multi-speaker sequences with sim-ulated overlaps and silence gaps, and apply random span masking to regularize pretraining. After pretraining, we separately fine-tune the model for each downstream task. We primarily evaluate our approach on joint ASR and speaker diarization [13], which requires transcribing speech and attributing it to the correct speakers in multi-speaker conversations. We use a fixed prompt across all ex-amples to reduce instruction-following effects. As complementary evaluation, we consider several paralinguistic speech understanding tasks following [15], including emotion, age, and gender recogni-tion, as well as speaker verification. Under matched training-data conditions, our encoder-free model outperforms its randomly ini-tialized encoder-based counterpart overall. Moreover, with limited metadata-supervised data, it is competitive with encoder-based models whose speech encoders are pretrained on substantially larger datasets, outperforming them in several settings. To our knowledge, this work makes the following contributions: • We conduct the first systematic investigation of metadata-supervised pretraining for encoder-free Speech-LLMs, demon-strating its effectiveness in developing speaker-discriminative and paralinguistic capabilities. arXiv:2610.01695v1 [eess.AS] 1 Oct 2026 🔥 trainable  ❄ frozen Metadata target (utterances in onset order)              
+
+> {"gender":"female","emotion":"neutral","language":"en","speaker":"ami:FEE019","content":"..."}
+> next-token CE
+> Large Language Model ❄LoRA 🔥
+> concat
+> EsEp
+> Linear Projection 🔥
+> Lightweight Conv (↓8) 🔥 12.5 Hz
+> Tokenizer & Embedding Prompt P
+> X̃ ∈ℝT×80
+> Input span masking
+> masked span: start prob. p, length Lsteps at 12.5 Hz (8 frames each); filled with mean + noise
+> mix → log-Mel
+> u1
+> u2
+> u3
+> overlap gap
+> t
+> Speaker-aware utterance composition
+> Batch utterances on a shared timeline. Each junction with prob. 50%: overlap (≤ ½ shorter utt., different speakers) or a silence gap (≤ 2 s); colours denote speakers.
+> {"gender":"male","emotion":"happy","language":"en","speaker":"librivox:19","content":"..."} {"gender":"female","emotion":"sad","language":"en","speaker":"voxceleb:id10001","content":"..."}
+
+Fig. 1 : Proposed Metadata-supervised pretraining (MSP) of the encoder-free Speech-LLM. • We introduce speaker-aware utterance composition (SAUC) to improve speaker discrimination in multi-speaker scenarios and random span masking to regularize metadata-supervised pretraining. • We are the first to demonstrate that Speech-LLMs without pretrained speech encoders can achieve competitive perfor-mance on joint ASR and speaker diarization as well as par-alinguistic understanding tasks, outperforming encoder-based counterparts under matched training-data conditions. 
+
+2. METHOD 
+
+We retain the encoder-free backbone of Mel-LLM [15] and focus on its pretraining strategy, illustrated in Fig. 1. We first perform metadata-supervised pretraining (MSP), then fine-tune the pre-trained model separately for joint ASR and speaker diarization and for paralinguistic speech understanding using the corresponding task-specific targets. 
+
+2.1. Encoder-free Speech-LLM 
+
+Given an utterance waveform, we extract an 80 -dimensional log-Mel spectrogram X ∈ RT ×80 , and downsample it by a factor r with lightweight convolution layers. A linear projection maps the result into the LLM embedding space, 
+
+Es = Proj(Conv r) ∈ RN ×dLLM , N = ⌈T /r ⌉, (1) with r = 8 , i.e. a 12 .5 Hz token rate. No speech encoder blocks are used. The speech embeddings are concatenated with the prompt embeddings Ep and consumed by the LLM, which is frozen and adapted with LoRA [16]. All pre-training and fine-tuning stages in this work share this frontend, so every comparison we report differs only in the training objective or the training data. 
+
+2.2. Metadata-supervised Pretraining 
+
+Removing the encoder exposes the LLM directly to the Mel spec-trogram, which retains low-level acoustic detail that a semantic en-coder tends to compress away [15]. Transcription supervision alone does not explicitly encourage learning speaker identity, emotion, or other paralinguistic attributes. We therefore pretrain the encoder-free model to predict these attributes alongside transcription, providing direct supervision for learning beyond lexical content. 
+
+2.2.1. Meta labels 
+
+For each utterance ui, we define a metadata record mi containing gender, emotion, language, speaker identity, and content (transcrip-tion). We serialize this record as a single JSON line with the fields in a fixed order, 
+
+π = ( gender , emotion , language , speaker , content )
+
+(2) so that the paralinguistic attributes precede the lexical content. The 
+
+speaker field is a global identifier, namespaced by source corpus so that it is unique across the entire training set, e.g. ami:FEE019 .
+
+2.2.2. Speaker-aware Utterance Composition 
+
+Utterance-level corpora provide only short, single-speaker inputs, limiting the learning of speaker discrimination during pretraining. We therefore propose speaker-aware utterance composition (SAUC; Fig. 1, bottom). We construct each training example on the fly from utterances within a training batch by concatenating them se-quentially on a shared timeline and mixing them into a single audio stream, while composing their metadata targets in the corresponding temporal order. This synthesizes multi-speaker, long-form condi-tions from utterance-level data and makes the task more challenging: the model must distinguish multiple speakers within a single input rather than describe a single voice. Strictly concatenating utterances end to end would make seg-mentation trivial, since every boundary would coincide with an acoustic discontinuity. Instead, the placement at each junction is sampled independently. With probability 0.5, the next utterance starts before the current one ends, with an overlap of up to half the duration of the shorter utterance; otherwise, a silence gap of up to 2,s is inserted. Overlaps are allowed only between different speakers, and the sequential construction ensures that at most two speakers are active at any time. Log-Mel features are extracted from the resulting stream, and the meta target lists the utterances in order of onset. SAUC reuses utterance-level metadata to construct the corre-sponding targets automatically, avoiding the need to prepare and an-notate a separate corpus of multi-speaker mixtures in advance. 
+
+2.2.3. Input Masking 
+
+To regularize metadata-supervised pretraining, we apply span mask-ing to the input features during pretraining (grey spans in Fig. 1). Masking is defined at the 12 .5 Hz temporal resolution of the con-volutional frontend and then mapped to the corresponding log-Mel frames. Each position independently starts a masked span with probability p, and each span covers L consecutive positions, with overlapping spans merged. Each masked position corresponds to eight consecutive log-Mel frames. These frames are replaced by the per-utterance, per-channel mean plus Gaussian noise scaled by a small fraction of the corresponding channel-wise standard deviation. Masking is applied only during pretraining. 3. EXPERIMENTAL SETTINGS 3.1. Metadata-Supervised Pretraining 
+
+3.1.1. Pretraining Data 
+
+The metadata corpus comprises the training sets of AMI (IHM) [17], ICSI [18], TED-LIUM [19], Earnings-22 [20], VoxPopuli [21], Common Voice [22], LibriSpeech [23], VoxCeleb [24, 25], and Fisher [26], together with the medium subset of LibriHeavy [27], totaling approximately 10k hours. All these corpora provide speaker identity annotations. For utterances without emotion or gender annotations, we generate pseudo-labels using emo-tion2vec plus large 1 and an ECAPA-based gender classifier 2, re-spectively. Since VoxCeleb does not provide transcriptions, we generate pseudo-transcriptions using Whisper large-v3 through the faster-whisper implementation. 3 During pretraining, we mix metadata examples with transcription-only examples from SPGIS-peech [28], MLS-English [29], GigaSpeech [30], and FLEURS-English [31] at a 3:1 ratio to preserve general ASR capabilities. Metadata and ASR examples use their respective task-specific prompts. Hereafter, we refer to this mixed-task training scheme as metadata-supervised pretraining (MSP). We also investigate scaling pretraining through an additional ASR initialization stage, consisting of one epoch on one million hours of internal data, followed by MSP. We further expand the metadata corpus with the English subsets of Emilia and Emilia-YODAS [32], collectively denoted as Emilia-en. 
+
+3.1.2. Pretraining Setup 
+
+Our model is built upon Phi-4-MM [8], using the encoder-free archi-tecture described in Section 2.1. Throughout pretraining and down-stream fine-tuning, only the convolutional frontend, modality projec-tor, and LoRA parameters are updated. Batches use a per-GPU bud-get of 8,192 speech and text tokens, with 80 ms of speech per token. Metadata sequences contain roughly 40 utterances composed using SAUC (Section 2.2.2) within this budget; interleaved ASR examples are not concatenated. We pretrain for 80k steps on 16 H200 GPUs using AdamW with a learning rate of 1 × 10 −4, β = (0 .9, 0.95) ,
+
+ϵ = 1 ×10 −7, and weight decay of 0.01 . The learning rate is linearly warmed up for 500 steps and then linearly decayed. Input masking uses p = 0 .04 and L = 4 (320 ms), corresponding to an expected masked fraction of 1 − (1 − p)L ≈ 15% .
+
+3.2. Downstream Fine-tuning and Evaluation 
+
+3.2.1. Joint ASR and Speaker Diarization 
+
+Following [13], we fine-tune on approximately 10k hours of multi-speaker speech segmented into 15–20 s clips, using the same target format. Our encoder-free fine-tuning uses only the LLM prediction loss, without requiring the encoder-side auxiliary speaker-decoder loss of [13]. We evaluate on 10–20 s clips from the AMI [17] (IHM-Mix) test set and CH109 Full [33], following [13]. We use a fixed prompt across all examples, which reduces instruction-following ef-fects. We report word diarization error rate (WDER) [34] for di-arization and concatenated minimum-permutation word error rate (cpWER) [35] for joint diarization and ASR, both expressed as per-centages. 
+
+> 1
+
+https://huggingface.co/emotion2vec/emotion2vec plus large 
+
+> 2
+
+https://huggingface.co/griko/gender cls svm ecapa voxceleb 
+
+> 3
+
+https://github.com/SYSTRAN/faster-whisper 
+
+Table 1 : Joint ASR and speaker diarization results on AMI and CH109. “Audio tower” denotes the speech encoder or convolutional frontend. MSP denotes metadata-supervised pretraining. Only the JEDIS-LLM models use the encoder-side auxiliary speaker-decoder loss; the loss ablation excludes it. The reproduced JEDIS-LLM re-sults use text normalization during metric computation, which ac-counts for differences from the reported results. Model Audio tower MSP AMI CH109 WDER cpWER WDER cpWER                                                  
+
+> Prior work
+> JEDIS-LLM [13] (reported) Pretrained encoder
+> ✗6.97 23.13 2.06 19.46 JEDIS-LLM (reproduced) ✗6.00 21.04 2.46 16.73 - speaker-decoder loss ✗10.43 25.59 3.62 17.76
+> Controlled comparison
+> Encoder-based Random-init encoder
+> ✗13.48 43.02 6.28 36.76 Encoder-based ✓5.79 21.79 2.85 19.86 Encoder-free Lightweight convolution
+> ✗6.94 25.14 3.34 21.90
+> Encoder-free (ours) ✓5.38 21.27 2.77 19.08 + mask ✓5.27 20.98 2.65 18.92 + 1M hrs ASR ✓5.62 20.28 2.68 17.79
+> + Emilia-en MSP ✓5.57 19.56 2.48 18.24
+
+3.2.2. Paralinguistic Speech Understanding 
+
+We fine-tune on approximately 10k hours of speech- and audio-understanding data, including audio and music instruction data, VoxCeleb speaker data, IEMOCAP [36] (Sessions 1–4) and MO-SEI emotion data, AudioSet/FSD50K/AudioCaps/Clotho-style data from LTU-AS [37], and reproduced WavLLM [11] speech and audio question-answering data. Following [15], we evaluate on IEMO-CAP emotion recognition (Session 5), VoxCeleb gender and age prediction, and WavLLM speaker verification, excluding evaluation samples from pretraining and finetuning. We report accuracy for all tasks except age prediction, which uses mean absolute error (MAE). 
+
+3.3. Baselines 
+
+We consider three groups of baselines: (1) an encoder-based model with a randomly initialized speech encoder, trained using the same pretraining setup as our model; (2) an encoder-free model with the same architecture as ours but without metadata-supervised pretrain-ing; and (3) previously reported results from related works [13, 15]. 
+
+4. EXPERIMENTAL RESULTS 4.1. Joint ASR and Speaker Diarization 
+
+Table 1 reports joint ASR and diarization results. Under matched training-data conditions, the encoder-free model outperforms its ran-domly initialized encoder-based counterpart on all four metrics, both with and without MSP, despite eliminating the speech encoder. MSP substantially improves both architectures, supporting the effective-ness of metadata supervision for speaker-attributed transcription. Without the auxiliary speaker-decoder loss, JEDIS-LLM yields higher WDER than the encoder-free baseline without MSP on both AMI ( 10 .43 vs. 6.94 ) and CH109 ( 3.62 vs. 3.34 ), despite using a pretrained speech encoder. This result is consistent with our concern that semantically oriented encoders may attenuate acoustic cues im-portant for speaker discrimination, highlighting the potential benefit of allowing the LLM itself to interpret low-level spectral features. Input masking further improves all metrics, allowing encoder-free MSP to outperform reproduced JEDIS-LLM on both AMI met-rics. Adding the 1M-hour ASR initialization lowers cpWER on both sets but slightly increases WDER, suggesting that large-scale tran-scription supervision does not necessarily improve speaker attribu-tion. Scaling MSP with Emilia-en achieves the lowest AMI cpWER and a CH109 WDER comparable to reproduced JEDIS-LLM. Table 2 : Ablation of pretraining objectives and SAUC. Pure ASR and MSP use the same training utterances. “Overlap & gap” denotes simulated speech overlaps and silence gaps. Input masking is dis-abled for all variants. Pretraining objective Utterance concatenation Overlap & gap AMI CH109 WDER cpWER WDER cpWER None – – 6.94 25.14 3.34 21.90 pure ASR ✗ ✗ 6.94 23.47 3.10 20.67 MSP ✗ ✗ 6.09 22.48 3.01 19.87 MSP ✓ ✗ 6.05 22.40 3.18 20.59 MSP ✓ ✓ 5.38 21.27 2.77 19.08 Table 3 : Effect of metadata target ordering and timestamp super-vision. Timestamp targets follow the format start˜end . G, E, L, S, C, and T denote gender, emotion, language, speaker identity, transcription content, and timestamps, respectively. All variants are pretrained without input masking. Metadata target sequence AMI CH109 WDER cpWER WDER cpWER G–E–L–C–S 5.61 21.88 2.94 20.08 T–G–E–L–S–C 5.40 21.76 2.77 19.57 G–E–L–S–C (default) 5.38 21.27 2.77 19.08 4.2. Ablation of Pretraining Objectives and SAUC 
+
+Table 2 examines the effects of the pretraining objective and SAUC. Pure ASR and all MSP variants use the same underlying training ut-terances, differing only in supervision and composition. Pure ASR pretraining improves cpWER on both sets but leaves AMI WDER unchanged. Utterance-level MSP improves all four metrics over pure ASR, demonstrating the value of metadata supervision beyond tran-scription. Concatenation alone yields marginal gains on AMI and degrades both CH109 metrics. Adding overlaps and silence gaps im-proves all four metrics, reducing WDER from 6.05 to 5.38 on AMI and from 3.18 to 2.77 on CH109. This suggests that varied speaker transitions and overlaps help the model learn speaker discrimination under conversational conditions. These gains require only on-the-fly composition, without a prepared corpus of multi-speaker mixtures. 
+
+4.3. Metadata Target Design 
+
+Table 3 compares the default target sequence in Eq. 2 with alterna-tive field ordering and timestamp supervision. Moving transcrip-tion before speaker identity degrades all four metrics. Preceding text may expose speaker-correlated lexical cues, encouraging short-cuts that weaken the learning of acoustic speaker representations. Adding timestamps also increases cpWER on both sets without im-proving WDER. Predicting precise decimal-valued timestamps in the start˜end format may impose an additional learning burden, diverting capacity from other metadata attributes and transcription. 
+
+4.4. Input Span Masking 
+
+Table 4 compares masking probabilities with a fixed span length of L = 4 . Moderate masking ( p = 0 .04 , approximately 15% of the input) achieves the lowest WDER and cpWER on both sets. Lighter masking ( p = 0.01 ) improves three metrics but slightly increases CH109 cpWER, while aggressive masking ( p = 0.15 ,approximately 48% ) degrades both AMI metrics and CH109 cp-WER. Thus, moderate masking encourages learning from partially observed speech, whereas excessive masking may remove acoustic evidence needed for transcription and speaker discrimination. 
+
+Table 4 : Effect of the span-masking probability p with span length 
+
+L = 4 (320 ms). The expected overall masking ratio is 1 − (1 − p)L.Masking probability p                        
+
+> Masked ratio AMI CH109 WDER cpWER WDER cpWER 00% 5.38 21.27 2.77 19.08 0.01 ∼4% 5.36 20.99 2.68 19.15 0.04 (default) ∼15% 5.27 20.98 2.65 18.92
+> 0.15 ∼48% 5.63 21.56 2.76 19.78
+
+Table 5 : Paralinguistic speech understanding results. ACC denotes accuracy (%) and MAE denotes mean absolute error. MSP uses the default input masking configuration. Model Emotion ACC ↑                                   
+
+> Gender ACC ↑
+> Age MAE ↓
+> Speaker ACC ↑
+> Prior work
+> Mel-LLM [15] (w/o ASR init.) 66.16 97.73 8.39 87.98 Mel-LLM (w/ ASR init.) 72.36 98.21 7.56 92.10
+> Controlled comparison
+> Random encoder 51.65 97.38 8.25 74.41 Random encoder + MSP 72.28 98.12 7.34 91.07 Encoder-free (Mel-LLM reprod., w/o ASR init.) 64.30 97.07 8.42 85.81 Encoder-free + MSP 75.66 98.12 7.57 93.16 + 1M hrs ASR 76.55 98.43 6.83 95.18
+> + Emilia-en MSP 77.92 98.25 6.95 94.99
+
+4.5. Paralinguistic Speech Understanding 
+
+Table 5 reports results on paralinguistic speech understanding. MSP improves all four tasks over the reproduced encoder-free baseline, particularly emotion recognition and speaker verification. Under matched training-data conditions, encoder-free MSP outperforms encoder-based MSP on these two tasks, matches its gender accu-racy, and yields slightly higher age MAE. These results support the effectiveness of metadata supervision within the simpler encoder-free architecture. Large-scale ASR initialization further improves all four tasks, while adding Emilia-en to MSP yields the best emotion-recognition accuracy but slightly worsens the other three metrics. The consistent gains from ASR initialization suggest that these tasks may partly rely on lexical and semantic cues recoverable through ASR, rather than exclusively on acoustic or paralinguistic informa-tion. Improved acoustic representations from ASR pretraining may also contribute to these gains. 
+
+5. CONCLUSION 
+
+In this work, we presented metadata-supervised pretraining (MSP) for encoder-free Speech-LLMs. Rich metadata targets promote speaker discrimination and paralinguistic understanding beyond transcription. Speaker-aware utterance composition (SAUC) com-bines utterances into long-form multi-speaker inputs with random overlaps and silence gaps, simulating conversational conditions to strengthen speaker discrimination. Moderate input masking further regularizes MSP and improves downstream performance. Experi-ments on joint ASR and speaker diarization, together with paralin-guistic understanding tasks, demonstrate the effectiveness of this approach. Under matched training-data conditions, the encoder-free model outperforms its randomly initialized encoder-based counter-part overall, with a simpler architecture and fewer parameters due to the removal of the speech encoder. Scaling ASR and metadata pretraining provides further, task-dependent gains. These results demonstrate the potential of encoder-free architectures for building native multimodal LLMs that acquire diverse speech capabilities through metadata-supervised pretraining. 6. GENERATIVE AI USE DISCLOSURE 
+
+During the preparation of this work, the authors used large language models (Claude Opus 5) for language editing, including proofread-ing and improving clarity and readability of the manuscript. All tech-nical content, experimental design, results, and conclusions were produced and verified by the authors. After the use of generative AI, the authors reviewed and edited the manuscript and take full re-sponsibility for the content of the publication. 
+
+7. REFERENCES 
+
+[1] Y. Fathullah, C. Wu, E. Lakomkin et al. , “Prompting large lan-guage models with speech recognition abilities,” in ICASSP ,2024, pp. 13 351–13 355. [2] Z. Ma, G. Yang, Y. Yang et al. , “An embarrassingly simple approach for LLM with strong ASR capacity,” arXiv preprint arXiv:2402.08846 , 2024. [3] M. Shi, Z. Jin, Y. Xu et al. , “Advancing multi-talker ASR per-formance with large language models,” in SLT , 2024, pp. 14– 21. [4] A. Grattafiori et al. , “The Llama 3 herd of models,” arXiv preprint arXiv:2407.21783 , 2024. [5] A. Yang et al. , “Qwen3 technical report,” arXiv preprint arXiv:2505.09388 , 2025. [6] L. Dong, S. Xu, and B. Xu, “Speech-transformer: A no-recurrence sequence-to-sequence model for speech recogni-tion,” in ICASSP , 2018, pp. 5884–5888. [7] A. Gulati, J. Qin, C.-C. Chiu et al. , “Conformer: Convolution-augmented transformer for speech recognition,” in INTER-SPEECH , 2020, pp. 5036–5040. [8] A. Abouelenin et al. , “Phi-4-mini technical report: Com-pact yet powerful multimodal language models via mixture-of-loras,” arXiv preprint arXiv:2503.01743 , 2025. [9] NVIDIA, “Canary-Qwen-2.5B,” https://huggingface.co/ nvidia/canary-qwen-2.5b, 2025. [10] C. Tang, W. Yu, G. Sun et al. , “SALMONN: Towards generic hearing abilities for large language models,” in ICLR , 2024. [11] S. Hu, L. Zhou, S. Liu et al. , “WavLLM: Towards robust and adaptive speech large language model,” in Findings of EMNLP ,2024, pp. 4552–4572. [12] Z. Peng, J. Yu, Y. Chang et al. , “Vibevoice-asr technical re-port,” arXiv preprint arXiv:2601.18184 , 2026. [13] M. Shi, X. Xiao, R. Fan et al. , “Train short, infer long: Speech-LLM enables zero-shot streamable joint ASR and diarization on long audio,” in ICASSP , 2026, pp. 17 442–17 446. [14] G. Team, “Gemma 4 technical report,” arXiv preprint arXiv:2607.02770 , 2026. [15] R. Fan, Y. Wang, Y. Hu et al. , “LLM can read spec-trogram: Encoder-free speech-language modeling,” arXiv preprint arXiv:2606.10231 , 2026. [16] E. J. Hu, Y. Shen et al. , “LoRA: Low-rank adaptation of large language models,” in ICLR , 2022. [17] J. Carletta et al. , “The AMI meeting corpus: A pre-announcement,” in MLMI , 2005, pp. 28–39. [18] A. Janin et al. , “The ICSI meeting corpus,” in ICASSP , 2003, pp. 364–367. [19] F. Hernandez, V. Nguyen et al. , “TED-LIUM 3: Twice as much data and corpus repartition for experiments on speaker adapta-tion,” in SPECOM , 2018, pp. 198–208. [20] M. Del Rio, N. Delworth, R. Westerman et al. , “Earnings-22: A practical benchmark for accents in the wild,” in INTER-SPEECH , 2022, pp. 4277–4281. [21] C. Wang, M. Rivi` ere, A. Lee et al. , “VoxPopuli: A large-scale multilingual speech corpus for representation learning, semi-supervised learning and interpretation,” in ACL , 2021, pp. 993– 1003. [22] R. Ardila, M. Branson, K. Davis et al. , “Common voice: A massively-multilingual speech corpus,” in LREC , 2020, pp. 4218–4222. [23] V. Panayotov, G. Chen, D. Povey et al. , “LibriSpeech: An ASR corpus based on public domain audio books,” in ICASSP , 2015, pp. 5206–5210. [24] A. Nagrani et al. , “VoxCeleb: Large-scale speaker verification in the wild,” Comput. Speech Lang. , vol. 60, 2020. [25] J. S. Chung et al. , “VoxCeleb2: Deep speaker recognition,” in 
+
+INTERSPEECH , 2018, pp. 1086–1090. [26] C. Cieri et al. , “The fisher corpus: A resource for the next gen-erations of speech-to-text,” in LREC , 2004, pp. 69–71. [27] W. Kang, X. Yang, Z. Yao et al. , “Libriheavy: A 50,000 hours ASR corpus with punctuation casing and context,” in ICASSP ,2024, pp. 10 991–10 995. [28] P. K. O’Neill, V. Lavrukhin, S. Majumdar et al. , “SPGISpeech: 5,000 hours of transcribed financial audio for fully formatted end-to-end speech recognition,” in INTERSPEECH , 2021, pp. 1434–1438. [29] V. Pratap, Q. Xu, A. Sriram et al. , “MLS: A large-scale multi-lingual dataset for speech research,” in INTERSPEECH , 2020, pp. 2757–2761. [30] G. Chen, S. Chai et al. , “GigaSpeech: An evolving, multi-domain ASR corpus with 10,000 hours of transcribed audio,” in INTERSPEECH , 2021, pp. 3670–3674. [31] A. Conneau, M. Ma, S. Khanuja et al. , “FLEURS: Few-shot learning evaluation of universal representations of speech,” in 
+
+SLT , 2023, pp. 798–805. [32] H. He, Z. Shang, C. Wang et al. , “Emilia: A large-scale, exten-sive, multilingual, and diverse dataset for speech generation,” 
+
+IEEE Trans. Audio, Speech, Lang. Process. , 2025. [33] A. Canavan et al. , “CALLHOME american english speech,” https://catalog.ldc.upenn.edu/LDC97S42, 1997, lDC97S42. [34] L. E. Shafey et al. , “Joint speech recognition and speaker di-arization via sequence transduction,” in INTERSPEECH , 2019, pp. 396–400. [35] S. Watanabe et al. , “CHiME-6 challenge: Tackling mul-tispeaker speech recognition for unsegmented recordings,” 
+
+arXiv preprint arXiv:2004.09249 , 2020. [36] C. Busso, M. Bulut, C.-C. Lee et al. , “IEMOCAP: Interac-tive emotional dyadic motion capture database,” Lang. Resour. Eval. , vol. 42, no. 4, pp. 335–359, 2008. [37] Y. Gong, A. H. Liu, H. Luo et al. , “Joint audio and speech understanding,” in ASRU , 2023.
