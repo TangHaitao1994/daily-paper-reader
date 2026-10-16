@@ -1,0 +1,290 @@
+Title: Phonology-Aware Speaker Extraction Frontend for Audio LLMs
+
+URL Source: https://arxiv.org/pdf/2610.13500v1
+
+Published Time: Mon, 12 Oct 2026 01:12:51 GMT
+
+Number of Pages: 7
+
+Markdown Content:
+# PHONOLOGY-AWARE SPEAKER EXTRACTION FRONTEND FOR AUDIO LLMS 
+
+# Yanxiang Chen 1, Haoyuan Deng 3, Jinyu Wang 2, Hongyi Chen 3
+
+# Dingshan Li 3, Runlin Huang 3, Weifeng Su 31Sun Yat-Sen University, Zhuhai, China 
+
+> 2
+
+# Fudan University, Shanghai, China 
+
+> 3
+
+# Beijing Normal-Hong Kong Baptist University, Zhuhai, China 
+
+ABSTRACT 
+
+Target speaker extraction (TSE) is a key frontend for enabling audio large language models (LLMs) to recog-nize and understand a designated speaker in overlapping speech. However, multilingual mixtures exhibit het-erogeneous extraction demands, causing fixed-depth systems to either under-process challenging inputs or waste computation on inputs that have already con-verged. Existing TSE frontends generally apply uniform computation, while Audio-LLM adaptation methods neither explicitly model language-conditioned extrac-tion demands nor preserve plug-and-play compatibility with frozen downstream models. We therefore propose LATTE, a lightweight 5.2M-parameter frontend that combines an acoustic Difficulty Estimator, a task-adaptive phonology-informed prior learned from multi-depth TSE gains, and an Adaptive Hourglass Extractor to route each mixture without requiring language identity at inference. On PolyExtract, LATTE achieves a macro SI-SNRi of 15.07 dB at 0.30 GFLOPs, retaining performance within 0.09 dB of a 0.53-GFLOP fixed-depth model while reducing computation by 43.4%, and lowers the average WER from 16.8% to 14.6% relative to TF-GridNet. By jointly modeling sample-level extraction demands and phonological structure, LATTE provides a practical framework for quality-aware, compute-efficient multi-lingual TSE and offers a scalable path toward robust Audio-LLM deployment. 
+
+Index Terms — target speaker extraction, audio large language models, multilingual speech, adaptive computa-tion, phonological modeling 
+
+1. INTRODUCTION 
+
+Target speaker extraction (TSE) recovers a designated speaker from an overlapping mixture using a short enroll-ment utterance. Existing systems typically apply the same network depth to every input [1, 2, 3]. Our study begins with an overlooked empirical observation: under matched mixture conditions, speech from different languages can require substantially different amounts of computation to reach a common extraction-quality target. Controlled multi-depth experiments reveal, however, that multilin-gual conditions can require markedly different amounts of computation to approach their best extraction qual-ity. A shallow budget under-processes demanding inputs, whereas a deep budget repeatedly refines inputs that have already converged. This motivates our central question: 
+
+can a TSE system estimate the demand of each input and execute only the computation needed for reliable extrac-tion? 
+
+Why can extraction demand vary across lan-guages? Cross-linguistic variation in tone, phonation, rhythm, and segmental structure changes the acoustic organization of linguistic content and speaker cues [4, 5]. Because these factors interact with mixture acoustics and target identity, we treat language structure as a training prior rather than a deterministic or intrinsic measure of language difficulty. Specifically, we derive a task-adaptive 
+
+Phonological Difficulty Index (PDI) from the minimum processing depth needed to approach deepest-exit quality. URIEL+ and PHOIBLE [6, 7] provide a phonological similarity graph that smooths this task-observed evidence across related training languages. We propose LATTE , a phonology-aware adaptive TSE model evaluated on PolyExtract , a controlled bench-mark covering eight languages and 64 directed target– interferer conditions. LATTE combines a sample-level Difficulty Estimator with a shared multi-exit Hourglass Extractor. The estimator predicts an easy, medium, or hard computation budget from mixture features and the target-speaker embedding, routing each input through two, four, or six shared blocks. PDI supplies weak supervision only during training; inference requires neither language iden-tity nor access to an external linguistic database. LATTE also serves as a lightweight waveform frontend for frozen audio-language backends, avoiding backend-specific adaptation such as LoRA [8]. On PolyExtract, it achieves 15.07 dB macro SI-SNRi at 0.30 GFLOPs, remaining within 0.09 dB of the deep-est fixed path while reducing computation by 43.4%. arXiv:2610.13500v1 [cs.SD] 9 Oct 2026 Fig. 1 . Motivation of the proposed LATTE framework. 
+
+Fig. 2 . LATTE combines semantic and spectral evidence, estimates a low/medium/high compute budget, and routes the mixture through shared multi-exit hourglass blocks before target-speech reconstruction. With frozen Qwen3-Omni, it further reduces average ASR WER from 16.8% for TF-GridNet to 14.6%. Our Contributions are: 1. We identify heterogeneous compute demand as a central quality–efficiency challenge in multilingual TSE; 2. We introduce PolyExtract and a task-adaptive, phonologically structured PDI for supervising demand estimation; 3. We develop LATTE, which performs language-label-free adaptive routing and improves signal-level, computational, and downstream recognition performance. 
+
+2. METHOD 2.1. Architecture and adaptive extraction 
+
+Given a mixture x ∈ RT and an enrollment utterance 
+
+r ∈ RT ′
+
+, LATTE estimates the target waveform ˆs. The frozen WavLM Base+ encoder and a shared learned pro-jection produce mixture and enrollment representations 
+
+Fmix = fproj (fwav (x)) , Fref = fproj (fwav (r)) ,
+
+(1) where Fmix ∈ RD×Ls is the initial extractor representa-tion, 
+
+Z0 = Fmix , e = AttPool( Fref ). (2) Thus, the Hourglass extractor operates on the projected semantic mixture features, while the target-speaker em-bedding e conditions every block through FiLM. In par-allel, a 512-point STFT with a 128-sample hop produces the mixture magnitude |X| and phase ∠X. The STFT rep-resentation does not enter the Hourglass extractor: after routing, the selected exit o is linearly interpolated from the WavLM frame grid Ls to the STFT frame grid Lf ,and the decoder predicts a mask M and bounded residual 
+
+R from the aligned exit and |X|:
+
+eo = Align Ls→Lf (o), [M, R] = fdec ([ eo; |X|]) .
+
+(3) The enhanced magnitude is |ˆS| = max {0, M ⊙|X| + R}, and the waveform is reconstructed as 
+
+ˆs = iSTFT( |ˆS|, ∠X).The difficulty estimator (DE) summarizes the mean and variance of mixture features F, fuses them with 
+
+e, and predicts demand δ ∈ [0 , 1] and one-hot budget 
+
+b ∈ { 0, 1}3. Training uses straight-through Gumbel-Softmax [9]; inference uses arg max . Six hourglass blocks form three nested tiers, with exits after blocks 2, 4, and 6. Each block injects e through FiLM condition-ing [10], captures local structure with dilated depthwise TCNs [11], and models global context by attention on a downsampled sequence [12]. If ϕk is exit k and h2k its hidden state, the routed representation is 
+
+o =
+
+> 3
+
+X
+
+> k=1
+
+bk ϕk(h2k). (4) The tiers share prefixes rather than replicate experts; early exiting therefore reduces executed depth while keeping the extractor at 2.7M parameters. 
+
+2.2. Task-adaptive phonological difficulty index (PDI) 
+
+We define PDI as a target-language scalar dℓ =
+
+σ(aℓ) ∈ [0 , 1] : the normalized exit depth required under the current model, data, and tolerance; low/high values mean shallow/deep demand. If Qi,k is sample i’s quality at exit k, its task evidence is the detached minimum-depth target 
+
+k∗ 
+
+> i
+
+= min {k : Qi, 3 − Qi,k ≤ ϵ},
+
+eyi = sg 
+
+ k∗ 
+
+> i
+
+− 12
+
+
+
+. (5) The stop-gradient prevents a trivial solution that degrades shallow exits to lower their targets. The language-balanced mean ¯yℓ anchors dℓ, which is smoothed on a frozen URIEL+/PHOIBLE similarity graph S. With Smooth L1 loss ρ,
+
+LPDI = 1
+
+> |G|
+
+X
+
+> ℓ
+
+ρ(dℓ − sg(¯ yℓ)) + λg
+
+> Z
+
+X
+
+> ℓ<m
+
+Sℓm (dℓ − dm)2,
+
+LDE = 1
+
+> N
+
+X
+
+> i
+
+[ρ(δi − eyi) + λlρ(δi − sg( dℓi ))] . (6) The graph only smooths task evidence; PDI is not ac-cessed at test time. 
+
+2.3. Training objective and inference 
+
+Let pi,k be the soft routing probability, Ck the cost of path k, and Lext  
+
+> i,k
+
+its extraction loss. LATTE minimizes 
+
+Lroute = 1
+
+> N
+
+X
+
+> i,k
+
+pi,k 
+
+ Lext  
+
+> i,k
+
++ λC Ck
+
+,
+
+L = Lroute + αLspk + βLDE + γLPDI . (7) Here Lext is per-exit negative SI-SNR and Lspk regular-izes the enrollment embedding; the cost term discourages 
+
+Language Key Phonological Features PDI 
+
+English non-tonal, moderate clusters 0.15 Turkish agglutinative, 8-way vowel harmony 0.30 Mandarin 4 tones, simple onsets 0.35 Polish complex clusters ( szcz-, prz-) 0.42 Kinyarwanda 2 Bantu tones, prenasalized stops 0.48 Cantonese 6–9 tones, checked codas 0.55 Vietnamese 6 tones + phonation contrasts 0.65 Zulu 3 click series, tones, prenasalized 0.72 
+
+Table 1 . PolyExtract language overview. collapse to the deepest path. Training warms and directly supervises all exits under uniform path sampling, freezes the phonological graph, and derives detached targets from multi-exit quality curves. Joint training anneals the Gum-bel temperature, with loss weights and thresholds selected on validation data. At inference, the DE runs once and only the selected shared prefix and exit are executed, yielding conditional computation without language iden-tity. 
+
+3. EXPERIMENTS 3.1. Experimental setup and PolyExtract 
+
+LATTE has 5.2M parameters and is trained with Adam ( 10 −3 learning rate, 10 −5 weight decay), mixed precision, and gradient clipping. Training uses online 4-s mixtures at [−5, 5] dB; validation and test mixtures are fixed. All signals are resampled to 16 kHz, and the STFT uses a 512-point FFT with a 128-sample hop. PolyExtract contains eight languages from five families, drawn from LibriSpeech, AISHELL-1, NCHLT, VIVOS, and Common Voice [13, 14, 15, 16, 17]. We evaluate all 64 directed target–interferer pairs with equal sample counts and matched mixture controls. 
+
+3.2. Signal-Level Extraction across Language Pairs 
+
+Table 2 reports pair-macro results on the same PolyEx-tract split. Fixed-budget systems remain strong on low-demand conditions, whereas LATTE gives the best cross-language, high-PDI, and worst-pair results at the lowest average computation. 
+
+3.3. Multi-Speaker ASR with Diverse Frontends 
+
+We compare LoRA adaptation with plug-in extraction before frozen Qwen3-Omni. LATTE obtains 14.6% aver-age WER without updating the backend, and ranks first on five of eight languages while requiring only 0.2T–0.4T FLOPs. LATTE leads on Cantonese, Vietnamese, Polish, Zulu, and Kinyarwanda, where adaptive extraction better handles interference than a uniformly processed frontend. 
+
+3.4. Downstream Semantic Understanding 
+
+We pass extracted waveforms to frozen Qwen3-Omni and evaluate slot filling, yes/no comprehension, speaker attribution, intent inference, and emotion recognition. SpEx+ TD-SB AD-Flow TSE TCE TF-GridNet LATTE Model Complexity 
+
+Trainable Params ↓ 11.1M 14.4M 85.0M 8.7M 14.5M 5.2M 
+
+Avg. GFLOPs ↓ 0.62 0.74 5.80 0.55 1.42 0.30 All Directed Language Pairs 
+
+Macro SI-SNRi ↑ 12.8 13.2 14.6 13.5 13.8 15.07 
+
+Macro PESQ ↑ 2.92 2.98 3.14 3.01 3.06 3.22 
+
+Macro STOI ↑ 0.87 0.88 0.91 0.89 0.90 0.92 Same- vs. Cross-Language Pairs 
+
+Same-language SI-SNRi ↑ 14.9 15.3 16.1 15.5 15.6 15.7 Cross-language SI-SNRi ↑ 12.5 12.9 14.4 13.2 13.5 14.9 Cross-Language PDI Bands 
+
+Low →Low SI-SNRi ↑ 16.0 16.3 16.8 16.4 16.5 16.0 Low →High SI-SNRi ↑ 13.2 13.6 14.8 13.9 14.0 15.1 
+
+High →Low SI-SNRi ↑ 11.7 12.1 13.9 12.5 12.8 14.6 
+
+High →High SI-SNRi ↑ 11.0 11.5 13.3 11.9 12.3 14.3 Robustness 
+
+Worst-pair SI-SNRi ↑ 9.8 10.2 12.4 10.7 11.1 14.0 Table 2 . Signal-level extraction quality and computational cost across directed target–interferer language pairs. Results are macro-averaged over language pairs. Language Metric LoRA Plugin Qwen3 Omni Whisper v3 DeSTA 2.5-A Voice Filter LATTE PolyExtract WER ↓ 15.4 18.8 15.6 20.6 14.6 
+
+FLOPs ↓ 18.2T 4.8T 12.6T 0.6T 0.3T 
+
+Chinese CER ↓ 11.8 13.5 12.9 17.8 12.6 FLOPs ↓ 18.2T 4.8T 12.6T 0.6T 0.3T 
+
+English WER ↓ 7.9 8.9 8.1 12.3 8.2 FLOPs ↓ 18.2T 4.8T 12.6T 0.6T 0.2T 
+
+Cantonese CER ↓ 14.9 16.4 21.5 32.6 13.8 
+
+FLOPs ↓ 18.2T 4.8T 12.6T 0.6T 0.4T 
+
+Turkish WER ↓ 11.8 9.5 14.2 20.8 9.8 FLOPs ↓ 18.2T 4.8T 12.6T 0.6T 0.3T 
+
+Vietnamese WER ↓ 16.8 17.1 26.3 34.2 14.2 
+
+FLOPs ↓ 18.2T 4.8T 12.6T 0.6T 0.4T 
+
+Polish WER ↓ 13.8 11.6 16.1 23.7 11.0 
+
+FLOPs ↓ 18.2T 4.8T 12.6T 0.6T 0.3T 
+
+Zulu WER ↓ 20.1 21.3 29.8 38.5 15.5 
+
+FLOPs ↓ 18.2T 4.8T 12.6T 0.6T 0.4T 
+
+Kinyarwanda WER ↓ 16.4 15.2 27.1 30.4 12.6 
+
+FLOPs ↓ 18.2T 4.8T 12.6T 0.6T 0.3T Table 3 . Multilingual ASR performance across speaker extraction approaches. LATTE consistently improves over direct mixture input while leaving the Audio LLM unchanged. With the back-end frozen across conditions, gains over mixture input reflect cleaner frontend evidence rather than task-specific Audio-LLM adaptation. 
+
+3.5. Difficulty Estimation and Adaptive Computation 
+
+Figure 3 evaluates calibration and the quality– computation frontier. The DE obtains language-macro MAE 0.085 and Spearman ρ = 0 .945 . LATTE reaches 15.07 dB at 0.30 GFLOPs, within 0.09 dB of the deepest path while reducing computation by 43.4%; learned-only, task-PDI-only, random, and oracle routing obtain 14.69, PolyExtract (Avg.) Mandarin English Category Method Trainable Params ↓ Mix WER Ext. WER ↓ RelRed Mix CER Ext. CER ↓ RelRed Mix WER Ext. WER ↓ RelRed LoRA Qwen3-Omni [18] 7.0B 38.5 15.4 60.0% 32.4 11.8 63.6% 24.6 7.9 67.9% 
+
+Whisper-v3 [19] 1.5B 38.5 18.8 51.2% 32.4 13.5 58.3% 24.6 8.9 63.8% DeSTA2.5-Audio [20] 7.2B 38.5 15.6 59.5% 32.4 12.9 60.2% 24.6 8.1 67.1% Plug-in VoiceFilter [21] 8.2M 38.5 20.6 46.5% 32.4 17.8 45.1% 24.6 12.3 50.0% TD-SpeakerBeam [22] 14.4M 38.5 19.8 48.6% 32.4 16.9 47.8% 24.6 11.4 53.7% SpEx+ [2] 11.1M 38.5 18.4 52.2% 32.4 15.6 51.9% 24.6 10.3 58.1% TF-GridNet [3] 14.5M 38.5 16.8 56.4% 32.4 14.1 56.5% 24.6 9.4 61.8% 
+
+LATTE (ours) 5.2M 38.5 14.6 62.1% 32.4 12.6 61.1% 24.6 8.2 66.7% 
+
+Oracle (clean, single-spk) — 8.3 6.5 4.1 
+
+Table 4 . Multi-speaker ASR results on PolyExtract. Task A:Slot Filling Task B:Yes/No Task C:Attribution System en zh yue Poly. en zh yue Poly. en zh yue Poly. Mix →Qwen 24 21 15 20 61 58 51 57 43 40 33 39 LoRA →Qwen 70 57 47 58 88 77 67 77 85 70 59 71 
+
+LATTE →Qwen 58 55 49 54 78 75 69 74 72 68 61 67 
+
+Clean →Qwen 74 69 61 68 91 89 83 88 89 85 79 84 
+
+Task D:Intent Inference Task E:Emotion Recognition System en zh yue Poly. en zh yue Poly. Mix →Qwen 31 27 19 26 36 32 25 31 LoRA →Qwen 79 64 53 65 75 64 55 65 
+
+LATTE →Qwen 66 62 55 61 67 62 53 61 
+
+Clean →Qwen 83 78 69 77 81 76 68 75 
+
+Table 5 . LLM semantic understanding accuracy (%). 
+
+Variant Avg Hard GFLOPs LATTE-Full 15.1 14.6 0.30g 
+
+Adaptive compute 
+
+W/o DE (Fixed-6) 13.5 11.8 0.53g W/o refinement 14.3 12.5 0.28g W/o LBGT 14.9 13.0 0.39g 
+
+DE design 
+
+DE: SNR only 13.9 12.2 0.32g DE: LangID only 14.2 12.8 0.32g 
+
+Encoder/decoder 
+
+W/o MS encoder 13.8 12.6 0.30g W/o bound. residual R 14.2 12.3 0.30g Semantic only (w/o spectral) 13.3 11.5 0.26g Spectral only (w/o WavLM) 12.7 10.9 0.29g 
+
+Table 6 . Ablation study on PolyExtract. Hard : average over yue/vi/zu. GFLOPs are per-utterance averages over the test set. 14.88, 13.91, and 15.23 dB, respectively. The 0.16-dB oracle gap shows that most of the quality–compute trade-off is recovered without labels, while the single-source variants confirm complementary routing evidence. 
+
+3.6. Ablation Study 
+
+Table 6 retains the complete component study. Dif-ficulty estimation and iterative refinement provide the largest gains on demanding languages, while both rep-resentation paths and decoder components contribute. Degradation from the semantic-only and spectral-only variants confirms that WavLM context and fine-grained spectral evidence play complementary roles in extraction and reconstruction. 
+
+4. CONCLUSION 
+
+LATTE is a lightweight adaptive TSE frontend for frozen Audio LLMs. PDI captures model-specific language-level compute demand from multi-depth ev-idence, while routing remains language-label free at inference. It is task-adaptive and improves routing over task-PDI-only ( 15 .07 vs. 14 .88 dB at 0.30 GFLOPs). Overall, task-observed multi-exit evidence and sample acoustics enable near-oracle, language-label-free routing through one shared extractor, while its waveform interface Fig. 3 . Evaluation of difficulty estimation and adaptive computation. (a) Calibration of the predicted compute demand against the task-observed oracle target. Large markers denote demand-level means, and the dashed line denotes perfect calibration. (b) Quality–computation comparison among fixed-depth and adaptive routing strategies. The upper-left region represents higher extraction quality with lower average computation. remains compatible with frozen downstream backends. The shared exits turn the estimated demand into an explicit computational budget: easier mixtures stop after a short processing prefix, whereas harder mixtures receive additional refinement without maintaining separate language-specific experts. The component study further shows that WavLM context and fine-grained spectral detail provide complementary evidence for extraction and reconstruction. Together with waveform-level output, this separation allows one adaptive frontend to support different frozen downstream systems while leaving their parameters unchanged. PolyExtract covers eight languages and controlled two-speaker mixtures, so generalization to broader language, accent, and real-world overlap conditions remains unverified. Future work should evaluate unseen languages, accents, and real-world overlap, together with deployment latency and energy. 
+
+5. COMPLIANCE WITH ETHICAL STANDARDS 
+
+This study used only publicly available speech datasets in accordance with their respective licenses and terms of use. No new human participants were recruited, and no new personal data were collected. 
+
+6. ACKNOWLEDGMENTS 
+
+No external funding was received for this study. The authors have no relevant financial or non-financial inter-ests to disclose. 
+
+7. REFERENCES 
+
+[1] Marc Delcroix, Katerina Zmolikova, Keisuke Ki-noshita, Atsunori Ogawa, and Tomohiro Nakatani, “Single channel target speaker extraction and recog-nition with speaker beam,” in 2018 IEEE Interna-tional Conference on Acoustics, Speech and Signal Processing . IEEE, 2018, pp. 5554–5558. [2] Meng Ge, Chenglin Xu, Longbiao Wang, Eng Siong Chng, Jianwu Dang, and Haizhou Li, “SpEx+: A complete time domain speaker extraction net-work,” in Proceedings of Interspeech 2020 , 2020, pp. 1406–1410. [3] Zhong-Qiu Wang, Samuele Cornell, Shukjae Choi, Younglo Lee, Byeong-Yeol Kim, and Shinji Watan-abe, “TF-GridNet: Integrating full- and sub-band modeling for speech separation,” IEEE/ACM Trans-actions on Audio, Speech, and Language Process-ing , vol. 31, pp. 3221–3236, 2023. [4] Matthew Gordon and Peter Ladefoged, “Phona-tion types: A cross-linguistic overview,” Journal of Phonetics , vol. 29, no. 4, pp. 383–406, 2001. [5] Franck Ramus, Marina Nespor, and Jacques Mehler, “Correlates of linguistic rhythm in the speech sig-nal,” Cognition , vol. 73, no. 3, pp. 265–292, 1999. [6] Aditya Khan, Mason Shipton, David Anugraha, Kaiyao Duan, Phuong H. Hoang, Eric Khiu, A. Seza Do˘ gru¨ oz, and En-Shiun Annie Lee, “URIEL+: En-hancing linguistic inclusion and usability in a typo-logical and multilingual knowledge base,” in Pro-ceedings of the 31st International Conference on Computational Linguistics . 2025, pp. 6937–6952, Association for Computational Linguistics. [7] Steven Moran, Daniel McCloy, and Richard Wright, Eds., PHOIBLE Online , Max Planck Institute for Evolutionary Anthropology, Leipzig, 2014. [8] Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen, “LoRA: Low-rank adaptation of large language models,” in International Confer-ence on Learning Representations , 2022. [9] Eric Jang, Shixiang Gu, and Ben Poole, “Categori-cal reparameterization with Gumbel-Softmax,” in International Conference on Learning Representa-tions , 2017. [10] Ethan Perez, Florian Strub, Harm de Vries, Vincent Dumoulin, and Aaron Courville, “FiLM: Visual reasoning with a general conditioning layer,” in 
+
+Proceedings of the AAAI Conference on Artificial Intelligence , 2018. [11] Yi Luo and Nima Mesgarani, “Conv-TasNet: Sur-passing ideal time–frequency magnitude masking for speech separation,” IEEE/ACM Transactions on Audio, Speech, and Language Processing , vol. 27, no. 8, pp. 1256–1266, 2019. [12] Cem Subakan, Mirco Ravanelli, Samuele Cornell, Mirko Bronzi, and Jianyuan Zhong, “Attention is all you need in speech separation,” in ICASSP 2021 – 2021 IEEE International Conference on Acoustics, Speech and Signal Processing . IEEE, 2021, pp. 21– 25. [13] Vassil Panayotov, Guoguo Chen, Daniel Povey, and Sanjeev Khudanpur, “LibriSpeech: An ASR corpus based on public domain audio books,” in 2015 IEEE International Conference on Acoustics, Speech and Signal Processing . IEEE, 2015, pp. 5206–5210. [14] Hui Bu, Jiayu Du, Xingyu Na, Bengu Wu, and Hao Zheng, “AISHELL-1: An open-source mandarin speech corpus and a speech recognition baseline,” 
+
+arXiv preprint arXiv:1709.05522 , 2017. [15] Etienne Barnard, Marelie H. Davel, Charl J. van Heerden, Febe de Wet, and Jaco Badenhorst, “The NCHLT speech corpus of the south african lan-guages,” in Proceedings of the Workshop on Spoken Language Technologies for Under-Resourced Lan-guages , 2014, pp. 194–200. [16] Hieu-Thi Luong and Hai-Quan Vu, “VIVOS: A free vietnamese speech corpus for automatic speech recognition,” in Proceedings of the 2016 Confer-ence of the Oriental Chapter of the International Committee for the Co-ordination and Standardis-ation of Speech Databases and Assessment Tech-niques , 2016, pp. 1–4. [17] Rosana Ardila, Megan Branson, Kelly Davis, Michael Henretty, Michael Kohler, Josh Meyer, Reuben Morais, Lindsay Saunders, Francis M. Tyers, and Gregor Weber, “Common voice: A massively-multilingual speech corpus,” in Proceed-ings of the Twelfth Language Resources and Evalu-ation Conference . 2020, pp. 4218–4222, European Language Resources Association. [18] Jin Xu, Zhifang Guo, Hangrui Hu, Yunfei Chu, Xiong Wang, Jinzheng He, Yuxuan Wang, Xian Shi, Ting He, Xinfa Zhu, Yuanjun Lv, Yongqi Wang, Dake Guo, He Wang, Linhan Ma, Pei Zhang, Xinyu Zhang, Hongkun Hao, Zishan Guo, Baosong Yang, Bin Zhang, Ziyang Ma, Xipin Wei, Shuai Bai, Ke-qin Chen, Xuejing Liu, Peng Wang, Mingkun Yang, Dayiheng Liu, Xingzhang Ren, Bo Zheng, Rui Men, Fan Zhou, Bowen Yu, Jianxin Yang, Le Yu, Jingren Zhou, and Junyang Lin, “Qwen3-omni technical report,” arXiv preprint arXiv:2509.17765 , 2025. [19] OpenAI, “Whisper Large-v3,” https://huggingface. co/openai/whisper-large-v3, 2023. [20] Ke-Han Lu, Zhehuai Chen, Szu-Wei Fu, Chao-Han Huck Yang, Sung-Feng Huang, Chih-Kai Yang, Chee-En Yu, Chun-Wei Chen, Wei-Chih Chen, Chien-yu Huang, Yi-Cheng Lin, Yu-Xiang Lin, Chi-An Fu, Chun-Yi Kuan, Wenze Ren, Xuanjun Chen, Wei-Ping Huang, En-Pei Hu, Tzu-Quan Lin, Yuan-Kuei Wu, Kuan-Po Huang, Hsiao-Ying Huang, Huang-Cheng Chou, Kai-Wei Chang, Cheng-Han Chiang, Boris Ginsburg, Yu-Chiang Frank Wang, and Hung-yi Lee, “DeSTA2.5-Audio: Toward general-purpose large audio language model with self-generated cross-modal alignment,” arXiv preprint arXiv:2507.02768 , 2025. [21] MAUM AI, “VoiceFilter: Unofficial pytorch im-plementation of google ai’s voicefilter system,” https://github.com/maum-ai/voicefilter, 2020. [22] Marc Delcroix, Tsubasa Ochiai, Katerina Zmo-likova, Keisuke Kinoshita, Naohiro Tawara, To-mohiro Nakatani, and Shoko Araki, “Improving speaker discrimination of target speech extraction with time-domain speakerbeam,” 2020.

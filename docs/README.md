@@ -48,17 +48,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-10-08</span>
+      <span class="dpr-home-dashboard-kicker">2026-10-07 ~ 2026-10-16</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 12 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 21 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>3</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>9</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>10</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>11</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-10-09 00:06:38 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-10-16 04:26:50 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -69,9 +69,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共生成 12 篇推荐（精读 3 篇，速读 9 篇）</p>
-<p>精读：《LeCuration: A Tiny World Model as a Data Curation Multi-Tool》（9.0/10）, 《Steering Follows Geometry, Not Labels: Emotion Directions in a Full-Duplex Speech Model》（8.0/10）</p>
-<p>速读：《Personalized Automatic Speech Recognition for a Dysarthric and Tracheostomic Speaker using Artificial Conversations》（7.0/10）, 《InteractionBench: A Real-Time Interaction Benchmark for Streaming Video Systems》（7.0/10）, 《BanglaBox: A Phonetically-Balanced Corpus and Data-Efficient Foundation-Model Adaptation for Bangla Text-to-Speech with Zero-Shot Voice Cloning》（7.0/10）</p>
+<p>今日共生成 21 篇推荐（精读 10 篇，速读 11 篇）</p>
+<p>精读：《DuplexAgent-RSI: Recursive Harness Improvement for Full-Duplex Voice Agent Collaboration》（10.0/10）, 《DuplexAct: How Interactive Are Frontier Full-Duplex Spoken Language Models?》（10.0/10）</p>
+<p>速读：《Phonology-Aware Speaker Extraction Frontend for Audio LLMs》（8.0/10）, 《AudioTETRIS: Token Elimination via Transitional Importance Signals for Efficient Audio LLMs》（8.0/10）, 《RASSG: Repair-Aware Semantic Survival Gating for Streaming Tool Execution》（8.0/10）</p>
 <p>这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。</p>
   </div>
 </section>
@@ -81,12 +81,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">3 篇</strong>
+    <strong class="dpr-home-dashboard-count">10 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="LeCuration: A Tiny World Model as a Data Curation Multi-Tool">LeCuration: A Tiny World Model as a Data Curation Multi-Tool</span></li><li><span class="dpr-home-dashboard-paper-title" title="Steering Follows Geometry, Not Labels: Emotion Directions in a Full-Duplex Speech Model">Steering Follows Geometry, Not Labels: Emotion Directions in a Full-Duplex Speech Model</span></li><li><span class="dpr-home-dashboard-paper-title" title="PVSync: A Unified Lip-Sync Expert for Timing and Articulation">PVSync: A Unified Lip-Sync Expert for Timing and Articulation</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="DuplexAgent-RSI: Recursive Harness Improvement for Full-Duplex Voice Agent Collaboration">DuplexAgent-RSI: Recursive Harness Improvement for Full-Duplex Voice Agent Collaboration</span></li><li><span class="dpr-home-dashboard-paper-title" title="DuplexAct: How Interactive Are Frontier Full-Duplex Spoken Language Models?">DuplexAct: How Interactive Are Frontier Full-Duplex Spoken Language Models?</span></li><li><span class="dpr-home-dashboard-paper-title" title="Full-duplex Spoken Language Modeling with Discrete Diffusion">Full-duplex Spoken Language Modeling with Discrete Diffusion</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">data-agent <strong>2</strong></span><span class="dpr-home-dashboard-tag">duplex-agent <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">duplex-agent <strong>10</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -94,12 +94,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">9 篇</strong>
+    <strong class="dpr-home-dashboard-count">11 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Personalized Automatic Speech Recognition for a Dysarthric and Tracheostomic Speaker using Artificial Conversations">Personalized Automatic Speech Recognition for a Dysarthric and Tracheostomic Speaker using Artificial Conversations</span></li><li><span class="dpr-home-dashboard-paper-title" title="InteractionBench: A Real-Time Interaction Benchmark for Streaming Video Systems">InteractionBench: A Real-Time Interaction Benchmark for Streaming Video Systems</span></li><li><span class="dpr-home-dashboard-paper-title" title="BanglaBox: A Phonetically-Balanced Corpus and Data-Efficient Foundation-Model Adaptation for Bangla Text-to-Speech with Zero-Shot Voice Cloning">BanglaBox: A Phonetically-Balanced Corpus and Data-Efficient Foundation-Model Adaptation for Bangla Text-to-Speech with Zero-Shot Voice Cloning</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Phonology-Aware Speaker Extraction Frontend for Audio LLMs">Phonology-Aware Speaker Extraction Frontend for Audio LLMs</span></li><li><span class="dpr-home-dashboard-paper-title" title="AudioTETRIS: Token Elimination via Transitional Importance Signals for Efficient Audio LLMs">AudioTETRIS: Token Elimination via Transitional Importance Signals for Efficient Audio LLMs</span></li><li><span class="dpr-home-dashboard-paper-title" title="RASSG: Repair-Aware Semantic Survival Gating for Streaming Tool Execution">RASSG: Repair-Aware Semantic Survival Gating for Streaming Tool Execution</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">duplex-agent <strong>6</strong></span><span class="dpr-home-dashboard-tag">data-agent <strong>3</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">duplex-agent <strong>11</strong></span></div>
 </section>
 </div>
 
