@@ -1,0 +1,602 @@
+Title: Soloist: A Generative Model for Blind Voice Separation in the Wild
+
+URL Source: https://arxiv.org/pdf/2610.19716v1
+
+Published Time: Thu, 15 Oct 2026 01:00:39 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+# OpenMOSS Soloist: A Generative Model for Blind Voice Separation in the Wild 
+
+# Chen Yang¹,²,* ChuFan Yu¹,* Botian Jiang¹,² Jingqi Chen¹ Wenxuan Wang¹,² Yitian Gong¹ Zhaoye Fei¹ Xipeng Qiu¹,²,† 
+
+¹Fudan University ²Shanghai Innovation Institute 
+
+*Equal contribution †Corresponding author 
+
+# Abstract 
+
+Real-world voice separation must recover individual voices from overlapping speech, environmental noise, and music, yet isolated source recordings are rarely available for supervision. We introduce Soloist, a generative model for blind voice separation that autoregressively generates individual voice streams as audio-codec sequences conditioned on the mixture, without requiring a target-speaker query or a predefined voice count. We propose a two-stage training paradigm to learn from synthetic mixtures and adapt to real recordings. The first stage combines supervised separation on synthetic mixtures with isolated source targets and an auxiliary task that predicts speaker timelines from real recordings, learning who speaks when from natural acoustics. The second stage applies reinforce-ment learning to real recordings, with rewards supplied by a model judge that compares candidate separations based on voice purity and content preservation without isolated source targets. Across diverse scenarios, Soloist recovers clean speech from multi-speaker overlap and noisy recordings, and extracts singing vocals from music accompaniment while maintaining relatively high pitch accu-racy and intelligibility. On real-world recordings with unknown voice counts, Soloist also separates voices well. Finally, we integrate Soloist into a full-duplex conversation processing pipeline that as-sembles separated outputs into continuous speaker tracks, demonstrating its practical utility in real conversations. 
+
+# 1 Introduction 
+
+People speak over one another in conversations, films, and online recordings. Recovering their individual voices requires a separator to identify how many voices are present, retain each voice’s content and identity, and exclude unrelated sound. Training references are less complete: a natural recording often comes with a transcript or speaker timeline, but rarely with the isolated waveforms that produced the mixture. Supervised separators learn this mapping from mixtures constructed with known sources [1, 2]. Their targets are precise, while the acoustics and source combinations available for construction constrain the training distribution. Learning from unpaired mixtures has also been studied: mixture invariant training (MixIT) uses mixture-level reconstruction without isolated sources [3], including adaptation to real meetings [4]. Our focus is a complementary setting in which a generative separator can use several incomplete references 1arXiv:2610.19716v1 [cs.SD] 14 Oct 2026 and can be updated on natural audio through model-generated feedback. Section 2 positions this approach relative to prior work. We introduce Soloist, a generative model for blind voice separation in real recordings. Given a single-channel mixture, the model generates one audio-codec sequence per voice without requiring a target-speaker query or a supplied voice count. Each sequence is decoded into an individual voice waveform. Our training recipe follows the references available for each recording (figure 1). Constructed mixtures pro-vide source targets; a fixed music separator provides pseudo-vocal targets for songs; and speaker timelines provide text targets for natural recordings without isolated waveforms. These examples share one super-vised objective. After supervised training, reinforcement learning adapts the model on real recordings by sampling alternative separations of each mixture. A model judge supplies the reward: it describes tracks independently, compares the resulting reports, and checks consistency across candidate orders. (a) Paired-stem supervision (b) Ours  
+
+> Synthetic mixture Paired stems
+
+Separation model Supervised loss 
+
+> Supervised update
+> Real recordings
+> No paired stems
+> No stem-based loss
+
+① Supervised training 
+
+> Audio targets
+> + speaker timelines
+
+Separation model 
+
+> Initialise RL
+
+② RL on real recordings    
+
+> Real recordings
+> Separation model
+> Structured
+> judge
+> Relative rewards →RL update
+> No paired stems needed Paired supervision only Heterogeneous supervision + judge-guided RL
+
+Figure 1 Training with incomplete references. (a) Paired-stem supervision compares predicted audio with known sources; natural recordings usually lack these targets. (b) Our recipe combines audio targets and speaker timelines before adaptation. RL uses model-judge rewards on real recordings. Training details are given in section 4.3. 
+
+The judge must distinguish useful separation from fluent but incorrect resynthesis. Signal checks detect degenerate outputs and likely copies. The input mixture is included as an anonymous baseline, allowing the judge to compare each separation with returning the input unchanged. To check whether candidate order affects its preferences, the judge ranks the same candidates twice, first in a shuffled order and then in the reverse order. Groups with inconsistent rankings, or reports that cannot distinguish candidate quality, are excluded from RL updates. The remaining groups provide relative rewards that favor purer individual voices and more complete coverage of the audible content. This report makes three contributions. First, we formulate blind voice separation as serial codec-sequence generation with an explicit voice count, and show that predicting speaker timelines on real recordings without isolated sources improves count inference. Second, we propose a model-judge reward for RL on real recordings without isolated sources: tracks are described independently, candidates are ranked in text against the unprocessed mixture as an anonymous anchor, and groups whose preferences change substan-tially when the candidate order is reversed are discarded. Third, we evaluate the model on synthetic, noisy, 2singing, and real multi-speaker recordings, and show how it is used in a full-duplex conversation processing pipeline. 
+
+# 2 Related Work 
+
+2.1 Supervised Separation and Variable Source Counts 
+
+Paired-source separation learns to recover isolated waveforms from constructed mixtures. Conv-TasNet op-erates in a learned time-domain representation [1]; SepFormer and MossFormer develop attention-based sequence models [2, 5]; and TF-GridNet combines full-band and sub-band modeling in the time-frequency domain [6]. These approaches establish strong reconstruction baselines, while the choice of training mixtures determines the acoustic conditions and source combinations available to supervision. LibriMix provides a reproducible construction for studying speech separation and generalization [7]. Output assignment and source count are distinct problems. Permutation-invariant training handles the arbitrary ordering of reference sources [8, 9], whereas recursive separation extracts speakers successively to accommodate unknown counts [10]. SR-CorrNet instead adapts the number of output streams with an attractor-based split module [11]. Soloist represents count, stream boundaries, and voice audio in one serial response. Its supplied-count and blind evaluations therefore probe different capabilities: recovering voices under a known count and deciding how many streams to produce (section 6). 
+
+2.2 Neural Audio Codecs and Generative Separation 
+
+SoundStream and EnCodec learn compressed audio representations that can be decoded back into wave-forms [12, 13]. AudioLM shows how discrete audio representations support language-model-style gener-ation [14]. This representation makes separation amenable to conditional sequence prediction, alongside tasks such as synthesis and recognition. TokenSplit is a direct precedent: it jointly handles speech separa-tion, transcription, and speech generation through discrete representations, with both direct separation and refinement of a conventional separator’s outputs, and with or without transcript conditioning [15]. Soloist uses codec sequences as its separation output, conditioned on continuous audio features and discrete mixture codes (section 3.2). Its backbone predicts the response structure and conditions a local decoder for each frame’s codec codes. The relevant distinction is the combination of variable voice-stream generation, speaker-timeline supervision, and adaptation on real mixtures through candidate feedback. Generating plausible audio and preserving the particular voices and words in a mixture remain separate requirements, motivating the content and identity checks used in our evaluation and application. 
+
+2.3 Prompted Extraction and Singing-Voice Separation 
+
+Target extraction specifies which sound to recover through an external cue. AudioSep uses natural-language descriptions [16]; SoloAudio performs generative extraction with a diffusion Transformer and supports audio and language conditioning [17]; and SAM Audio supports text, visual, and temporal prompts [18]. These interfaces allow a user to select a sound of interest. Blind voice separation instead requires enumerating the audible voices without a target query. Our comparisons make the supplied-count setting explicit because count information and target selection change what a system must infer. Music separation introduces sustained pitch, accompaniment, and potentially layered vocals. Mel-Band Ro-Former models overlapping mel-frequency bands for music source separation [19]. MIR-1K and MUSDB18-HQ provide established singing and music evaluation resources [20, 21]. We use a fixed music separator to produce song pseudo-vocals and train these as one vocal stream (section 4). This supervision can represent multiple singers in a combined vocal target, whereas speech examples teach individual voice streams. The two target definitions determine what each evaluation can establish. 32.4 Learning from Unpaired Recordings and Teacher Targets 
+
+MixIT removes the need for isolated training sources by separating a mixture of mixtures and assigning estimated components back to the observed mixtures [3]. Its application to real meetings demonstrates adaptation to far-field, overlapping, reverberant speech without isolated in-domain references [4]. RemixIT follows a teacher–student approach: estimated speech and noise are remixed to create training pairs, and the teacher is updated from successive students [22]. These methods provide alternatives to relying entirely on constructed mixtures with known sources. Our supervision is organized by the reference available for each recording. Constructed mixtures provide source audio, songs provide fixed-teacher pseudo-vocals, and natural recordings provide speaker timelines. Subsequent RL compares candidate separations of the same real mixture using a model judge (section 5). The distinction concerns the training signal: mixture reconstruction, teacher-generated audio, speaker-activity labels, and relative quality feedback impose different constraints on the outputs. 
+
+2.5 Speaker Activity, Diarization, and Identity 
+
+Diarization estimates who speaks when, including overlapping activity. End-to-end neural diarization formulates this as multi-label prediction with a permutation-free objective and supports adaptation from speaker-segment labels [23]. Such labels describe temporal activity without specifying each speaker’s waveform. MOSS-Transcribe-Diarize supplies the speaker-attributed intervals used in our timeline super-vision [24]. We encode those intervals as a text response within the same model that generates separated audio, allowing natural recordings to contribute supervised examples without isolated targets. Activity labels and speaker identity serve different roles in long recordings. Speaker-verification systems such as CAM++ and ERes2Net learn representations for comparing voices [25, 26]. Our conversation pipeline uses speaker embeddings and consistency across pieces to associate local outputs with recording-level speak-ers, then combines activity and identity checks to detect missing or intruding speech (section 7). Agreement on identity alone does not establish that the original words have been preserved, which motivates the sepa-rate content checks. 
+
+2.6 AI Feedback, Policy Optimization, and Judge Reliability 
+
+RLHF uses human preferences to train language models beyond supervised demonstrations [27], while RLAIF studies preferences supplied by AI systems [28]. PPO supplies a clipped policy-gradient objective [29]; GRPO in DeepSeekMath and the optimization components of DAPO develop group-based feedback and practical training procedures for language-model RL [30, 31]. Our update uses relative rewards within a group of candidate separations, with an unnormalized group-centered advantage and signal-based shaping (section 5.5). Audio-specific feedback learning provides closer precedents. MOS-based RLHF fine-tunes speech enhancers using a learned perceptual-quality reward [32]. MARS-Sep optimizes a mask policy with a multimodal pref-erence reward for query-conditioned sound separation [33]. LLM-guided audio-visual enhancement con-verts audio-language descriptions into scalar ratings for PPO updates [34]. These studies connect feedback to audio processing through quality prediction, cross-modal alignment, or textual descriptions. Our setting combines blind generation of multiple voice streams with comparison of complete candidate separations of the same recording. The feedback must account for voice purity and coverage across all outputs, as well as each track’s quality. The quality of the feedback is a separate concern from the optimizer. LLM-as-a-judge studies identify presentation-order bias and other limitations in model judgments [35]. Reward-model overoptimization can increase a proxy score while degrading the quality it is intended to measure [36]. Our judge first describes clips independently, then compares their reports alongside an anonymous mixture anchor and filters incon-sistent rankings under shuffled and reversed candidate orders. The consistency check targets sensitivity to candidate order, and the signal checks target degenerate outputs. 42.7 Evaluating Content, Acoustics, Pitch, and Identity 
+
+Waveform-based measures such as BSS Eval and SI-SDR quantify aspects of reconstruction fidelity relative to source signals [37, 38]. Recognition-based evaluation instead asks whether the separated speech retains recoverable words. Permutation-aware multi-speaker ASR and work on WER definitions provide the ba-sis for matching streams before counting transcription errors [39–41]. Our PI-WER protocol pads unequal stream sets with empty transcripts and evaluates the minimum-cost assignment; count accuracy separately assesses the number of voiced outputs. Speech representations such as WavLM are trained to support tasks involving both content and speaker information [42]. Our SingerSim metric uses WavLM features, while raw pitch accuracy measures pitch preservation (section 6.2). These quantities complement transcription recovery: correct words do not imply correct pitch or voice identity, and high embedding similarity need not imply exact words. Reference prove-nance also matters. Comparisons against teacher-extracted vocals measure agreement with that teacher, while isolated-source references support a different fidelity interpretation. We therefore distinguish these dimensions and reference types rather than treating one score as a complete measure of separation. 
+
+2.8 Continuous Separation and Full-Duplex Conversation Data 
+
+Continuous speech separation converts long recordings containing overlap into continuous output channels suitable for recognition. Speaker-independent CSS allows successive utterances to occupy different channels while keeping each utterance intact [43]. Our application requires an additional association step: indepen-dently generated pieces must be linked to persistent speaker identities and placed on the original recording timeline. Window planning, stream assignment, alignment, and targeted repair jointly determine whether the assembled tracks preserve coverage (section 7). Full-duplex dialogue models such as Moshi model user and system speech in parallel streams to support overlap and conversational timing [44]. This creates a need for temporally aligned conversational audio. Our pipeline prepares continuous speaker tracks and aligned transcripts offline from existing recordings. It checks speaker purity, missing speech, and content consistency before packaging the outputs. 
+
+# 3 Generative Blind Voice Separation 
+
+We formulate blind voice separation as conditional audio generation: given a single-channel recording, the model infers how many voices are present and generates a separate waveform for each. The recording may also contain music or environmental sound, and inference requires neither a supplied voice count nor a target-speaker query. Soloist implements this task by autoregressively generating a variable number of voice streams as sequences of audio-codec frames, which are decoded into waveforms. Its output contains only the separated voices, with no background or residual stream. 
+
+3.1 Task and Representation 
+
+For a single-channel recording 𝑥 containing 𝐾 ≥ 1 voices, a response contains a declared count ̂ 𝐾 and 𝐽 
+
+generated streams: 
+
+(̂ 𝐾, ˆ𝑦 1: 𝐽 ) ∼ 𝜋 𝜃 (· | 𝑥 ),̂ 𝐾 ∈ { 1, . . . , 𝐾 max }, (1) Here 𝐾 max is the decoding cap. The declared count and emitted stream count are distinct so that malformed responses can be measured. The vocabulary covers voice-containing recordings and has no zero-voice re-sponse. With 𝑇 input frames and 𝑇 𝑘 frames in output stream 𝑘 , each codec frame contains twelve codes 
+
+𝑎 𝑡𝑞 ∈ { 0, . . . , 1023 }; code 1024 denotes padding. The signal gate additionally computes a valid-stream count 
+
+𝐽 eff (appendix B.2). Signal validity is independent of whether a stream isolates the correct speaker. 5Text Mixture Embedding Count / stream index Codec frame S = start · E = end · EOS 
+
+Decoder-Only Backbone                                       
+
+> TTTSAAAAAE
+> Prompt Mixture tokens
+> KaSFFFEbSFFEEOS
+> Count →voice A →voice B →end
+> KaSEbSEEOS
+> Voice A Voice B
+> Adapter Adapter AuT Encoder Codec Tokenizer
+
+⊕
+
+> Mixture Local Transformer
+> Codec Decoder
+
+Figure 2 Generative separation architecture of Soloist. Continuous audio features and discrete mixture codes condition the backbone. The text head predicts control tokens, and a local transformer generates the codes within each audio frame. 
+
+3.2 Architecture 
+
+Soloist uses a Qwen3-4B decoder [45] conditioned on both continuous and discrete representations of the mixture (figure 2). The AuT encoder from Qwen3-Omni [46] supplies continuous features, and MOSS-Audio-Tokenizer-v2 [47] supplies twelve residual codec codes per frame at 12.5 frames/s. Gated multilayer percep-trons project the two representations into the backbone space and sum them at input frame positions. At an output frame, a one-layer local transformer predicts the twelve codes sequentially, conditioned on the back-bone state. This frame-local decoder contains causal multi-head self-attention and a two-layer feed-forward network, each preceded by layer normalization and wrapped in a residual connection. Codebook-specific lin-ear heads predict each code using the backbone state and the preceding codes within that frame. A separate adaptor feeds the generated codes back into the backbone. The codec is fixed; the audio encoder, backbone, adaptors, and local transformer are trained. The full component configuration is listed in table 8. 
+
+3.3 Output Format and Inference 
+
+The backbone’s text head predicts tokens that control the output structure, including the voice count, stream indices, and audio boundaries. For separation, it first emits the count and the first stream index, followed by an audio-start token to begin that stream. Whenever the text head emits a frame-request token, the corre-sponding backbone hidden state conditions the local transformer, which generates the twelve codec codes for that audio frame. The output adaptor maps these codes back into the backbone input space for subsequent autoregressive steps. Frame generation repeats until the text head emits an audio-end token. The model then generates the next stream index and its audio, or emits an end-of-response token to end the response. The codec decoder converts each stream’s frame sequence into a waveform. 6During supervised training, voice targets are ordered by first onset to define a canonical serial output se-quence; evaluation still matches generated streams to references by permutation. For the speaker-timeline task, a separate instruction asks the text head to emit [start ][ speaker ][ end ] triples sorted by start time, with-out triggering audio-frame generation. Complete prompts and token roles appear in appendix A.3. 
+
+# 4 Supervised Learning from Multiple Sources 
+
+The first training stage teaches the model to take a mixed recording as input and serially generate the sepa-rated voice streams. To establish this ability, we train a single model with three forms of supervision: source waveforms used to construct speech mixtures, teacher-generated vocal targets for songs, and speaker time-lines for natural recordings (figure 3 and table 1). The first two supervise audio generation, while the third teaches the model who speaks when through text outputs containing timestamps and speaker labels. Source pools Constructions Supervision      
+
+> Sound effects Instrumental music Speech pool Selected songs Film / TV recordings
+> Mixture construction
+> Index Tag Retrieve Mix
+> Instrumental music + effects + voices
+> Native-mixture windows Crop window Keep native voices Add donor voices
+> Preserve native background
+> Song separation Teacher separator Real-recording annotation
+> No separated stems
+> Source targets
+> Teacher pseudo-vocal Timestamps Speaker labels Timestamps Speaker labels
+
+Figure 3 Data construction and the resulting supervision. Known-source mixtures supply audio targets, songs supply teacher pseudo-vocals, and annotated recordings supply speaker timelines. The timeline response contains timestamps and speaker labels. 
+
+Table 1 Training supervision. Timelines supervise text only; pseudo-vocals inherit teacher limitations. Data construction is detailed in section 4.1. Input family Available target Supervised response Constructed speech mixtures Source audio from the construction Count and per-voice codec sequences Songs Teacher-generated vocal audio One vocal codec sequence with count and delimiters Natural recordings Speaker-attributed time intervals Text-only speaker timeline 
+
+74.1 Data Construction 
+
+Constructed mixtures. We construct mixtures from voice sources, a cleaned Pixabay sound-effect library, and music recordings. Mixtures are built in three steps. Semantic tagging labels each background recording with a scene category derived from pre-computed scene topics. Candidate retrieval queries each scene label for se-mantically similar audio and keeps a pool of 20 candidate clips that mixes long and short recordings at a fixed ratio. Mixture synthesis lays a long recording as the acoustic bed when a bed is used, overlays short sound ef-fects at random positions, and adds the voice sources as independent streams. Because every source is known by construction, the isolated voice waveforms serve as separation targets without manual annotation. Scene mixtures place one to four Chinese, English, or Japanese voices on a retrieved background: a music or ambi-ent bed, a bed with transient effects, transient effects alone, or silence. Overlay and background-preserving windows instead add donor voices to 5–30 s windows that already carry an acoustic background. Overlay windows contain three to five voices, while background-preserving windows contain two to six. 
+
+Speaker timelines. Speaker timelines describe who speaks when without providing either words or sepa-rated waveforms. These rows train the model to infer speaker activity from natural acoustics through the timeline instruction. They do not provide waveform supervision for separation. We annotate the natural recordings with MOSS-Transcribe-Diarize [24], retaining speaker labels and start/end times to construct the timeline targets. We select multi-speaker recordings from in-domain data spanning film, television, animation, short video, podcasts, radio, audiobooks, and sports commentary to provide speaker-activity supervision. The nominal windows span 10–120 s and contain two to six speakers. Targets are time-interval triples ordered by start time, with speaker IDs assigned by first appearance. Upstream transcripts are excluded from the prediction target; the output format is specified in appendix A.3. 
+
+Singing vocals. A fixed Mel-Band RoFormer separator [19] extracts a vocal pseudo-target from each song. Training uses the song as input and the teacher’s vocal output as a single target stream. Accompaniment is not an output target. This is teacher supervision, so agreement with the pseudo-target measures consistency with the teacher rather than recovery of an independently recorded studio vocal. Song segments are cut from in-house song recordings into clips of at most two minutes before teacher ex-traction. The teacher’s vocal stream can contain backing vocals or multiple singers, so it forms a combined vocal target rather than individual singer streams. 
+
+4.2 Supervised Sampling 
+
+The sampler groups examples by source count and duration, with duration boundaries at 10 and 20 s. Timelines form a separate administrative class indexed by zero; their shortest-duration cell has zero weight, leaving twenty active classes. The sampling-budget shares are 4.81% for timelines and 4.0/26.6/39.5/19.8/4.5/0.8% for one through six source streams. 
+
+4.3 Supervised Objective and Optimization 
+
+Let 𝑧 contain the assistant text-channel tokens, including frame requests and delimiters, and let 𝑎 𝑡𝑞 denote codebook 𝑞 of output frame 𝑡 . The supervised objective combines text and audio prediction: 
+
+ℒsup = ℒtext + 𝜆 ℒcodec , 𝜆 = 1. (2) Both terms are teacher-forced cross-entropies. The codec term is absent for timeline rows, while the text term supervises the count, stream boundaries, and frame requests for audio-producing rows. No additional count or boundary loss is used. 8Text positions 𝑢 and output codebook positions (𝑡, 𝑞 ) contribute the negative log probabilities 
+
+− log 𝑝 𝜃 (𝑧 𝑢 | 𝑧 <𝑢 , 𝑥 ), − log 𝑝 𝜃 (𝑎 𝑡𝑞 | 𝑎 𝑡, <𝑞 , ℎ 𝑡 ), (3) where ℎ𝑡 conditions output frame 𝑡 .Supervised training uses a peak learning rate of 10 −4. It establishes separation and speaker-activity predic-tion before the real-recording RL stage in section 5. 
+
+# 5 Reinforcement Learning on Real Recordings 
+
+Supervised training establishes the separation interface using source audio and speaker timelines. Reinforce-ment learning then adapts the model to real recordings without isolated source targets. For each recording, we sample alternative separations and use a model judge to compare voice purity, content coverage, and audio quality. 
+
+5.1 RL Data 
+
+The RL prompt set consists of real recordings without isolated source targets. Every recording has a voice-count annotation. AliMeeting [48] uses its manual TextGrid annotations; other recordings use dataset anno-tations where available and MOSS-Transcribe-Diarize otherwise. All prompts use the model-judge reward described in section 5.2, with the annotated count used in the signal checks and ranking request. The recordings include far-field meetings, film, television, animation, podcasts, short video, and audiobooks. 
+
+5.2 Model-Judge Reward on Real Recordings 
+
+In early trials, directly asking Qwen3-Omni to assign rubric scores to separated audio produced large score fluctuations across repeated evaluations of the same clip. We therefore construct relative feedback in two steps (figure 4): an audio-language model first describes the mixture and each candidate track independently, and a text model then ranks candidate sets from these reports, using an anonymous copy of the input mix-ture as an anchor. Repeating the ranking under reversed candidate order provides a consistency check for selecting feedback used in policy updates. 
+
+Signal checks. We screen stream duration, signal level, and active fraction, then detect likely input copies and duplicate streams with a log-mel frame-match score. Let 𝐽 eff ,𝑖 count the streams in candidate 𝑖 that pass the duration, level, and activity checks. Given the count annotation 𝐾 , 𝐽 eff ,𝑖 − 𝐾 determines whether to penalize excess or missing streams. A candidate is marked dead when it emits no usable stream, exceeds the duration bound, receives a zero count penalty, or only passes through the mixture under the applicable copy rule. These checks are heuristics; perceptually incorrect outputs can still pass them. 
+
+Independent perception and an input anchor. Qwen3-Omni-30B-A3B-Instruct [46] describes the mixture and each surviving track in separate calls. Reports contain audible speaker count, voice traits, content, artifacts, and silence. All clips in a group use the same temporal window. The input mixture is also described with the track prompt and inserted anonymously as a candidate. This anchor lets the ranker compare a separation attempt with returning the input unchanged. 
+
+Repeated ranking and consistency. Qwen3.6-27B [49] receives text only: the mixture report, the per-track re-ports of every candidate, and the count annotation 𝐾 , without audio input. It assigns candidates to four quality tiers, prioritizing single-voice purity, coverage of the mixture’s speakers and content, avoidance of duplicates and invented content, and audio quality. Both ranking calls use the same descriptions and anony-mous mixture anchor: candidate labels are shuffled in the first call and presented in reverse order in the 9① Hard gate 
+
+> Signal checks
+> Validity per stream
+> Check duration
+> =Copies and duplicates
+> Compare audio
+> Count ladder
+> Check voice count
+
+② Describe & rank     
+
+> Audio →text →ranking
+
+③ Build rewards            
+
+> Fixed rules
+> Audio →reports
+> Mixture + each stream
+> Rank reports twice
+> Shuffle ⇄reverse
+> Original mix = blind baseline
+> Check agreement
+> Consistent quality tiers?
+> No: drop group Yes →
+> Quality
+> Tiers →rewards
+> Better tier, higher reward
+> Shape rewards
+> Apply gate penalties
+> Below baseline →lower
+> Group mean
+> Relative advantage
+> Reward − group mean
+> alive dead
+
+Policy update   
+
+> Dead candidates →below all alive candidates
+
+Rollout 
+
+> Real mixture Separation model
+> Repeated sampling
+> Candidate sets
+> Original mixture for comparison
+> Update the same separation model
+
+Figure 4 Judge feedback for a group of candidate separations. Signal checks screen stream validity, copies, duplicates, and count errors. An audio-language model describes clips individually, and a text ranker compares their reports with an anonymous mixture anchor in shuffled and reversed orders. Groups that fail the order-consistency check are dropped. Accepted groups receive shaped rewards, with dead candidates below surviving ones; subtracting the group mean gives the policy advantage. 
+
+second. After mapping results back to the original candidates, let 𝑣 (𝑚 ) 
+
+> 𝑖
+
+be candidate 𝑖 ’s tier score in call 𝑚 .We compute 
+
+𝑣 (𝑚 ) 
+
+> 𝑖
+
+∈ { 𝑞 𝐴 , 𝑞 𝐵 , 𝑞 𝐶 , 𝑞 𝐷 }, 𝑡 𝑖 = 1
+
+𝑀 
+
+> 𝑀
+
+’
+
+> 𝑚 =1
+
+𝑣 (𝑚 ) 
+
+> 𝑖
+
+, (4) where 𝑀 is the number of ranking calls and 𝑞 𝐴 > 𝑞 𝐵 > 𝑞 𝐶 > 𝑞 𝐷 are the tier values. The anonymous anchor is scored in the same way. Their settings and the agreement threshold 𝜏 min are given in table 11. Since presentation order does not change audio quality, large preference changes after reversal indicate order-dependent or unstable feedback. We measure agreement between the two rankings ℛ(1) and ℛ(2) with Kendall’s tie-aware correlation 𝜏 𝑏 [50]: 
+
+𝜏 𝑏 
+
+(
+
+ℛ(1) , ℛ(2)
+
+)
+
+< 𝜏 min =⇒ 𝑟 𝑖 = 0 ∀𝑖 in the group . (5) This rule permits small ranking changes but discards the entire group’s feedback when agreement falls below the threshold. We also reject groups when both calls cannot distinguish candidates or disagree on whether they are distinguishable. Rejected groups have zero reward spread and are excluded by the subsequent dynamic filter, so they do not contribute to RL updates. Groups that pass the check use the mean of the two tier scores. The consistency check tests sensitivity to candidate order; the accuracy of content judgments remains dependent on the audio descriptions. Inference settings and failure handling are specified below; section 6.7 tests the judge on known-source mixtures, and appendix B provides the signal constants and exact prompts. 10 Reward shaping. Let 𝑡 𝑖 be candidate 𝑖 ’s mean tier score, 𝑡 𝑎 the anchor score, and 𝛾 𝑖 ∈ [ 0, 1] its signal-check multiplier. The multiplier combines the mean per-stream copy/duplicate cap with duration, count, and declared-versus-emitted count penalties. We assign 
+
+𝑅 judge (𝑖 ) =
+
+
+
+𝛿 (𝜂 + ( 1 − 𝜂 )𝑠 𝑖 /𝑠 max ) , 𝑖 is dead ,
+
+max (𝜖 alive , min (1, 𝑡 𝑖 𝛾 𝑖 )) , 𝑖 survives , 𝑡 𝑖 ≥ 𝑡 𝑎 ,
+
+max ( 𝑓 below , 𝛽 below 𝑡 𝑖 𝛾 𝑖 ), 𝑖 survives , 𝑡 𝑖 < 𝑡 𝑎 .
+
+(6) Here 𝛿 bounds dead-candidate rewards, 𝜂 sets their minimum fraction, and 𝑠 𝑖 takes a discrete value deter-mined by the failure category, with maximum 𝑠 max . The surviving-candidate guard 𝜖 alive ensures that every surviving reward exceeds the dead-candidate maximum. The below-anchor branch has its own floor 𝑓 below 
+
+and scale 𝛽 below . These floors serve different purposes and need not preserve the ranker’s ordering; signal penalties can also change that ordering. Parameter values, failure categories, and multiplier details appear in appendix B.2. 
+
+5.3 Judge Inference and Failure Handling 
+
+Each perception call processes one clip. For long recordings, the mixture, anchor, and candidate streams share a uniformly positioned 30 s window. Mixture descriptions provide global context; independently ob-tained track descriptions provide the evidence for each candidate. The mixture anchor uses the same track prompt as generated streams. The text ranker receives the mixture report, the candidate track reports, and the count annotation 𝐾 ; it receives no audio. The perception requests do not receive the count annotation. The serving backend disables thinking through the chat-template option. If the primary text service fails, the implementation falls back to the perception model for text ranking. This branch uses a different ranker. A description fails when the perception model returns no valid JSON in three attempts. A surviving candidate with a failed track description is left out of the ranking and receives a floor reward of 0.05; if fewer than two fully described candidates remain, the whole group is rejected. 
+
+5.4 Per-Stream Feedback 
+
+The track report also supplies local feedback for audio-token updates. For stream 𝑘 in candidate 𝑖 , let 𝑛 𝑖𝑘 
+
+denote the audible-speaker count, 𝛼 𝑖𝑘 ∈ { 0, 0.05 , 0.2} the penalty for none, mild, or severe artifacts, and 𝜎 𝑖𝑘 
+
+the mostly-silence indicator. The stream score is 
+
+𝑞 𝑖𝑘 = clip (1 − 0.35 min (max (𝑛 𝑖𝑘 − 1, 0), 2) − 𝛼 𝑖𝑘 − 0.3𝜎 𝑖𝑘 , 0, 1) cap 𝑖𝑘 . (7) The score uses 𝑛 𝑖𝑘 = 1 for a missing count field and defaults to 0.5 before the cap when the entire report is missing. The trainer centers stream scores and adds them to the corresponding audio-token advantages with coefficient 0.5. 
+
+5.5 Policy Optimization 
+
+We sample 𝐺 candidates per real-recording prompt and center the judge rewards 𝑟 𝑖 = 𝑅 judge (𝑖 ) within each group: 
+
+𝐴 𝑖 = 𝑟 𝑖 − 1
+
+𝐺 
+
+> 𝐺
+
+’
+
+> 𝑗 =1
+
+𝑟 𝑗 . (8) The update uses a clipped policy-gradient objective [29, 30], with token averaging, asymmetric clipping, and dynamic group filtering related to recent language-model RL methods [31]. We do not divide advantages by the group standard deviation. Reward magnitudes therefore affect the update, as well as candidate order. Groups with reward standard deviation at most 𝜎 min are filtered to exclude weakly differentiated groups; small nonzero spread would otherwise yield nonzero advantages. A centered per-stream signal, weighted 11 by 𝜆 stream , further shapes audio-token advantages. The training loss combines the resulting clipped policy loss with KL regularization and an auxiliary codec cross-entropy term: 
+
+ℒ = ℒPG + 𝛽 KL ℒKL + 𝜆 CE ℒ+
+
+> CE
+
+. (9) RL has two phases: 130 updates at a learning rate of 10 −6 without the KL term ( 𝛽 KL = 0), followed by 90 updates at 2 × 10 −6 with it. Training runs in segments, and the KL reference is the policy at the start of the current segment. The codec term applies to positive-advantage rollouts. The clipped surrogate and hyperparameters are specified in appendix A.2. 
+
+# 6 Evaluation 
+
+6.1 Evaluation Setup 
+
+We evaluate separation in three domains: overlapping speech, noisy environments, and singing. Baselines comprise the speech separators SepFormer [2], MossFormer [5], ConvTasNet [1], and SR-CorrNet [11], and the query-based extractors SAM Audio [18], AudioSep [16], and SoloAudio [17], whose target and residual outputs are scored as two streams. With supplied counts, we prefill Soloist’s first output token with 2 for LibriMix, or 1 for Voices in the Wild (ViW) and singing vocals, matching baselines with fixed output counts or a single target. 
+
+6.1.1 Evaluation Data 
+
+LibriMix. Clean and noised two-speaker mixtures are generated with the official LibriMix scripts [7]. 
+
+Voices in the Wild (ViW) subset. We select 3,000 single-speaker clips from Voices-in-the-Wild-2M [51]. From its 54 compound acoustic scenarios, we retain twelve: five single conditions ( noise , echo , far_field ,
+
+obstructed , and recording ) and seven pairs ( echo_noise , echo_recording , far_field_noise ,
+
+far_field_recording , obstructed_noise , obstructed_recording , and recording_noise ). Scenarios involving distortion or dropout are excluded because they corrupt or remove speech content beyond the denoising and over-splitting behavior evaluated here. The retained conditions cover noise, reverberation, distance, occlusion, and recording-device artifacts. We require decodable audio, a duration of 1–30 s, and a nonempty transcript, then randomly sample 250 clips per scenario (125 Mandarin and 125 English) with a fixed seed. Audio is resampled to 16 kHz mono. The resulting set spans 1.0–19.65 s per clip (median 5.11 s), totaling 5.54 h. 
+
+WildTV. WildTV consists of 46 real-world speech clips from several domains, including film and TV drama and podcasts, each with one to three speakers: 11 with one speaker, 25 with two, and 10 with three. Refer-ence labels (speaker counts and per-speaker transcripts) are annotated with MOSS-Transcribe-Diarize [24] and then manually reviewed and corrected. Soloist and SR-CorrNet (the released SR-CorrNet-SS checkpoint) each use a single model with blind count inference. SepFormer, MossFormer, and ConvTasNet switch check-points using the true count: enhancement for one speaker, Libri2Mix for two, and WSJ0Mix for three. Their perfect output-count agreement follows from this construction. 
+
+Singing benchmarks. SongYT contains 3,000 song recordings in Chinese, English, and Japanese, so it tests whether separation preserves vocals across languages and regional singing styles. SongYT uses vocal pseudo-references produced by Mel-Band RoFormer [19]. Agreement with these references measures con-sistency with the teacher estimate. MIR-1K [20] contains 1,000 clips of 4–13 s cut from 110 Chinese karaoke pop songs sung by 19 mostly amateur singers. Accompaniment and singing voice are recorded on the left and right channels, so every clip has an isolated vocal reference. MUSDB18-HQ [21] is the uncompressed version of MUSDB18: 150 full-length stereo tracks of various genres (about 10 h), each with isolated vocals, 12 drums, bass, and other stems. MUSDB18-HQ has no lyric references, so we report only RPA and SingerSim on it. 
+
+6.2 Metrics and Aggregation 
+
+To measure how well spoken content is preserved, we transcribe the separated audio and compute permutation-invariant WER (PI-WER) [39, 40]. Given 𝐾 reference transcripts and 𝐽 output transcripts, we pad the shorter list to 𝐿 = max (𝐾, 𝐽 ) with empty transcripts to obtain ˜𝑟 and ˜ℎ, then compute 
+
+PI -WER = min 
+
+> 𝜋 ∈𝒫 𝐿
+
+Õ𝐿 𝑘 =1 𝑑 edit (˜ 𝑟 𝑘 , ˜ℎ𝜋 (𝑘 ))
+
+Õ𝐾 𝑘 =1 |𝑟 𝑘 | . (10) Here, 𝒫 𝐿 contains all stream permutations, 𝑑 edit is token edit distance, and the denominator counts all refer-ence tokens. We find the minimum-cost one-to-one assignment with the Hungarian algorithm [41]. When counts match, PI-WER removes arbitrary output ordering; with one reference and one output, it re-duces to ordinary WER. ViW and singing have one reference, so we report WER; for baselines that return two streams, the stream with the lower WER is matched to the reference. For multi-speaker and blind eval-uation, all emitted streams enter the padded assignment: when counts differ, unmatched reference tokens count as deletions and unmatched output tokens as insertions. Extra output can therefore push WER above 1, while an extra empty transcript adds no errors. 
+
+Transcription and PI-WER. Separated outputs are resampled to 16 kHz and transcribed with Whisper large-v3 [52]. Text is normalized with Unicode NFKC and case folding. CJK characters, kana, and Hangul are tokenized character by character, while Latin text is tokenized into words. Punctuation separates tokens, ex-cept that internal apostrophes are retained. Thus, the reported WER uses script-dependent word/character units. Count accuracy compares the number of voiced output streams with the reference speaker count; the declared count is stored separately as stated .Corpus-level WER is a micro-average: total edit errors divided by total reference tokens, rather than the mean of clip-level WERs. 
+
+Speech quality. We use DNSMOS on ViW to measure how much background noise remains after separa-tion. ViW clips carry noise, reverberation, and other acoustic degradations, and WER alone cannot show whether a system removes the noise or only keeps the speech intelligible. DNSMOS [53] is a non-intrusive neural predictor of ITU-T P.835 subjective ratings. Its background-noise score (BAK) rates how intrusive the remaining background is, and its overall score (OVRL) rates overall quality; both use a 1–5 scale with higher values better. We report means and medians over the ViW clips. 
+
+Music similarity and pitch. SingerSim uses layer-14 features from WavLM-large [42], with L2 normalization on RMS-active frames followed by mean pooling. RPA (raw pitch accuracy) is the fraction of voiced reference frames whose estimated F0 lies within 50 cents of the reference F0. Transcript-based metrics are insensitive to melody: a separated vocal can keep every lyric while its pitch drifts. This matters for a generative separator, which re-synthesizes the vocal rather than masking the mixture. RPA therefore tests whether separation preserves the sung melody, complementing WER for lyric content and SingerSim for vocal similarity. 
+
+6.3 Overlapping Speech 
+
+LibriMix [7] mixes two speakers, with and without added noise (table 2). WildTV contains 46 natural record-ings with one to three speakers (table 3). On WildTV, SepFormer, MossFormer, and ConvTasNet use a sep-arate checkpoint for each speaker count, selected by the true count; Soloist and SR-CorrNet each infer the count with a single model. 13 Table 2 LibriMix PI-WER ↓ on overlapping speech with the count supplied. Bold/underline: best/second. System Clean Noised SepFormer 0.058 0.218 MossFormer 0.080 0.289 SAM Audio 0.156 0.351 SR-CorrNet 0.165 0.682 AudioSep 0.435 0.568 ConvTasNet 0.493 0.824 SoloAudio 0.615 0.854 Soloist 0.060 0.192 Table 3 WildTV corpus-level PI-WER ↓ and blind count accuracy (Acc.) ↑. Dashes: inapplicable. Bold/underline: best/second. PI-WER System Overall 1 spk 2 spk 3 spk Acc. 
+
+Non-blind 
+
+MossFormer 0.527 0.032 0.371 1.386 —SepFormer 0.967 0.783 0.801 1.575 —ConvTasNet 1.541 0.468 0.939 4.113 —
+
+Blind 
+
+SR-CorrNet 1.940 1.572 1.864 2.471 0.217 Soloist 0.150 0.025 0.160 0.238 1.000 
+
+6.4 Speech in Noisy Environments 
+
+On ViW [51] (table 4), separation should remove noise and other interference while keeping the voice intact. The unprocessed input yields 0.261 WER; every separator raises it, Soloist the least (0.302), while Soloist obtains the highest DNSMOS background (BAK) and overall (OVRL) quality. 
+
+Table 4 ViW WER ↓ and DNSMOS [53] BAK/OVRL ↑ (mean/median). Bold/underline: best/second separator. System WER BAK OVRL Unprocessed input 0.261 1.63/1.25 1.43/1.16 SepFormer 0.847 1.87/1.31 1.54/1.19 MossFormer 0.315 2.28/1.71 1.69/1.23 SAM Audio 0.708 2.26/2.06 1.77/1.60 SR-CorrNet 1.074 1.67/1.59 1.56/1.55 AudioSep 0.540 1.94/1.53 1.60/1.35 ConvTasNet 1.082 1.56/1.53 1.53/1.52 SoloAudio 0.882 1.93/1.38 1.52/1.24 Soloist 0.302 3.18/3.45 2.45/2.56 
+
+14 6.5 Singing Vocals 
+
+We evaluate singing vocals on SongYT, MIR-1K [20], and MUSDB18-HQ [21], additionally reporting raw pitch accuracy (RPA) and vocal similarity (SingerSim) (table 5).                                                                               
+
+> Table 5 Singing results: WER ↓, mean RPA ↑, and mean SingerSim ↑. Bold and underline mark the best and second-best comparable results. MUSDB18-HQ has no lyric references. Unprocessed mixtures are omitted: Whisper large-v3 gives very high WER on the original music, so the comparison is not informative. SongYT MIR-1K MUSDB18-HQ System WER RPA SingerSim WER RPA SingerSim RPA SingerSim SepFormer 0.780 0.773 0.955 0.848 0.727 0.890 0.462 0.771 MossFormer 0.389 0.847 0.982 0.638 0.783 0.941 0.563 0.845 SAM Audio 0.460 0.846 0.978 0.885 0.865 0.958 0.643 0.909
+> SR-CorrNet 1.187 0.683 0.742 1.082 0.680 0.728 0.431 0.659 AudioSep 0.388 0.457 0.921 0.455 0.779 0.936 0.366 0.788 ConvTasNet 1.195 0.252 0.580 1.239 0.315 0.568 0.093 0.589 SoloAudio 1.006 0.391 0.881 1.058 0.462 0.797 0.251 0.714 Soloist 0.253 0.854 0.982 0.354 0.799 0.956 0.438 0.819
+
+6.6 Training Ablation 
+
+Speaker-timeline supervision raises SFT count accuracy on every set and lowers PI-WER on noised LibriMix and WildTV, while clean LibriMix PI-WER is nearly unchanged (table 6).                              
+
+> Table 6 Speaker-timeline ablation: PI-WER ↓and count accuracy (Acc.) ↑. All rows use blind count inference. LibriMix Recipe Metric Clean Noised WildTV SFT w/o timelines PI-WER 0.139 0.378 0.330 Acc. 0.890 0.574 0.565 Standard SFT PI-WER 0.140 0.358 0.287 Acc. 0.926 0.735 0.761 RL (Soloist) PI-WER 0.060 0.192 0.150 Acc. 1.000 1.000 1.000
+
+6.7 Judge Validation on Known-Source Mixtures 
+
+The judge never observes isolated sources, reference transcripts, or evaluation metrics; it only orders candi-dates of the same recording. We therefore test whether this ordering agrees with a reference ordering on mixtures whose sources are known. We take 40 LibriMix mixtures (20 clean and 20 noised) and, for each, eight separation outputs randomly drawn from the inference results of intermediate supervised checkpoints. LibriMix sources are clean read speech, so PI-WER reflects most quality differences between separation out-puts and serves as the reference ordering. The judge describes each track with Qwen3-Omni, ranks each group twice in text with the candidate order reversed, and applies the order-consistency check. In this test the text ranker runs at temperature 0, and dead and below-anchor candidates receive a common floor score; pairs are compared by the final judge scores. With Qwen3.6-27B as the text ranker, 36 of the 40 groups pass the order-consistency check. These groups contain 307 output pairs whose PI-WER differs by more than 0.2. The judge prefers one output in 207 of 15 them and agrees with the PI-WER order in 184, or 88.9% (95% confidence interval 80.8–95.6% from 10,000 bootstrap resamples of groups). Per group, Kendall’s 𝜏 𝑏 between the judge scores and the PI-WER order has a median of 0.40 (interquartile range 0.16–0.57) over the 31 passing groups whose judge scores are not all tied, and it is positive in 29 of them. 
+
+Table 7 Judge validation on 40 LibriMix groups of eight outputs. Agreement is measured on pairs whose PI-WER differs by more than 0.2, excluding pairs the judge ties. Ranking protocol Groups passing check Agreement with PI-WER order Direct ranking from audio (Qwen3-Omni) 0/40 —Describe, then rank in text (Qwen3.6-27B) 36/40 88.9% 
+
+The same test compared ranking protocols. Ranking all outputs of a group directly from audio with Qwen3-Omni passed the order-consistency check in none of the 40 groups, whereas describing each clip in isolation and ranking the descriptions in text passed in 36 (table 7). Together with the rubric-score fluctuations noted in section 5.2, this result motivated the describe-then-rank design. The reference ordering reflects transcript accuracy only, so the test does not measure voice purity or audio quality beyond their effect on transcription. Separately, the RL model has lower PI-WER than standard SFT on both LibriMix conditions and on WildTV (table 6), although the reward uses no reference transcripts. 
+
+# 7 Application: Full-Duplex Conversation Processing 
+
+Full-duplex conversations require time-aligned speaker tracks that preserve both overlapping speech and short backchannels. We use Soloist as the separation component of an offline pipeline that converts di-arized recordings into continuous per-speaker audio with aligned transcripts (figure 5). Speaker timelines determine the active speakers in each inference piece; every piece, including single-speaker regions, passes through the model. Real multi-speaker conversation     
+
+> Audio + diarization timeline
+> ①Window mining
+> Overlap tags
+> ②Plan + separate
+> Re-plan if needed
+> ③Assemble tracks
+> Match + align
+> ④Quality control
+> Check crosstalk
+
+# ✓  
+
+> ⑤Process content
+> ASR + filtering
+> ⑥Package data
+> Acceptance checks
+> Re-query windows
+> Retain better streams
+> Bounded repair loop
+
+Full-duplex speaker tracks 
+
+> One speaker per channel
+
+Figure 5 Full-duplex conversation processing. Speaker activity guides window mining and adaptive separation. Voice embeddings link outputs across pieces, and alignment places them on a shared recording timeline. The dashed loop re-queries failed windows and retains improved outputs. Separate identity, missing-speech, and content checks precede transcript-aligned packaging. 
+
+The pipeline converts a conversation recording with 𝐾 speakers into 𝐾 continuous speaker tracks with word-16 aligned transcripts; our examples use 𝐾 = 2 and 𝐾 = 3. Its input is the recording and a speaker timeline with transcripts from MOSS-Transcribe-Diarize [24]. Processing follows four stages: window mining and planning (section 7.1), separation and assembly (section 7.2), quality control (section 7.3), and acceptance (section 7.4). Table 14 lists the pipeline parameters. The supplementary material contains audio examples processed by the pipeline: eight two-speaker conversations (four Chinese and four English) and six Chinese three-speaker conversations with three output tracks, each with the input mixture, the separated speaker tracks, and aligned transcripts. 
+
+7.1 Window Mining and Planning 
+
+Window mining. The pipeline first selects conversation windows that are long enough to capture turn-taking and reliable enough to annotate. Each window contains exactly 𝐾 speakers, gives each speaker enough speech to keep short backchannels, including at least 1 s of exclusive speech, and is dense in speech. Bound-aries fall in silence gaps and avoid the end of a possibly truncated transcript. Windows with ambiguous multi-speaker labels, near-duplicates of another window from the same recording, or a suspicious single-block speaker annotation are discarded. For 𝐾 = 2, each retained window is assigned to the overlap or turn-taking stratum according to whether the timeline contains a sufficiently long speaker intersection; overlap that the timeline misses is therefore not reflected in the strata. Windows with 𝐾 = 3 form a single stratum. 
+
+Piece planning. A conversation window is too long to separate in one pass, so it is split into inference pieces. A dynamic program chooses pieces that cover all annotated speech while minimizing the sum of piece du-ration times requested stream count, a proxy for the number of generated audio tokens. Each piece requests one stream per speaker active in it, rather than one per speaker in the whole window, and adds context on both sides for later cross-fading. Long monologues are split before planning, and a soft penalty, proportional to the missing duration and the stream count, discourages pieces shorter than the preferred length for their stream count. A piece requests at most min (𝐾, 3) streams. 
+
+7.2 Separation and Assembly 
+
+Separation and speaker assignment. Soloist separates every planned piece, including single-speaker pieces. CAM++ embeddings [25] then assign the local streams to the 𝐾 conversation speakers, and a cross-piece consistency term keeps assignments stable across neighboring pieces. A stream is rejected as mixed when its second-highest speaker similarity is also high; the margin adapts to the similarity between the speaker references, so that speakers with similar voices are not rejected wholesale. 
+
+Placement. Each assigned stream is placed on the recording time axis relative to its speaker’s timeline onset. When its confidence is high enough, energy-envelope alignment refines the offset within a bounded range. Neighboring pieces are cross-faded over their shared context. Timeline masks, slightly expanded but never entering other speakers’ intervals, remove residual speech outside the speaker’s own activity, and all zeroed regions are filled with a low-level noise floor sampled from the track’s quietest frames. Speaker verification over each speaker’s full timeline intervals then checks the assembled assignment. For 𝐾 = 2, the two tracks are swapped only when both assignments are reversed; for 𝐾 ≥ 3, the Hungarian algorithm reassigns tracks whenever a better permutation exists. Streams that remain misassigned after this check are discarded. 
+
+Repair. Pieces that return too few usable streams, and streams rejected during assignment, are re-queried. The repair window keeps the active-speaker set and strictly contains the previous interval, so a replacement cannot open new coverage gaps. For a piece that already had enough streams, a replacement is accepted only if it improves separation, judged by the energy contrast between speaker streams and by envelope agreement in their exclusive regions; when those regions are too short to compare, the existing output is kept. For a piece with missing streams, a replacement is accepted once it provides enough voiced streams. Repair stops at a round limit or when the number of empty slots stops decreasing appreciably, and unrecoverable streams remain explicitly marked as missing. 17 7.3 Quality Control 
+
+Each assembled track is checked for three failure modes, each requiring different evidence. 
+
+Intrusive speech. MOSS-Transcribe-Diarize re-diarizes each track. When it detects more than one speaker, speaker verification localizes the intrusive intervals with CAM++ and ERes2Net [26]; a region is kept only when both verifiers accept the target speaker, and scrubbed intervals are filled with the noise floor. An utterance that is mostly scrubbed is removed from the timeline. The track fails the purity check if minority-speaker speech that the verifiers cannot resolve (score gap within 0.10) accumulates beyond the threshold, or if verification cannot cover it. Combining diarization with verification separates true intrusions from diarization over-segmenting a single speaker. 
+
+Missing speech. Hole detection compares the track with the mixture over the source speaker timeline. The hole fraction is measured over frames in the speaker’s exclusive regions where the mixture has speech-level energy. 
+
+Mismatched content. A track can carry the right voice with the wrong words. Qwen3-ASR-1.7B and Qwen3-ForcedAligner-0.6B [54] produce the track transcript and word timestamps, and the word count is compared with MOSS-Transcribe-Diarize. Within exclusive-speaker regions, an utterance whose normalized energy envelope correlates poorly with the mixture is marked as mismatched, with an amplitude-domain fallback. Instead of discarding the whole conversation, the pipeline cuts out mismatched utterances by splitting all tracks and the mixture at those utterances into separate samples; pieces shorter than 20 s are dropped, so final samples can be shorter than 60 s. Regions with too little exclusive speech are marked unassessable and reported separately. 
+
+7.4 Acceptance and Output 
+
+A conversation is accepted when every speaker has a track and transcript, every track passes the purity check, each speaker’s completeness reaches the threshold, the speaker with the least speech contributes enough, and no track fails the hole gate. The hole gate requires both a large hole fraction and a long missing duration, so very short exclusive regions are not rejected on their ratio alone. Completeness is an automatic proxy that can exceed one, so it is used only for coarse filtering. A batch must also stay within the failure-rate limits in table 15, and every delivered track must be non-silent. Listening to stress cases complements these automatic checks. Each accepted conversation provides one 24 kHz mono track per speaker (and, for two speakers, a stereo version with one speaker per channel), together with speaker intervals, utterances, and word timestamps on the same time axis. Speaker assignments are marked as model-derived. A filtered export applies all gates, while an unfiltered export keeps the hole, purity, and completeness metadata for downstream selection. 
+
+# 8 Conclusion 
+
+We introduced Soloist, a generative model that separates individual voices from a mixture without a target-speaker query or a supplied voice count. Its training combines source-audio and speaker-timeline supervi-sion with reinforcement learning on real recordings, where a model judge compares independently obtained track descriptions under repeated candidate orderings. With supplied voice counts, Soloist achieves the lowest transcription error among the compared separators on noisy overlapping speech, speech in noisy environments, and singing vocals. On real-world multi-speaker recordings with unknown voice counts, it also separates voices well, while the singing results show that lyric content, pitch accuracy, and vocal similarity capture different aspects of separation quality. We also integrate the model into an offline pipeline that assembles continuous speaker tracks and aligned transcripts from 18 real conversations. Together, the model and recipe provide a way to learn voice separation from constructed mixtures and natural recordings with incomplete references. 
+
+# References 
+
+[1] Yi Luo and Nima Mesgarani. Conv-TasNet: Surpassing ideal time-frequency magnitude masking for speech separa-tion. IEEE/ACM Transactions on Audio, Speech, and Language Processing , 27(8):1256–1266, 2019. doi: 10.1109/TASLP. 2019.2915167. [2] Cem Subakan, Mirco Ravanelli, Samuele Cornell, Mirko Bronzi, and Jianyuan Zhong. Attention is all you need in speech separation. In Proceedings of the IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , pages 21–25. IEEE, 2021. doi: 10.1109/ICASSP39728.2021.9413901. [3] Scott Wisdom, Efthymios Tzinis, Hakan Erdogan, Ron J. Weiss, Kevin Wilson, and John R. Hershey. Unsupervised sound separation using mixture invariant training. In Advances in Neural Information Processing Systems , volume 33, pages 3846–3857, 2020. [4] Aswin Sivaraman, Scott Wisdom, Hakan Erdogan, and John R. Hershey. Adapting speech separation to real-world meetings using mixture invariant training. In IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , pages 686–690, 2022. doi: 10.1109/ICASSP43922.2022.9747855. [5] Shengkui Zhao and Bin Ma. MossFormer: Pushing the performance limit of monaural speech separation using gated single-head transformer with convolution-augmented joint self-attentions. In IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , pages 1–5, 2023. doi: 10.1109/ICASSP49357.2023.10096646. [6] Zhong-Qiu Wang, Samuele Cornell, Shukjae Choi, Younglo Lee, Byeong-Yeol Kim, and Shinji Watanabe. TF-GridNet: Integrating full- and sub-band modeling for speech separation. IEEE/ACM Transactions on Audio, Speech, and Language Processing , 31:3221–3236, 2023. doi: 10.1109/TASLP.2023.3304482. [7] Joris Cosentino, Manuel Pariente, Samuele Cornell, Antoine Deleforge, and Emmanuel Vincent. LibriMix: An open-source dataset for generalizable speech separation. arXiv preprint arXiv:2005.11262 , 2020. [8] Dong Yu, Morten Kolbæk, Zheng-Hua Tan, and Jesper Jensen. Permutation invariant training of deep models for speaker-independent multi-talker speech separation. In Proceedings of the IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , pages 241–245. IEEE, 2017. doi: 10.1109/ICASSP.2017.7952154. [9] Morten Kolbæk, Dong Yu, Zheng-Hua Tan, and Jesper Jensen. Multitalker speech separation with utterance-level permutation invariant training of deep recurrent neural networks. IEEE/ACM Transactions on Audio, Speech, and Language Processing , 25(10):1901–1913, 2017. doi: 10.1109/TASLP.2017.2726762. [10] Naoya Takahashi, Sudarsanam Parthasaarathy, Nabarun Goswami, and Yuki Mitsufuji. Recursive speech separation for unknown number of speakers. In Proceedings of Interspeech , pages 1348–1352, 2019. doi: 10.21437/Interspeech. 2019-1550. [11] Ui-Hyeop Shin and Hyung-Min Park. Asymmetric encoder-decoder based on time-frequency correlation for speech separation. arXiv preprint arXiv:2603.29097 , 2026. [12] Neil Zeghidour, Alejandro Luebs, Ahmed Omran, Jan Skoglund, and Marco Tagliasacchi. SoundStream: An end-to-end neural audio codec. IEEE/ACM Transactions on Audio, Speech, and Language Processing , 30:495–507, 2022. doi: 10.1109/TASLP.2021.3129994. [13] Alexandre Défossez, Jade Copet, Gabriel Synnaeve, and Yossi Adi. High fidelity neural audio compression. Trans-actions on Machine Learning Research , 2023. URL https://openreview.net/forum?id=ivCd8z8zR2 .[14] Zalán Borsos, Raphaël Marinier, Damien Vincent, Eugene Kharitonov, Olivier Pietquin, Matt Sharifi, Dominik Rob-lek, Olivier Teboul, David Grangier, Marco Tagliasacchi, and Neil Zeghidour. AudioLM: A language modeling approach to audio generation. IEEE/ACM Transactions on Audio, Speech, and Language Processing , 31:2523–2533, 2023. doi: 10.1109/TASLP.2023.3288409. [15] Hakan Erdogan, Scott Wisdom, Xuankai Chang, Zalán Borsos, Marco Tagliasacchi, Neil Zeghidour, and John R. Hershey. TokenSplit: Using discrete speech representations for direct, refined, and transcript-conditioned speech separation and recognition. In Proc. Interspeech 2023 , pages 3462–3466, 2023. doi: 10.21437/Interspeech.2023-2069. 
+
+19 [16] Xubo Liu, Qiuqiang Kong, Yan Zhao, Haohe Liu, Yi Yuan, Yuzhuo Liu, Rui Xia, Yuxuan Wang, Mark D. Plumbley, and Wenwu Wang. Separate anything you describe. IEEE Transactions on Audio, Speech and Language Processing , 33: 458–471, 2025. doi: 10.1109/TASLP.2024.3520017. [17] Helin Wang, Jiarui Hai, Yen-Ju Lu, Karan Thakkar, Mounya Elhilali, and Najim Dehak. SoloAudio: Target sound extraction with language-oriented audio diffusion transformer. In IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , pages 1–5, 2025. doi: 10.1109/ICASSP49660.2025.10890066. [18] Bowen Shi, Andros Tjandra, John Hoffman, Helin Wang, Yi-Chiao Wu, Luya Gao, Julius Richter, Matt Le, Apoorv Vyas, Sanyuan Chen, Christoph Feichtenhofer, Piotr Dollár, Wei-Ning Hsu, and Ann Lee. SAM Audio: Segment anything in audio. arXiv preprint arXiv:2512.18099 , 2025. [19] Ju-Chiang Wang, Wei-Tsung Lu, and Minz Won. Mel-Band RoFormer for music source separation. arXiv preprint arXiv:2310.01809 , 2023. ISMIR 2023 Late-Breaking/Demo. [20] Chao-Ling Hsu and Jyh-Shing Roger Jang. On the improvement of singing voice separation for monaural recordings using the MIR-1K dataset. IEEE Transactions on Audio, Speech, and Language Processing , 18(2):310–319, 2010. doi: 10.1109/TASL.2009.2026503. [21] Zafar Rafii, Antoine Liutkus, Fabian-Robert Stöter, Stylianos Ioannis Mimilakis, and Rachel Bittner. MUSDB18-HQ—an uncompressed version of MUSDB18, 2019. URL https://doi.org/10.5281/zenodo.3338373 .[22] Efthymios Tzinis, Yossi Adi, Vamsi Krishna Ithapu, Buye Xu, Paris Smaragdis, and Anurag Kumar. RemixIT: Con-tinual self-training of speech enhancement models via bootstrapped remixing. IEEE Journal of Selected Topics in Signal Processing , 16(6):1329–1341, 2022. doi: 10.1109/JSTSP.2022.3200911. [23] Yusuke Fujita, Naoyuki Kanda, Shota Horiguchi, Kenji Nagamatsu, and Shinji Watanabe. End-to-end neural speaker diarization with permutation-free objectives. In Proceedings of Interspeech , pages 4300–4304, 2019. doi: 10.21437/ Interspeech.2019-2899. [24] MOSI.AI. MOSS Transcribe Diarize Technical Report, 2026. URL https://arxiv.org/abs/2601.01554 .[25] Hui Wang, Siqi Zheng, Yafeng Chen, Luyao Cheng, and Qian Chen. CAM++: A fast and efficient network for speaker verification using context-aware masking. In Proceedings of Interspeech , pages 5301–5305, 2023. doi: 10. 21437/Interspeech.2023-1513. [26] Yafeng Chen, Siqi Zheng, Hui Wang, Luyao Cheng, Qian Chen, and Jiajun Qi. An enhanced Res2Net with local and global feature fusion for speaker verification. In Proceedings of Interspeech , pages 2228–2232, 2023. doi: 10.21437/ Interspeech.2023-1294. [27] Long Ouyang, Jeff Wu, Xu Jiang, Diogo Almeida, Carroll L. Wainwright, Pamela Mishkin, Chong Zhang, Sand-hini Agarwal, Katarina Slama, Alex Ray, John Schulman, Jacob Hilton, Fraser Kelton, Luke Miller, Maddie Simens, Amanda Askell, Peter Welinder, Paul Christiano, Jan Leike, and Ryan Lowe. Training language models to follow in-structions with human feedback. In Advances in Neural Information Processing Systems , volume 35, pages 27730–27744, 2022. [28] Harrison Lee, Samrat Phatale, Hassan Mansoor, Thomas Mesnard, Johan Ferret, Kellie Ren Lu, Colton Bishop, Ethan Hall, Victor Carbune, Abhinav Rastogi, and Sushant Prakash. RLAIF vs. RLHF: Scaling reinforcement learning from human feedback with AI feedback. In Proceedings of the 41st International Conference on Machine Learning (ICML) ,volume 235 of Proceedings of Machine Learning Research , pages 26874–26901, 2024. [29] John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347 , 2017. [30] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, Y. K. Li, Y. Wu, and Daya Guo. DeepSeekMath: Pushing the limits of mathematical reasoning in open language models. 
+
+arXiv preprint arXiv:2402.03300 , 2024. [31] Qiying Yu, Zheng Zhang, Ruofei Zhu, Yufeng Yuan, Xiaochen Zuo, Yu Yue, Weinan Dai, Tiantian Fan, Gaohong Liu, Juncai Liu, Lingjun Liu, Xin Liu, Haibin Lin, Zhiqi Lin, Bole Ma, Guangming Sheng, Yuxuan Tong, Chi Zhang, Mofan Zhang, Ru Zhang, Wang Zhang, Hang Zhu, Jinhua Zhu, Jiaze Chen, Jiangjie Chen, Chengyi Wang, Hongli Yu, Yuxuan Song, Xiangpeng Wei, Hao Zhou, Jingjing Liu, Wei-Ying Ma, Ya-Qin Zhang, Lin Yan, Yonghui Wu, 
+
+20 and Mingxuan Wang. DAPO: An open-source LLM reinforcement learning system at scale. In Advances in Neural Information Processing Systems , volume 38, pages 113222–113244, 2025. [32] Anurag Kumar, Andrew Perrault, and Donald S. Williamson. Using RLHF to align speech enhancement approaches to mean-opinion quality scores. In IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) ,pages 1–5, 2025. doi: 10.1109/ICASSP49660.2025.10888446. [33] Zihan Zhang, Xize Cheng, Zhennan Jiang, Dongjie Fu, Jingyuan Chen, Zhou Zhao, and Tao Jin. MARS-Sep: Multimodal-aligned reinforced sound separation. In International Conference on Learning Representations , 2026. URL 
+
+https://openreview.net/forum?id=AhvApZghHf .[34] Chih-Ning Chen, Jen-Cheng Hou, Hsin-Min Wang, Shao-Yi Chien, Yu Tsao, and Fan-Gang Zeng. LLM-guided reinforcement learning for audio-visual speech enhancement. arXiv preprint arXiv:2603.13952 , 2026. [35] Lianmin Zheng, Wei-Lin Chiang, Ying Sheng, Siyuan Zhuang, Zhanghao Wu, Yonghao Zhuang, Zi Lin, Zhuohan Li, Dacheng Li, Eric P. Xing, Hao Zhang, Joseph E. Gonzalez, and Ion Stoica. Judging LLM-as-a-judge with MT-Bench and Chatbot Arena. In Advances in Neural Information Processing Systems , volume 36, pages 46595–46623, 2023. Datasets and Benchmarks Track. [36] Leo Gao, John Schulman, and Jacob Hilton. Scaling laws for reward model overoptimization. In Proceedings of the 40th International Conference on Machine Learning , volume 202 of Proceedings of Machine Learning Research , pages 10835–10866, 2023. URL https://proceedings.mlr.press/v202/gao23h.html .[37] Emmanuel Vincent, Rémi Gribonval, and Cédric Févotte. Performance measurement in blind audio source sepa-ration. IEEE Transactions on Audio, Speech, and Language Processing , 14(4):1462–1469, 2006. doi: 10.1109/TSA.2005. 858005. [38] Jonathan Le Roux, Scott Wisdom, Hakan Erdogan, and John R. Hershey. SDR – half-baked or well done? In 
+
+IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , pages 626–630, 2019. doi: 10.1109/ ICASSP.2019.8683855. [39] Yanmin Qian, Xuankai Chang, and Dong Yu. Single-channel multi-talker speech recognition with permutation invariant training. Speech Communication , 104:1–11, 2018. doi: 10.1016/j.specom.2018.09.003. [40] Ilya Sklyar, Anna Piunova, and Yulan Liu. Streaming multi-speaker ASR with RNN-T. In IEEE International Con-ference on Acoustics, Speech and Signal Processing (ICASSP) , pages 6903–6907, 2021. doi: 10.1109/ICASSP39728.2021. 9413471. [41] Thilo von Neumann, Christoph Boeddeker, Keisuke Kinoshita, Marc Delcroix, and Reinhold Haeb-Umbach. On word error rate definitions and their efficient computation for multi-speaker speech recognition systems. In IEEE In-ternational Conference on Acoustics, Speech and Signal Processing (ICASSP) , pages 1–5, 2023. doi: 10.1109/ICASSP49357. 2023.10094784. [42] Sanyuan Chen, Chengyi Wang, Zhengyang Chen, Yu Wu, Shujie Liu, Zhuo Chen, Jinyu Li, Naoyuki Kanda, Takuya Yoshioka, Xiong Xiao, Jian Wu, Long Zhou, Shuo Ren, Yanmin Qian, Yao Qian, Jian Wu, Michael Zeng, Xiangzhan Yu, and Furu Wei. WavLM: Large-scale self-supervised pre-training for full stack speech processing. IEEE Journal of Selected Topics in Signal Processing , 16(6):1505–1518, 2022. doi: 10.1109/JSTSP.2022.3188113. [43] Takuya Yoshioka, Zhuo Chen, Changliang Liu, Xiong Xiao, Hakan Erdogan, and Dimitrios Dimitriadis. Low-latency speaker-independent continuous speech separation. In IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , pages 6980–6984, 2019. doi: 10.1109/ICASSP.2019.8682274. [44] Alexandre Défossez, Laurent Mazaré, Manu Orsini, Amélie Royer, Patrick Pérez, Hervé Jégou, Edouard Grave, and Neil Zeghidour. Moshi: A speech-text foundation model for real-time dialogue. arXiv preprint arXiv:2410.00037 ,2024. [45] An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chengen Huang, Chenxu Lv, Chujie Zheng, Dayiheng Liu, Fan Zhou, Fei Huang, Feng Hu, Hao Ge, Haoran Wei, Huan Lin, Jialong Tang, Jian Yang, Jianhong Tu, Jianwei Zhang, Jianxin Yang, Jiaxi Yang, Jing Zhou, Jingren Zhou, Junyang Lin, Kai Dang, Keqin Bao, Kexin Yang, Le Yu, Lianghao Deng, Mei Li, Mingfeng Xue, Mingze Li, Pei Zhang, Peng Wang, Qin Zhu, Rui Men, Ruize Gao, Shixuan Liu, Shuang Luo, Tianhao Li, Tianyi Tang, Wenbiao Yin, Xingzhang Ren, Xinyu Wang, Xinyu Zhang, Xuancheng Ren, Yang Fan, Yang Su, Yichang Zhang, Yinger Zhang, Yu Wan, Yuqiong 
+
+21 Liu, Zekun Wang, Zeyu Cui, Zhenru Zhang, Zhipeng Zhou, and Zihan Qiu. Qwen3 technical report. arXiv preprint arXiv:2505.09388 , 2025. [46] Jin Xu, Zhifang Guo, Hangrui Hu, Yunfei Chu, Xiong Wang, Jinzheng He, Yuxuan Wang, Xian Shi, Ting He, Xinfa Zhu, Yuanjun Lv, Yongqi Wang, Dake Guo, He Wang, Linhan Ma, Pei Zhang, Xinyu Zhang, Hongkun Hao, Zishan Guo, Baosong Yang, Bin Zhang, Ziyang Ma, Xipin Wei, Shuai Bai, Keqin Chen, Xuejing Liu, Peng Wang, Mingkun Yang, Dayiheng Liu, Xingzhang Ren, Bo Zheng, Rui Men, Fan Zhou, Bowen Yu, Jianxin Yang, Le Yu, Jingren Zhou, and Junyang Lin. Qwen3-Omni technical report. arXiv preprint arXiv:2509.17765 , 2025. [47] Yitian Gong, Kuangwei Chen, Zhaoye Fei, Xiaogui Yang, Ke Chen, Yang Wang, Kexin Huang, Mingshu Chen, Ruix-iao Li, Qingyuan Cheng, Shimin Li, and Xipeng Qiu. MOSS-Audio-Tokenizer: Scaling audio tokenizers for fu-ture audio foundation models. arXiv preprint arXiv:2602.10934 , 2026. v2 weights: https://huggingface.co/ OpenMOSS-Team/MOSS-Audio-Tokenizer-v2 .[48] Fan Yu, Shiliang Zhang, Yihui Fu, Lei Xie, Siqi Zheng, Zhihao Du, Weilong Huang, Pengcheng Guo, Zhĳie Yan, Bin Ma, Xin Xu, and Hui Bu. M2MeT: The ICASSP 2022 multi-channel multi-party meeting transcription challenge. In IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , pages 6167–6171, 2022. doi: 10.1109/ICASSP43922.2022.9746465. [49] Qwen Team. Qwen3.6-27B. https://huggingface.co/Qwen/Qwen3.6-27B , 2026. [50] M. G. Kendall. The treatment of ties in ranking problems. Biometrika , 33(3):239–251, 1945. doi: 10.1093/biomet/33. 3.239. [51] Zhifei Xie, Kaiyu Pang, Haobin Zhang, Deheng Ye, Xiaobin Hu, Shuicheng Yan, and Chunyan Miao. Mega-ASR: To-wards in-the-wild 2 speech recognition via scaling up real-world acoustic simulation. arXiv preprint arXiv:2605.19833 ,2026. URL https://arxiv.org/abs/2605.19833 .[52] Alec Radford, Jong Wook Kim, Tao Xu, Greg Brockman, Christine McLeavey, and Ilya Sutskever. Robust speech recognition via large-scale weak supervision. In Proceedings of the 40th International Conference on Machine Learning ,volume 202 of Proceedings of Machine Learning Research , pages 28492–28518. PMLR, 2023. [53] Chandan K. A. Reddy, Vishak Gopal, and Ross Cutler. DNSMOS P.835: A non-intrusive perceptual objective speech quality metric to evaluate noise suppressors. In IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , pages 886–890, 2022. doi: 10.1109/ICASSP43922.2022.9746108. [54] Xian Shi, Xiong Wang, Zhifang Guo, Yongqi Wang, Pei Zhang, Xinyu Zhang, Zishan Guo, Hongkun Hao, Yu Xi, Baosong Yang, Jin Xu, Jingren Zhou, and Junyang Lin. Qwen3-ASR technical report. arXiv preprint arXiv:2601.21337 ,2026. URL https://arxiv.org/abs/2601.21337 .[55] Deheng Ye, Zhao Liu, Mingfei Sun, Bei Shi, Peilin Zhao, Hao Wu, Hongsheng Yu, Shaojie Yang, Xipeng Wu, Qingwei Guo, Qiaobo Chen, Yinyuting Yin, Hao Zhang, Tengfei Shi, Liang Wang, Qiang Fu, Wei Yang, and Lanxiao Huang. Mastering complex control in MOBA games with deep reinforcement learning. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 34, pages 6672–6679, 2020. doi: 10.1609/aaai.v34i04.6144. 
+
+22 A Model and Training Details 
+
+A.1 Model Configuration 
+
+Table 8 Model configuration. Component Configuration Backbone Qwen3-4B [45] Continuous encoder Qwen3-Omni AuT; trainable Adaptors Gated MLPs: 2560 → 8192 → 2560 for codec embeddings and 2048 → 8192 → 2560 for AuT features; separate output-code adaptor Local transformer One layer; hidden size 2560; 32 heads of dimension 80; twelve codebooks with 1024 entries plus padding Codec MOSS-Audio-Tokenizer-v2; first 12 of 32 residual quantizers; frozen Parameter count 5,385,239,424 
+
+A.2 Optimization Settings 
+
+For the token likelihood ratio 𝜌 𝑖𝑡 = 𝜋 𝜃 (𝑧 𝑖𝑡 | 𝑧 𝑖, <𝑡 , 𝑥 )/ 𝜋 old (𝑧 𝑖𝑡 | 𝑧 𝑖, <𝑡 , 𝑥 ) and advantage 𝐴 , the clipped surrogate is 
+
+𝑏 (𝜌 , 𝐴 ) = min (𝜌 𝐴, clip (𝜌 , 0.8, 1.28 )𝐴 ) , (11) 
+
+𝑢 (𝜌 , 𝐴 ) =
+
+{
+
+max (𝑏 (𝜌 , 𝐴 ), 3𝐴 ), 𝐴 < 0,𝑏 (𝜌 , 𝐴 ), 𝐴 ≥ 0. (12) The policy loss averages the negative surrogate over eligible tokens, with a KL penalty and a codec cross-entropy auxiliary term. Audio likelihood ratios use truncated importance sampling. Centered per-stream feedback augments audio-token advantages as specified in section 5.4. 
+
+Table 9 RL configuration for both phases. Only the learning rate and KL coefficient change between phase 1 and phase 2. Setting Value Group and batch 𝐺 = 8 candidates/prompt; 48 retained groups/update; 384 sequences Dynamic sampling Initial 72 attempted groups; cap 400; filter reward std ≤ 0.005 
+
+Advantage Group-centered reward; no standard-deviation normalization Policy clipping Lower/upper ranges 0.2/0.28; negative-advantage dual clip 3.0 [55] KL and entropy 𝑘 1 KL estimator; coefficient 0 in the first phase and 0.001 in the second; no entropy bonus Optimizer Adam; learning rate 10 −6 in the first phase and 2 × 10 −6 in the second; 10 warm-up updates then constant; (𝛽 1 , 𝛽 2) = (0.9, 0.98 ); 𝜖 = 10 −8; no weight decay Rollout sampling Temperature 1.0; top-𝑝 = 1.0; maximum response 2048 tokens Audio policy term Coefficient 1.0; truncated importance sampling enabled Stream feedback Coefficient 0.5 on centered stream scores Codec auxiliary Weight 0.05; positive-advantage rollouts only; codebook decay 0.8 
+
+In equation (9), the enabled KL coefficient is 𝛽 KL = 0.001 with the 𝑘 1 estimator, the auxiliary coefficient is 
+
+𝜆 CE = 0.05 , and centered stream feedback has weight 𝜆 stream = 0.5. The group size is 𝐺 = 8 and the spread threshold is 𝜎 min = 0.005 . Phase 1 uses 𝛽 KL = 0; phase 2 uses the stated coefficient. 23 A.3 Output Interface and Exact Prompts 
+
+The model retains the Qwen3 vocabulary and chat template, assigning audio roles to existing tokens (ta-ble 10). At each input-frame position, it sums the projected continuous feature and the embedded mixture codes. At an output-frame request, the local transformer generates twelve codes and the output adaptor embeds them for subsequent backbone steps.          
+
+> Table 10 Vocabulary tokens reused for the audio interface. Token Role
+> <|im_start|> ,<|im_end|> Turn start and turn end / stop
+> <|vision_start|> ,<|vision_end|> Audio boundaries for input and output
+> <|vision_pad|> Input frame, replaced by the mixture embedding
+> <|video_pad|> Output frame request, replaced by the generated-code embedding
+> <|endoftext|> Sequence padding
+
+Teacher forcing supervises all assistant text-channel positions, including indices, counts, delimiters, frame requests, newlines, and the stop token. Audio-code cross-entropy acts only at output-frame positions. Sep-aration targets follow first onset; the timeline task uses the text channel alone. The two requests below specify the separation and timeline tasks. The fixed Chinese strings are the actual model inputs. ×𝑇 denotes repeated frame placeholders, and the response values illustrate the format. 
+
+Separation. 
+
+> <|im_start|>system
+> 你是一个人声分离助手。 <|im_end|> <|im_start|>user
+> 请先输出这段混合音频中的说话人个数，再分别分离并输出每一段人声，只输出编号和对应分离音频：
+> <|vision_start|><|vision_pad|> ×𝑇 <|vision_end|><|im_end|> <|im_start|>assistant 21<|vision_start|><|video_pad|> ×𝑇 1<|vision_end|> 2<|vision_start|><|video_pad|> ×𝑇 2<|vision_end|><|im_end|>
+
+The system instruction asks the model to act as a voice separation assistant. The user instruction requests the speaker count followed by indexed separated audio. The mixture immediately follows the colon. Each audio placeholder denotes one frame of twelve codes. 
+
+Timeline.    
+
+> <|im_start|>system
+> 你是一个人声分离助手。 <|im_end|> <|im_start|>user
+> 请输出这段混合音频中每个说话人的发声时间段，格式为 [开始时间 ][ 说话人编号 ][ 结束时间 ]，按开始时间排序， 不要输出语音内容： <|vision_start|><|vision_pad|> ×𝑇 <|vision_end|><|im_end|> <|im_start|>assistant [0.06][S01][1.22][1.44][S02][3.80] · · · <|im_end|>
+
+The user instruction requests speaking intervals in [start][speaker][end] form, sorted by start time, without speech content. Times are seconds to two decimal places. Speaker IDs follow first appearance and can recur across intervals. This response has no count token or audio-frame placeholders. 24 B Judge Settings, Reward Constants, and Prompts 
+
+B.1 Inference Settings 
+
+The perception and ranking settings used by the reward pipeline are listed below. Failure handling is de-scribed in section 5.3. 
+
+Table 11 Judge inference settings; tier scores are averaged over two rankings. Component Setting Perception Qwen3-Omni-30B-A3B-Instruct; greedy; maximum 400 tokens; repetition penalty 1.05 Text ranker Qwen3.6-27B; thinking disabled; temperature 0.3; top-𝑝 = 0.9; maximum 1024 tokens; repetition penalty 1.05 Candidate presentation 𝑀 = 2 calls; randomly shuffled labels, then reversed order; anonymous mixture anchor included Tier values (𝑞 𝐴 , 𝑞 𝐵 , 𝑞 𝐶 , 𝑞 𝐷 ) A/B/C/D ↦ → 1.0/0.7/0.4/0.1 Consistency threshold 𝜏 min = 0.3; accept Kendall’s 𝜏 𝑏 ≥ 𝜏 min 
+
+Group rejection At most one candidate surviving the signal checks; failed mixture or anchor description; fewer than two fully described surviving candidates; failed ranking call; low rank agreement; both calls indistinguishable; conflicting indistinguishable flags 
+
+B.2 Signal Gates and Reward Shaping 
+
+Signal checks operate at 16 kHz with the parameters in table 12. The number of streams passing the dura-tion, level, and activity tests is 𝐽 eff . Count penalties relative to the annotation 𝐾 use this quantity; protocol consistency compares the declared count ̂ 𝐾 with the emitted count 𝐽 .
+
+Table 12 Signal-gate parameters for reward shaping. Check Setting Stream duration 𝑑 𝑘 > 0.2 s; duration ratio lower bound 0.35, upper bound 1.05 Signal level and activity RMS > −45 dBFS; active fraction ≥ 0.05 
+
+Activity frames 50 ms; active above −40 dBFS Log-mel representation FFT 512; hop 256; 40 mel bands; frame-match tolerance 1.5 Input copy Frame-match threshold 0.8; per-stream cap 0.1 Duplicate stream Frame-match threshold 0.8; per-stream cap 0.3 Excess valid streams Multipliers 1.0/0.7/0.4 for excess 0/1/2; 0 beyond Missing valid streams Multipliers 1.0/0.5/0.2 for deficit 0/1/2; 0 beyond Declared/emitted count mismatch Multiplier 0.6 Dead categories No streams; no valid streams; overlong; zero count penalty; mixture passthrough 
+
+Copy and duplicate checks compare log-mel frames, allowing tolerance for codec reconstruction. The config-ured copy exemption permits a mixture-like output when the declared count is one and the count annotation is at most one. This accommodates single-source reconstruction, while leaving background retention and missed speakers for the subsequent quality assessment. For the dead-candidate branch of equation (6), severity is 𝑠 𝑖 = 0 for passthrough, no streams, or no valid streams; 𝑠 𝑖 = 0.4 for overlong output; and 𝑠 𝑖 = 0.6 for a zero count penalty. These values put dead candidates below surviving candidates within an accepted group. Rejected groups receive zero reward throughout. 25 Table 13 Reward-mapping constants (equation (6)). Parameter Value Role 
+
+𝛿 0.005 Dead-candidate maximum 
+
+𝜂 0.25 Minimum fraction for dead rewards 
+
+𝑠 max 0.6 Maximum category severity 
+
+𝜖 alive 0.006 Surviving-candidate guard 
+
+𝑓 below 0.05 Below-anchor floor 
+
+𝛽 below 0.3 Below-anchor scale 
+
+Thus 𝑠 𝑖 ∈ { 0, 0.4, 0.6}. The multiplier 𝛾 𝑖 is the mean per-stream copy/duplicate cap multiplied by the du-ration and count step penalties, and by the declared/emitted-count factor (0.6 on mismatch). The guard 
+
+𝜖 alive is a constructive safeguard: it exceeds 𝛿 , while the unguarded product can fall below 𝛿 ; for example, 
+
+0.1 × 0.1 × 0.4 × 0.6 = 0.0024 . It was inactive for surviving candidates in the recorded runs. The separate floor 𝑓 below is larger, so this mapping is not globally monotone in tier score. 
+
+B.3 Exact Judge Prompts 
+
+We list the exact prompts sent to the judge models. In the ranking prompt, {mix_report} and {reports} 
+
+are replaced by the JSON reports for the mixture and for every candidate track, {ids} by the anonymous candidate labels, and {gt_line} by a line stating the annotated voice count. 
+
+Track description ( DESCRIBE_TRACK_PROMPT ). 
+
+Listen to this single audio clip. Report ONLY what you actually hear. Answer STRICT JSON, no other text: {”speakers_audible”: <int>, ”speaker_traits”: [”<gender/voice, <=6 words each>”, ...], ”content”: ”<what is said, verbatim fragments or brief summary, <=30 words>”, ”language”: ”<language(s)>”, ”artifacts”: ”none|mild|severe”, ”mostly_silence”: <bool>, ”notes”: ”<=10 words>”} ”speakers_audible” counts DISTINCT speakers you can hear in this clip (0 if no speech). ”artifacts” = distortion, robotic/garbled audio, clicks, unnatural sound. 
+
+Mixture description ( DESCRIBE_MIX_PROMPT ). 
+
+Listen to this audio: it is a MIXTURE that may contain several people speaking, possibly overlapping. Report ONLY what you actually hear. Answer STRICT JSON, no other text: {”num_speakers”: <int>, ”speakers”: [{”traits”: ”<gender/voice, <=6 words>”, ”content”: ”<what this speaker says, <=20 words>”}, ...], ”background”: ”<=8 words”, ”notes”: ”<=10 words”} 
+
+Text ranking ( TEXT_RANK_PROMPT ). 
+
+You are ranking candidate results of blind speech separation performed on the same input mixture. You cannot hear the audio. An independent listener described the MIXTURE, and separately described every track of every candidate (each track heard IN ISOLATION, without context). MIXTURE report: {mix_report} {gt_line} 
+
+26 Candidates, labeled {ids} (order is arbitrary and meaningless). Each candidate is one attempt to split the mixture into one-speaker tracks: {reports} Rank ALL candidates into quality tiers A (clearly best) > B > C > D (clearly worst). Priorities, most important first: 1. A track with 2+ speakers audible is NOT separated — the more such tracks, the worse. A candidate whose single track sounds like the whole mixture is worst. 2. The candidate’s tracks together should cover all mixture speakers/content; missing speakers or missing content is bad. 3. Two tracks with the same speaker/content = duplicates, bad. 4. Track content that does NOT appear in the mixture report = likely fabricated, serious defect. 5. Fewer artifacts is better. Ties allowed. Use multiple tiers whenever the reports differ materially. Answer STRICT JSON only: {”indistinguishable”: <bool>, ”ranking”: [{”id”: ”C0”, ”tier”: ”A”}, ...one entry per candidate, every id exactly once...], ”notes”: ”<=20 words”} 
+
+27 C Full-Duplex Pipeline Parameters 
+
+The parameters below implement the processing stages in section 7. Batch limits are configured acceptance thresholds, not observed failure rates. 
+
+Table 14 Full-duplex pipeline parameters. 
+
+Stage Parameter Value Window mining Window length 60–180 s; 𝐾 speakers Minimum speech per speaker 0.2 s Minimum exclusive speech per speaker 1 s Minimum speech density 0.45 Boundary silence gap / outer padding ≥0.25 s / 0.2 s Excluded transcript tail Final 2 s Overlap stratum ( 𝐾 = 2) Longest annotated intersection ≥0.30 s Near-duplicate rejection Temporal IoU >0.30 within a recording Single-block rejection ≤2 intervals cover >90% of a span that is ≥15 s or >20% of the window Piece planning Maximum piece length / streams 22 s / min (𝐾, 3)
+
+Context and speaker-inclusion margin 0.5 s per side Preferred minimum length (1/2/3 streams) 3/6/8 s; penalty 4.0 per missing second per stream Assembly Cross-piece consistency weight 2.0 Mixed-stream rejection Highest similarity ≥0.45 and second-highest 
+
+≥ max (0.45 , reference similarity + 0.10 )
+
+Alignment refinement ±6 s; confidence ≥0.05 Timeline-mask expansion 0.2 s per side Repair Stopping rule Round limit, or empty-slot reduction <10% Minimum exclusive region for comparison 0.5 s Intrusive speech Intrusion margin Other-speaker similarity higher by ≥0.10 Utterance removal ≥70% scrubbed Purity rejection Unresolved minority speech (verifier score gap within 0.10) ≥2.0 s Noise-floor fill (all zeroed regions) 2nd-percentile speech-frame energy + 3 dB (source frames below + 6 dB) Content Envelope-correlation threshold 0.30 (amplitude fallback 0.12) Minimum exclusive speech for assessment 0.30 s Acceptance Per-speaker completeness ≥0.80 Least-speaking speaker ≥8 s and ≥5 utterances Hole gate Fraction >0.20 and missing duration >1.0 s 
+
+Table 15 Batch acceptance thresholds. Denominators are specified per row; limits are configured thresholds, not mea-sured rates. 
+
+Check Failure event Denominator Limit Inference Fewer usable streams than requested Planned pieces 3% Assembly: missing No assigned stream after repair Speaker slots per piece 4% Assembly: placement Assigned stream silent in its exclusive region Speaker slots per piece 6% Speech coverage Track more than 40 dB below mixture during timeline speech Source-timeline speech duration 5% Speaker coverage Unprocessed speaker with more than 3 s of speech Evaluated conversation windows 1% Content matching Envelope below 0.30 or fallback discrepancy above 0.12 Assessable utterances 8% Silent output Track RMS below −60 dBFS Delivered tracks 0
+
+28

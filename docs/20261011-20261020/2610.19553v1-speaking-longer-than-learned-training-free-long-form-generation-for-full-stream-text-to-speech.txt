@@ -1,0 +1,174 @@
+Title: Speaking Longer Than Learned: Training-Free Long-Form Generation for Full-Stream Text-to-Speech
+
+URL Source: https://arxiv.org/pdf/2610.19553v1
+
+Published Time: Thu, 15 Oct 2026 00:45:28 GMT
+
+Number of Pages: 5
+
+Markdown Content:
+## SPEAKING LONGER THAN LEARNED: TRAINING-FREE LONG-FORM GENERATION FOR FULL-STREAM TEXT-TO-SPEECH 
+
+## Jeseung Lim 1, Jiseong Woo 2, Heeseung Kim 2,†
+
+> 1
+
+## Department of Physics, University of Seoul, Seoul, Republic of Korea 
+
+> 2
+
+## Department of AI, University of Seoul, Seoul, Republic of Korea 
+
+ABSTRACT 
+
+Recent full-stream text-to-speech (TTS) models enable low-latency personalized synthesis as input text arrives. However, sustaining generation beyond the lengths seen during train-ing without additional training remains largely unexplored. We systematically analyze VoXtream2, which extends gen-eration by periodically discarding past context while retain-ing the acoustic prompt. We find that this strategy does not prevent degradation: pronunciation accuracy deteriorates near the end of the training range due to the range of positions in which the model operates rather than the loss of past context, while speaker similarity gradually declines throughout gener-ation. Based on these findings, we propose two training-free modifications that reduce the attention window and strengthen attention to the acoustic prompt. Experiments show that these modifications preserve pronunciation accuracy and speaker similarity throughout long-form generation while retaining the naturalness of the original model. Ablations further show complementary effects of the two modifications. 1
+
+Index Terms — streaming text-to-speech (TTS), long-form TTS, training-free length extrapolation, attention bias 
+
+1. INTRODUCTION 
+
+Recent text-to-speech (TTS) systems support zero-shot voice cloning and expressive speech generation [1], while growing demand for spoken conversational systems has increased in-terest in streaming TTS. Recent approaches enable synthe-sis before the complete input text is available through inter-leaved speech-text modeling [2], direct autoregressive gener-ation from incoming text [3], or streaming acoustic decod-ing [1]. These advances have made low-latency TTS increas-ingly practical for real-time conversational systems. Beyond short utterances, many applications require long-form synthesis over multiple sentences or paragraphs [4]. Concatenating independently synthesized segments can in-troduce speaker inconsistencies and boundary artifacts [5], while long-form paired speech data remains scarce. Con-sequently, synthesis beyond the sequence lengths observed   
+
+> †Corresponding Author.
+> 1Project page: https://voxtend.github.io
+
+during training becomes a length extrapolation problem. Sim-ilar challenges have been studied in large language models (LLMs) through additional long-context training or training-free context management [6]. StreamingLLM [6] retains a few initial attention sink tokens together with a bounded win-dow of recent tokens to enable inference beyond the training context. Extending generation beyond the sequence lengths seen during training has also been explored in long-form TTS. Ap-proaches based on additional training improve length extrapo-lation through positional modeling or alignment, while others explicitly train on long-duration speech for long-form gener-ation [4]. Training-free approaches instead avoid additional long-form training; MagpieTTS-LF [5] extends TTS models through stateful chunk generation and attention priors. More recently, long-form synthesis with streaming text input has also been explored, although existing approaches require ad-ditional training to operate with a bounded streaming con-text [7]. To the best of our knowledge, training-free length extrapolation for a pretrained full-stream TTS model under continuous long-form generation has not been explored. In this work, we tackle training-free length extrapolation in continuous long-form generation using VoXtream2 [3], whose official implementation extends generation beyond the training length by periodically resetting the key-value cache while retaining the acoustic prompt and recent frames, following the attention sink concept [6]. However, this mech-anism alone cannot sustain long-form generation: pronunci-ation accuracy degrades near the end of the training range, while speaker similarity declines gradually throughout the utterance. We find that the former stems from the positions at which the model operates rather than from the cache reset itself, while the latter persists even when these positions are avoided. Based on these findings, we shrink the attention win-dow to keep the model within positions encountered during training and bias attention toward the acoustic prompt, the only intact explicit speaker reference in the context. We first show that the loss of speaker similarity is not unique to VoXtream2, but also occurs in open-source TTS models trained on long-form speech. Applied to VoXtream2, our methods preserve both pronunciation accuracy and speaker similarity throughout long-form generation with streaming arXiv:2610.19553v1 [cs.SD] 14 Oct 2026 text input. Human evaluation confirms comparable natural-ness, while ablations on attention window size and bias design show complementary effects on long-form stability. 
+
+2. METHOD 2.1. VoXtream2 
+
+VoXtream2 [3] is a full-stream TTS model conditioned on ref-erence speech, which is encoded into Mimi codec tokens [8] and serves as an acoustic prompt. It consists of a Phoneme Transformer (PT), a Temporal Transformer (TT), and a Depth Transformer (DT). PT incrementally encodes phonemes, TT autoregressively predicts semantic and duration tokens from these embeddings and previous audio tokens, and DT gener-ates the remaining codebooks. Each duration token combines a shift state s ∈ { 0, 1, 2}, indicating the base phoneme ad-vancement, with a binary phoneme-count state u ∈ { 0, 1},where u = 0 and u = 1 correspond to assigning one and two phonemes to the current frame. The effective phoneme advancement per frame is s + u ∈ { 0, 1, 2, 3}. VoXtream2 is trained on random 50 s crops ( 625 frames at 12 .5Hz). During long-form generation, the key-value (KV) cache keeps growing and must be bounded. StreamingLLM [6] showed that a bounded cache can remain stable by retaining the first few tokens, known as attention sinks, together with the most recent ones. The official VoXtream2 implementation follows a similar idea in its SinkAttention module. TT indexes cached frames by local position and holds at most W
+
+frames, where audio window size sets W = 625 by de-fault. Once the local position reaches W , a cache reset retains the P acoustic prompt frames and the τ = ⌊W/ 2⌋ recent generated frames while discarding the rest. The frames are re-indexed from 0 and their KV states recomputed, so gener-ation resumes at local position P + τ . The local position then climbs back to W , triggering the next reset after W − P − τ
+
+frames and cycling between P + τ and W .
+
+2.2. Analysis of Long-Form Generation Degradation 
+
+To examine long-form zero-shot TTS beyond the training length, we use LibriSpeech-Long [4], whose recordings last up to four minutes. We use the 281 recordings of its 
+
+dev-clean split, totaling 15 .89 hours. For each recording, the opening speech segment ending at a sentence boundary serves as the acoustic prompt, with an average duration of 
+
+7.88 s, and the remaining transcript serves as the target text. We measure pronunciation accuracy using word error rate (WER) over 10 s windows, pooling reference words and er-rors across utterances within each window. Generated speech is transcribed with whisper-large-v3 [9], and its words are time-stamped with Qwen3-ForcedAligner-0.6B [10]. After edit-distance alignment to the target text, each error is as-signed to the window containing its word, with deletions placed between neighboring words. SPK-SIM is the cosine 0.0 2.5 5.0 7.5 10.0 12.5 15.0          
+
+> WER (%)
+> VoXtream2 Original 030 60 90 120 150 180 210
+> elapsed time (s)
+> 0.60 0.65 0.70 0.75 0.80 0.85 0.90
+> SPK-SIM
+> VoXtream2 Original
+
+Fig. 1 . Segment-wise WER and SPK-SIM of VoXtream2, to-gether with the corresponding ground truth speech. similarity between speaker embeddings of generated speech and the acoustic prompt, extracted with ECAPA-TDNN [11] over the same windows. As shown in Figure 1, the cache re-set does not prevent two distinct degradation patterns. WER starts at 2.74% in the first 10 s window and rises more sharply near the training length, reaching 11 .23% at 40 –50 s and re-maining high, while SPK-SIM decreases steadily from 0.760 
+
+to 0.695 over the same interval and continues to decline. 
+
+2.2.1. Position, Not Cache Reset 
+
+Training crops are 625 frames long, so TT never undergoes a cache reset during training and observes local positions above roughly 600 only near the end of a crop, when little of the transcript remains. With the default W = 625 , however, the local position repeatedly enters this region immediately be-fore each cache reset during long-form generation. The sharp WER increase in Figure 1 may therefore arise either from position-dependent behavior near the end of the training range or from the cache reset itself. To distinguish these effects, we vary W at inference, moving the reset position while leaving the end of the training range at position 625 unchanged. Figure 2 shows that the phoneme advancement rate re-mains near 0.8 below position 600 but rises sharply toward position 625 , reaching 1.9× and 2.6× this rate for W = 625 
+
+and 900 , respectively. For W = 900 , the increase still oc-curs near position 625 , although the reset is delayed by 275 
+
+frames, showing that degradation follows local position rather than cache reset. With W = 900 , generated audio is only 70% 
+
+as long as ground truth, while deletion errors increase from 
+
+0.7% at W = 625 to 16 .6% , indicating that the model ad-W = 400        
+
+> 2.00 W= 625
+> 1.75 W= 900
+> 1.50 1.25 1.00 0.75 0.50 200 400 600 800
+> local position (audio frames)
+> 厱  [ phonemes advanced per frame ]
+> training boundary
+
+Fig. 2 . Expected number of phonemes advanced per frame versus position for W = 400 , 625 , and 900 . Shaded bands show standard errors over 8 randomly selected utterances. vances too quickly and skips target words. WER rises from 
+
+7.3% to 49 .8% across position 625 , but changes only from 
+
+47 .8% to 44 .2% around the later cache reset. This motivates our first intervention: restricting W avoids problematic end-of-training positions while retaining recent context. 
+
+2.2.2. Attending to the Prompt 
+
+Unlike the sharp increase in pronunciation errors above, SPK-SIM declines steadily throughout generation (Figure 1). Reducing W does not remove this trend but slows it, from 
+
+−0.082 per 100 s with W = 625 to −0.054 with W = 400 .Nor does the decline track reset frequency: with W = 400 ,resets are more frequent than with W = 625 , yet SPK-SIM degrades more slowly. We therefore examine whether the acoustic prompt remains important throughout generation. To test this hypothesis, after 30s, we prevent the model from attending to the acoustic prompt keys while retaining the generated-history cache. With W = 400 , the cache con-tains at least the most recent τ = ⌊W/ 2⌋ = 200 generated frames, corresponding to 16 s of speech. Despite this context, SPK-SIM drops from 0.73 to 0.23 in the next 10 s window and remains below 0.25 thereafter (Figure 3). This indicates that the acoustic prompt remains essential throughout gener-ation, but its P frames remain fixed while generated frames continue to accumulate in the cache. We therefore strengthen attention to the acoustic prompt by adding a constant bias b to the pre-softmax attention log-its of its keys [14]. For an attention logit Lij from query i
+
+to key j, we use L′ 
+
+> ij
+
+= Lij + b for prompt keys and leave it unchanged otherwise. The bias is applied to the acous-tic prompt keys across all attention heads and layers of TT, requiring neither retraining nor architectural changes. We also compare with SpotLight [15], which adaptively adds 
+
+log( ψtarget /ψ current ) to prompt-key logits when the prompt attention mass ψcurrent falls below the target ψtarget . Sec-tion 3.2.2 compares constant and adaptive prompt biases. 0.8 0.6       
+
+> acoustic prompt attended acoustic prompt masked after 30s
+> 0.4 0.2 0.0 025 50 75 100 125 150
+> elapsed time (s) SPK-SIM
+
+Fig. 3 . SPK-SIM over time with W = 400 when the acoustic prompt is attended and when it is masked after 30 s. Error bars show standard errors over 8 randomly selected utterances. 
+
+3. EXPERIMENTS 3.1. Experimental Setups 
+
+All VoXtream2-based [3] experiments use the official imple-mentation and pretrained checkpoint. Our method requires no additional training. We follow the same LibriSpeech-Long [4] evaluation protocol and objective metrics as in Section 2.2. In addition to VoXtream2 and ours, we compare against Qwen3-TTS-12Hz-1.7B-Base [12] and MOSS-TTS-v1.5 [13], recent TTS models capable of long-form synthesis. Both baselines use long-form training, whereas ours directly extends pre-trained VoXtream2 without additional training. All models receive the same acoustic prompt and target text; when required, the corresponding reference text is also provided. We further evaluate Mimi codec reconstruction [8] to quantify degradation introduced by encoding and decoding. All audio is resampled to 16kHz for evaluation. In addition to WER and SPK-SIM, we evaluate naturalness and overall speech quality using mean opinion score (MOS). For MOS evaluation, 158 listeners rate overall naturalness and audio quality on a five-point scale, yielding 325 ratings per model. 
+
+3.2. Results 
+
+3.2.1. Model Comparison 
+
+Table 1 compares long-form synthesis performance. Mimi reconstruction largely preserves WER (1.86 to 1.95) but noticeably reduces SPK-SIM from 0.832 to 0.754. Since VoXtream2 generates speech through the Mimi codec, its reconstruction MOS of 4.10 also provides a practical upper bound on perceptual quality under this codec. Our method substantially improves VoXtream2, reducing overall WER from 8.63% to 3.58% and increasing SPK-SIM from 0.659 to 0.759. The improvement is particularly evident over long generation: while VoXtream2 progressively degrades with generation length, our method maintains WER below 4.0% Table 1 . Overall and segment-wise performance on long-form speech synthesis. Lower WER (%) and higher SPK-SIM and MOS indicate better performance. MOS is reported as mean ± 95% confidence interval on a 5-point scale.                                                                                                                                                
+
+> Model Metric Objective Metrics Subjective Overall Segment (s) MOS ↑
+> 0–30 30–60 60–90 90–120 120–150 150–180 180–210
+> Ground Truth (GT) WER ↓1.86 1.73 1.62 1.93 1.99 1.78 1.66 2.18 4.39 ±0.05
+> SPK-SIM ↑0.832 0.849 0.837 0.834 0.834 0.831 0.832 0.826 GT + Mimi Codec [8] WER ↓1.95 1.80 1.60 1.73 2.03 2.49 1.75 1.89 4.10 ±0.07
+> SPK-SIM ↑0.754 0.771 0.760 0.756 0.757 0.753 0.754 0.748 Qwen3-TTS-1.7B-Base [12] WER ↓1.59 1.31 1.38 1.51 1.62 2.30 1.51 1.70 4.22 ±0.08
+> SPK-SIM ↑0.678 0.780 0.716 0.674 0.644 0.615 0.588 0.560 MOSS-TTS-v1.5 [13] WER ↓1.77 1.33 1.25 1.42 1.57 1.49 1.36 1.34 4.35 ±0.08
+> SPK-SIM ↑0.709 0.757 0.726 0.707 0.698 0.690 0.687 0.679 VoXtream2 [3] WER ↓8.63 3.60 9.73 10.20 10.34 10.25 8.47 9.79 4.03 ±0.08
+> SPK-SIM ↑0.659 0.734 0.695 0.660 0.637 0.627 0.618 0.595
+> Ours WER ↓3.58 3.42 3.42 3.84 3.64 3.63 3.39 3.96 4.03 ±0.09
+> SPK-SIM ↑0.759 0.770 0.766 0.763 0.761 0.760 0.756 0.754
+
+Table 2 . Ablation study on window size and attention bias. 
+
+W , b, and ψtarget denote the window size, bias strength, and target attention mass, respectively.                                                  
+
+> Setting Value WER (%) ↓SPK-SIM ↑
+> Window size (No bias)
+> Default W= 625 8.63 0.659 Window
+> W= 500 5.42 0.668
+> W= 375 4.82 0.683
+> W= 250 6.51 0.703
+> Attention bias ( W= 375 )
+> No Bias –4.82 0.683 Constant
+> b= 0 .54.01 0.721
+> b= 1 .03.65 0.744
+> b= 1 .53.58 0.759
+> b= 2 .03.65 0.766 Adaptive
+> ψtarget = 0 .13.73 0.679
+> ψtarget = 0 .23.69 0.682
+> ψtarget = 0 .34.02 0.686
+> ψtarget = 0 .43.90 0.692
+> ψtarget = 0 .53.84 0.701
+
+and nearly stable SPK-SIM across 30s segments. Neverthe-less, even within its stable operating range, VoXtream2 al-ready exhibits lower pronunciation accuracy (3.60%), and our training-free extension therefore does not reach the WER of Qwen3-TTS or MOSS-TTS. Our method achieves the same MOS of 4.03 as VoXtream2, close to the Mimi reconstruction upper bound of 4.10, indicating that the improved long-form robustness does not compromise perceptual quality. Interestingly, speaker similarity degradation with gener-ation length is not unique to VoXtream2. Qwen3-TTS and MOSS-TTS, despite being trained with long-form data, also exhibit decreasing SPK-SIM toward later segments. Qwen3-TTS, for example, drops from 0.780 to 0.560, whereas our method remains substantially more stable, from 0.770 to 0.754. This suggests that maintaining speaker identity over extended generation remains a broader challenge even for models explicitly trained for long-form synthesis. 
+
+3.2.2. Ablation Studies 
+
+Table 2 analyzes context window restriction and acoustic prompt attention bias. Reducing the Temporal Transformer window from W = 625 improves WER, with W = 375 
+
+achieving the best value of 4.82, whereas further reducing it to W = 250 degrades performance. Despite more frequent cache resets, W = 375 remains real-time on an NVIDIA RTX 3090, with real-time factor (RTF) increasing only from 0.415 at W = 625 to 0.433. With W = 375 , increasing the constant bias improves speaker similarity; b = 2 .0 achieves the highest SPK-SIM of 0.766, while b = 1.5 yields the lowest WER of 3.58 with a comparable SPK-SIM of 0.759. SpotLight-based adaptive steering [15] improves WER over window restriction alone but remains less effective than con-stant bias for speaker similarity. We therefore use W = 375 
+
+and a constant bias of b = 1 .5 for our experiments. 
+
+4. CONCLUSION 
+
+In this paper, we proposed a training-free approach for long-form generation with full-stream TTS, based on a systematic analysis of VoXtream2. By shrinking the attention window to keep the model within the positions encountered during train-ing and applying a bias to the attention logits of the acous-tic prompt, we preserved both pronunciation accuracy and speaker similarity throughout long-form generation while re-taining the naturalness of the original model. 5. COMPLIANCE WITH ETHICAL STANDARDS 
+
+The mean opinion score (MOS) evaluation was conducted via an online survey platform with participant consent, and no sensitive personal information was collected. 
+
+6. ACKNOWLEDGMENTS 
+
+This work was supported by the Korea Government (MSIT) through the National Research Foundation of Korea (NRF) (No. RS-2022-NR068754, NO. RS-2026-25601142) and by the supercomputing resources provided by the Urban Big Data and AI Institute of the University of Seoul ( http: //ubai.uos.ac.kr ). We used AI (LLM) to assist with language editing and with writing code for the demo page. 
+
+7. REFERENCES 
+
+[1] Zhihao Du, Yuxuan Wang, Qian Chen, Xian Shi, Xiang Lv, Tianyu Zhao, Zhifu Gao, Yexin Yang, Changfeng Gao, Hui Wang, Fan Yu, Huadai Liu, Zhengyan Sheng, Yue Gu, Chong Deng, Wen Wang, Shiliang Zhang, Zhi-jie Yan, and Jingren Zhou, “Cosyvoice 2: Scalable streaming speech synthesis with large language mod-els,” 2024. [2] Richard He Bai, Zijin Gu, Tatiana Likhomanenko, and Navdeep Jaitly, “Speakstream: Streaming text-to-speech with interleaved data,” 2025. [3] Nikita Torgashov, Gustav Eje Henter, and Gabriel Skantze, “Voxtream2: Full-stream tts with dynamic speaking rate control,” 2026. [4] Se Jin Park, Julian Salazar, Aren Jansen, Keisuke Ki-noshita, Yong Man Ro, and Rj Skerry-Ryan, “Long-form speech generation with spoken language models,” in Proceedings of the 42nd International Conference on Machine Learning , Aarti Singh, Maryam Fazel, Daniel Hsu, Simon Lacoste-Julien, Felix Berkenkamp, Tegan Maharaj, Kiri Wagstaff, and Jerry Zhu, Eds. 13–19 Jul 2025, vol. 267 of Proceedings of Machine Learning Re-search , pp. 48245–48261, PMLR. [5] Subhankar Ghosh, Jason Li, Paarth Neekhara, Shehzeen Hussain, Ryan Langman, Xuesong Yang, and Roy Fe-jgin, “Magpietts-lf: Inference-time long-form speech generation without training on long-form data,” 2026. [6] Guangxuan Xiao, Yuandong Tian, Beidi Chen, Song Han, and Mike Lewis, “Efficient streaming language models with attention sinks,” in The Twelfth Interna-tional Conference on Learning Representations , 2024. [7] Changsong Liu, Tianrui Wang, Ye Ni, Yizhou Peng, and Eng Siong Chng, “Prosodic boundary-aware streaming generation for llm-based tts with streaming text input,” 2026. [8] Alexandre D´ efossez, Laurent Mazar´ e, Manu Orsini, Am´ elie Royer, Patrick P´ erez, Herv´ e J´ egou, Edouard Grave, and Neil Zeghidour, “Moshi: a speech-text foun-dation model for real-time dialogue,” 2024. [9] Alec Radford, Jong Wook Kim, Tao Xu, Greg Brock-man, Christine Mcleavey, and Ilya Sutskever, “Robust speech recognition via large-scale weak supervision,” in Proceedings of the 40th International Conference on Machine Learning , Andreas Krause, Emma Brunskill, Kyunghyun Cho, Barbara Engelhardt, Sivan Sabato, and Jonathan Scarlett, Eds. 23–29 Jul 2023, vol. 202 of Pro-ceedings of Machine Learning Research , pp. 28492– 28518, PMLR. [10] Xian Shi, Xiong Wang, Zhifang Guo, Yongqi Wang, Pei Zhang, Xinyu Zhang, Zishan Guo, Hongkun Hao, Yu Xi, Baosong Yang, Jin Xu, Jingren Zhou, and Jun-yang Lin, “Qwen3-asr technical report,” 2026. [11] Brecht Desplanques, Jenthe Thienpondt, and Kris De-muynck, “ECAPA-TDNN: Emphasized Channel At-tention, Propagation and Aggregation in TDNN Based Speaker Verification,” in Interspeech 2020 , 2020, pp. 3830–3834. [12] Hangrui Hu, Xinfa Zhu, Ting He, Dake Guo, Bin Zhang, Xiong Wang, Zhifang Guo, Ziyue Jiang, Hongkun Hao, Zishan Guo, Xinyu Zhang, Pei Zhang, Baosong Yang, Jin Xu, Jingren Zhou, and Junyang Lin, “Qwen3-tts technical report,” 2026. [13] Yitian Gong, Botian Jiang, Yiwei Zhao, Yucheng Yuan, Kuangwei Chen, Yaozhou Jiang, Cheng Chang, Dong Hong, Mingshu Chen, Ruixiao Li, Yiyang Zhang, Yang Gao, Hanfu Chen, Ke Chen, Songlin Wang, Xiaogui Yang, Yuqian Zhang, Kexin Huang, ZhengYuan Lin, Kang Yu, Ziqi Chen, Jin Wang, Zhaoye Fei, Qinyuan Cheng, Shimin Li, and Xipeng Qiu, “Moss-tts technical report,” 2026. [14] Vitoria Guardieiro, Avishree Khare, Adam Stein, and Eric Wong, “Instruction following by principled boost-ing attention of large language models,” 2026. [15] Praveen Venkateswaran and Danish Contractor, “Spot-light your instructions: Instruction-following with dy-namic attention steering,” in Proceedings of the 19th Conference of the European Chapter of the Association for Computational Linguistics (Volume 1: Long Papers) ,Vera Demberg, Kentaro Inui, and Llu´ ıs Marquez, Eds., Rabat, Morocco, Mar. 2026, pp. 3752–3770, Associa-tion for Computational Linguistics.

@@ -1,0 +1,767 @@
+Title: Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models
+
+URL Source: https://arxiv.org/pdf/2610.23804v1
+
+Published Time: Mon, 19 Oct 2026 01:41:20 GMT
+
+Number of Pages: 31
+
+Markdown Content:
+# Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models 
+
+Yuxiang Wang 1,2 , Shengbo Cai 2, Zhixian Zhao 2, Yingda Shen 1, Yuancheng Wang 1,Xueyao Zhang 1, Liqiang Zhang 2, Teddy Sun 2, Steve Yves 2, Zhizheng Wu 1,3 
+
+> 1
+
+The Chinese University of Hong Kong, Shenzhen 2Tencent Hunyuan 3Amphion Technology Co., Ltd. 
+
+Project Page: Jarvis Demos § Code 
+
+Interactive models increasingly hand complex reasoning and tool use to a slow brain in the back-ground, leaving a realtime front model free to sustain full-duplex dialogue. Yet the user may refine, cancel or replace a request while its task runs, so a plan or result that made sense a moment ago goes stale. Each new utterance must therefore be read against the work in flight, but the front model follows only the conversation and the back end sees only its own task. Coordination deserves a brain of its own, one that sees both. We introduce Jarvis, a coordination harness where models judge and code enforces. Its typed decision model, JEV, reads each turn against the live tasks and picks among operations built from a versioned task record. Code checks every choice against the current state before applying it, so no decision can act on a task version the user has replaced. Jarvis also rechecks plans before they execute and results before they are spoken, and counts an answer as delivered only once the user has heard it in full. We build two instances of this design. Jarvis-Audio runs unchanged on three full-duplex speech models. Jarvis-Omni adds vision and rechecks the evidence behind an answer before and during playback, since a scene can change while nobody speaks. With the front model and back end held fixed, replacing Qwen Audio Agent with Jarvis raises 𝜏 -Voice task success more than sixfold, from 29 to 192 of 278 tasks, and the gains hold on every benchmark and front model. Against published systems, Jarvis-Audio reaches 69% Pass@1 on Full-Duplex-Bench v3 with an open 9B front model, versus 60% for GPT-Realtime. These results suggest that how the two brains are coordinated matters as much as how strong they are.                        
+
+> Full-Duplex-Bench v3 Pass@1 (%)
+> Jarvis-Audio 69.0
+> GPT-Realtime 60.0
+> Gemini Live 3.1 54.0
+> Gemini Live 2.5 49.0
+> Venus-Audio 48.0
+> 𝜏 -Voice public leaderboard macro task success (%)
+> GPT Live 1 *81.7
+> Pine Voice Preview *75.4
+> Jarvis-Audio 69.2
+> Grok Voice Think Fast 1.0 67.3
+> Grok Voice Think Fast 2.0 62.5
+> Full-Duplex-Bench v2, same back end score from 1 to 5
+> Jarvis 3.36
+> gGander 3.16
+> Venus native harness 3.09
+> MoshiRAG 3.08
+> Qwen Audio Agent 2.57
+> JEV against LLM controllers correct by 3.5 s (%)
+> JEV 94.4
+> DeepSeek-V4-Flash 80.7
+> Gemini-3.5-Flash 79.2 Includes the conservative fallback that the runtime applies when no confident decision arrives by its 3.5 s deadline.
+
+Figure 1 | Benchmark results for Jarvis (blue) and other systems (gray). Top: the five highest published entries (Tables 3 and 4). Bottom: runtimes on one DeepSeek-V4-Flash back end (Table 2) and controllers with the same options (Table 6). ∗Proprietary reasoning back end. 
+
+Email: yuxiangwang1@link.cuhk.edu.cn .arXiv:2610.23804v1 [cs.SD] 16 Oct 2026 Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models 
+
+## 1. Introduction 
+
+Full-duplex speech models have changed what it feels like to talk to a machine. Systems such as Moshi (Défossez et al., 2024), MiniCPM-o 4.5 (Cui et al., 2026), Realtime-Venus (Ant Group, 2026), GPT-Realtime (OpenAI, 2025) and Gemini Live (Google DeepMind, 2026) listen while they speak, take the floor at natural moments and stop when the user cuts in. As conversation becomes this natural, users expect these assistants to do real work as well, such as building a small party game, fixing a bug or remembering their usual snack budget. In games, they want a teammate that watches the match, suggests the next move and plays for them when asked. Such requests need tools, multi-step reasoning and long-term memory, more than a realtime model of a few billion parameters can supply while it keeps pace with the conversation. Agentic interactive models close this gap with a division of labor. A realtime front model, the fast brain , keeps the conversation going, while a slow brain , either a larger model or a full agent harness, reasons and uses tools in the background (Ant Group, 2026; OpenAI, 2026; Orantqing et al., 2026; QwenAudio Team, 2026; Wu et al., 2025). This split mirrors the fast and slow modes of human thinking (Kahneman, 2011) and solves the capacity problem but creates a new one. Background work takes seconds or minutes, and the conversation does not wait. While a task runs, the user may refine, cancel or replace it, so a plan or result that made sense a moment ago goes stale. Figure 2 shows what this means in practice. In a session recorded with Jarvis, the harness we propose 1,the user asks in one breath for a browser game, tonight’s weather in Shanghai and two technology headlines. Over four minutes the game is reshaped three times to add two players on one phone, a shared score with quick respawns and a light theme that also becomes the saved default. In between come a Python question with a follow-up, a sixty-dollar snack budget for tonight that leaves the usual forty intact, and a welcome sign that is later cancelled while everything else keeps running. None of these utterances stands on its own. Each must be read against up to four tasks already in flight, so every time the system has to answer three questions. Does the utterance start new work or change a running task, and which one? Is a finished result still what the user wants? And did the user hear the whole answer, or was it cut off? These are coordination decisions, yet current systems leave them to a component whose main job lies elsewhere. End-to-end models make them while they speak (Google DeepMind, 2026; OpenAI, 2025), with only the text in their context to tell which task version is still live. Harnesses with a fast and a slow brain hand them to one of the two. The front model can emit task calls while it replies (Ant Group, 2026; Orantqing et al., 2026) but cannot see task versions. The backend agent can decide while reasoning about its task (QwenAudio Team, 2026) but does not follow the conversation. One hears every word and the other knows the task, but coordination needs both. A task manager alone does not close this gap. Qwen Audio Agent (QAA) (QwenAudio Team, 2026) already tracks tasks, supports cancellation and collects playback receipts, yet a model still writes the call that maps an utterance to a task, and nothing checks that its target exists or is still current when it takes effect. “Make it sixty dollars” can then change the game instead of the snack plan, a correction can land on a replaced version, and a late draft can be played after the user has moved on. Table 1 lists six such failure modes, five with audio alone and a sixth once the agent can see. These failures occur even when recognition is accurate and every worker reasons correctly about its request. The problem is timing. Because the two brains run at different speeds, a decision can rest on an incomplete view of the work or outlive the state that justified it. Better recognition and reasoning  
+
+> 1The video and more sessions from daily use and games are at https://amphionteam.github.io/Jarvis-Demo/ .
+> 2
+
+Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models                                                
+
+> Game Weather News Snacks Python Welcome sign
+> 12345678User
+> v1
+> ?
+> v2
+> ?
+> v3 builds the game ✓v4 light ✓
+> v1 Shanghai, tonight ✓
+> v1 two tech headlines ✓
+> v1 usual $40 from memory ✓v2 $60 tonight ✓
+> v1 ✓v2 ✓
+> ×only the sign is cancelled usual $40 kept light theme saved as the new default 30 s 60 s 90 s 120 s 150 s 180 s 210 s 240 s 270 s
+> ✓delivered, playback confirmed ?worker asks back ×cancelled one task version
+> 1“Build a star collecting game, 60 seconds a round. Check Shanghai’s weather for tonight, and find two technology headlines.”
+> NEW game NEW weather NEW news
+> 2“Same phone, please. Two players playing together.”
+> REFINE game v1
+> 3“Use a shared score and let players respawn quickly. Also, make a snack plan using my usual budget.”
+> REFINE game v2 NEW snacks
+> 4“I pasted a little Python example. Why do both lists change?”
+> NEW python
+> 5“What is the smallest fix to make the lists independent?”
+> REFINE python v1
+> 6“For tonight, only sixty dollars is fine. Keep forty as my usual limit.”
+> REFINE snacks v1 SAVE usual budget
+> 7“Use a light theme from now on. Remember that as my new default, and update this game too. Also, make a separate full-screen welcome sign for the door.”
+> SAVE light theme REFINE game v3 NEW sign
+> 8“Cancel just the welcome sign. Keep everything else.”
+> CANCEL sign v1
+
+Figure 2 | A recorded five-minute session with Jarvis-Audio. The user plans a game night while up to four tasks remain in flight. Each numbered utterance becomes one or more typed operations on the Task Ledger (tags below), with task-control operations bound to live task versions. Each bar is one version of a task. The game goes through four versions, the Python question gets a follow-up, a one-night budget of $60 leaves the usual $40 in memory untouched, and the cancellation removes the welcome sign and nothing else. cannot keep them in step, and prompt rules such as “follow the latest request” still leave open which version is current when an action takes effect. We therefore argue that coordination deserves a brain of its own, one that sees both the conversation and the live tasks, backed by a runtime that enforces its decisions. Our guiding rule is models judge, code enforces .We propose Jarvis, a coordination harness built on this rule. Every request becomes a task in the Task Ledger, a versioned record of what the user asked for and what happened to it, and every change becomes an operation on that ledger, such as refining version 3 of the game. A typed decision model, JEV 2, reads the new turn against the live tasks and picks among operations the runtime builds from the ledger, never writing one itself. Code checks the task and version of each pick before applying it, so no choice can name a missing task, and one aimed at a replaced version becomes a no-op. The same rule runs through the rest of the harness. The Native Gate, trained on the front model’s control tokens, decides when a turn goes to the slow brain without touching speech weights. If JEV is unsure, no task changes and a worker answers or asks the user to clarify. The Task Ledger accepts results only for live versions and rechecks plans against the conversation before they run, so stale work cannot take effect just because a worker finished. Delivery marks an answer delivered only after playback receipts show it played in full, and stopping the voice does not cancel the work behind it. Memory saves “usually forty” as a lasting fact and leaves “only sixty tonight” on the snack task. We build two instances of this design. Jarvis-Audio is built mainly on Realtime-Venus-Audio, and the same harness runs unchanged on MiniCPM-o 4.5 and NVIDIA’s VoiceChat-11B (NVIDIA, 2026). 
+
+> 2
+
+https://typesafe.ai/ 
+
+3Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models 
+
+Table 1 | Failure modes of a voice agent whose background work runs while the conversation continues, with the mechanism in Jarvis that addresses each one and the evidence used to evaluate it.            
+
+> Failure mode What the user experiences Mitigated by Evidence
+> Stale delivery The first draft of a game is presented after the user has already asked for a different theme. Task Ledger versions Table 5 Misbinding “Make it sixty dollars” changes the game instead of the snack plan. Decision Brain over version-bound options Table 6 Ghost execution A plan formed before the user corrected the order number is executed anyway. Freshness check on the plan Table 5 Lost delivery The user cuts an answer off halfway, yet the task is recorded as delivered. Playback receipts and epochs Table 5 Memory drift “Only sixty tonight” overwrites the usual budget of forty. Gated memory writes Table 7 Expired evidence Advice to push forward arrives after the teammate on screen has died. Belief State validity windows §5.6
+
+Jarvis-Omni pairs it with Venus-Omni and the multimodal Jev-Omni 3, reusing the ledger, workers and delivery layer. Vision brings a new source of outdated state, because a scene can change while nobody speaks. A teammate alive when the user asks for advice may be dead by the time the answer is ready, so Jarvis-Omni gives each visual fact a validity window and rechecks the evidence behind an answer before and during playback. An answer whose evidence expires is dropped or cut off. Coordination alone, without a larger front model or a stronger worker, brings large gains (Figure 1). With the front model, admission path and back end held fixed, replacing QAA with Jarvis raises 
+
+𝜏 -Voice (Ray et al., 2026) task success on Venus-Audio from 29 to 192 of 278 tasks, and the gains hold on every benchmark and front model. Against published systems, Jarvis-Audio reaches 69% Pass@1 on Full-Duplex-Bench v3 (Lin et al., 2026) with an open 9B front model, versus 60% for GPT-Realtime, and leads all realtime speech models on the public 𝜏 -Voice leaderboard (Table 4). Our contributions are as follows. • We identify coordination between a full-duplex front model and its background work as a problem in its own right, with six failure modes and four design principles (§2). • We present Jarvis, in which JEV selects runtime-built operations on a versioned Task Ledger and code checks each one before it takes effect, together with a native gate trained with GRPO, plan and result freshness checks, receipt-based delivery and gated memory (§3). • We extend the design to audio-visual interaction with Jarvis-Omni, which treats visual evidence as time-bounded state and rechecks it before and during playback (§4). • We show large and consistent gains from the harness alone across three benchmarks and three front models, and test each mechanism in controlled studies and live sessions (§5 and §6). 
+
+## 2. Jarvis at a Glance 
+
+Before describing the modules, we look at what goes wrong when nothing coordinates the two brains, and at the principles that follow.  
+
+> 3https://huggingface.co/akhilaaa3/Jev-Omni
+> 4Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models
+> Fast brain Slow brain (Jarvis harness) User
+> mic screen
+> Native Gate
+> LISTEN, DIRECT or DELEGATE
+> Frozen speech
+> Thinker and Talker
+> Turn binding
+> ASR observer
+> Decision Brain
+> JEV
+> Task Ledger
+> versions freshness
+> Workers
+> async tool loops
+> Evidence Timeline
+> Belief State (Omni)
+> Memory
+> profile | task records
+> Delivery
+> epochs | receipts
+> Tools
+> web | files games audio DELEGATE DIRECT visual claims typed ops live results speech request over the backend channel playback receipts speech
+
+Figure 3 | Overview of Jarvis. The fast brain keeps the conversation going and decides when to hand a turn over. The slow brain interprets the turn with JEV, records the resulting work in the Task Ledger, runs it asynchronously and returns the answer through the fast brain’s own voice once the result is still valid. The dashed module is used by Jarvis-Omni only. 
+
+2.1. What Goes Wrong Without Coordination 
+
+Running background work under a live conversation produces its own class of errors. They are not recognition errors and not reasoning errors. They happen because two processes move at different speeds and nothing keeps them in step. Table 1 lists the six failure modes we see. The first five arise with audio alone, and the sixth appears once the agent can see. All six share one cause. The system acts on a picture of the conversation that has stopped being true, whether that picture is a task version, a plan, a playback state, a remembered fact or a frame of video. Patching each case with prompt rules does not scale, because every new situation produces a new variant. Jarvis removes the cause instead. It makes the current state explicit and checks every action against it. 
+
+2.2. Design Principles 
+
+Four principles follow, and every module of Jarvis applies at least one of them. 1. Learn when , keep how . The front model already speaks well. We train only the decision of when to involve the slow brain, on the model’s own control tokens, and leave every weight that produces speech frozen. 2. Models judge, code enforces. Questions that need understanding go to a decision model, but the model answers by choosing among operations that the runtime has prepared. The runtime then applies the chosen operation and checks it against the current state. 3. Nothing is assumed current. Plans, results, playback and visual facts all carry a version, an epoch or a timestamp, and each is checked again before it may act or speak. 4. Done is not delivered. A worker finishing a task and the user hearing the answer are two separate events, and the system records them separately. 
+
+> 5Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models
+
+2.3. How a Request Flows 
+
+Figure 3 shows the path of a request. Audio reaches the front model and a streaming ASR observer at the same time. For every one-second audio unit, the Native Gate reads the control state of the front model and chooses to keep listening, to let the front model answer on its own, or to hand the turn to the slow brain. Small talk and short answers therefore stay fast. A hand-off carries the audio sample at which it was made, so the slow brain works from the transcript of what the user actually said rather than from text the front model generated. JEV selects operations, the Task Ledger applies them and runs workers, and Delivery speaks accepted results in the front model’s own voice. The two brains never wait for each other. The fast brain keeps talking while three workers run, and the slow brain updates its tasks while the user is still speaking. This design has two instances. Jarvis-Audio, the main subject of this report, runs on full-duplex speech models. Jarvis-Omni runs on Venus-Omni, which also watches the screen. It keeps the Task Ledger, the workers and Delivery unchanged, replaces JEV with the multimodal Jev-Omni, and adds the dashed perception layer of Figure 3, which keeps visual facts together with the time they stop being valid. Section 3 describes the modules in Jarvis-Audio, Section 4 shows what changes when the front model can see, and Table 9 in Appendix A compares the two instances side by side. 
+
+## 3. The Jarvis Harness 
+
+This section follows the game night of Figure 2 through the five modules of Jarvis, as they run in Jarvis-Audio on Realtime-Venus-Audio (Ant Group, 2026). Venus-Audio is a 9B full-duplex model that follows the Omni-Flow design of MiniCPM-o 4.5. A Whisper-Medium encoder feeds a Qwen3-8B Thinker, whose text and hidden states drive a streaming Talker. The model consumes audio in one-second units, predicts at every unit whether to listen or to speak, and has a native <delegate> 
+
+token for handing work to a backend. We use the released checkpoint as the fast brain, and apart from a small control adapter none of its weights change. 
+
+3.1. Native Gate: Learning When to Hand Off 
+
+The first decision in every turn is whether the slow brain should be involved at all. “Build me a little game for tonight” needs it, “tell me a joke” does not, and “hold on, let me ask my roommate” is not addressed to the assistant. The decision has to be made from audio while the user may still be talking, and a rule on top of ASR cannot make it well, because the words alone do not tell a finished request from a pause. The front model already carries the information that matters, since it is the part of the system that decides when to speak. The Native Gate therefore reads its decision directly from the front model’s native control tokens. 
+
+A policy over native tokens. Let 𝑥 be the causal prefix of the conversation up to the current audio unit. Venus-Audio first predicts <|listen|> or <|speak|> , and after <|speak|> it either emits 
+
+<delegate> or starts a public reply. We read a three-way policy off these two positions, 
+
+> 𝜋
+
+(LISTEN | 𝑥 ) = 𝑃 (<|listen|> | 𝑥 ),𝜋 (DIRECT | 𝑥 ) = 𝑃 (<|speak|> | 𝑥 ) Í𝑤 ∈ V pub 𝑃 (𝑤 | 𝑥, <|speak|> ),𝜋 (DELEGATE | 𝑥 ) = 𝑃 (<|speak|> | 𝑥 ) 𝑃 (<delegate> | 𝑥, <|speak|> ),
+
+(1) where Vpub is the set of ordinary tokens that may begin a spoken reply. The DIRECT branch sums over every possible first word, so the policy decides whether to answer directly without committing to             
+
+> 6Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models
+> silence user speaking request complete
+> “Check Shanghai’s weather for tonight.”
+> 0.5 1threshold 0.8 1 s units DELEGATE fires 0.16 s after the end (median on dev)
+> 𝜋 (LISTEN )
+> 𝜋 (DIRECT )
+> 𝜋 (DELEGATE )
+> (a) (b)
+> causal prefix 𝑥
+> Thinker + LoRA
+> q, v, o rank 8
+> 𝜋 (· | 𝑥 )
+> 3 branches
+> Thinker, frozen
+> adapter off
+> Talker
+> speech out routing pass speech pass position 1: <|listen|> vs <|speak|>
+> position 2: <delegate> vs public tokens separate key-value caches
+
+Figure 4 | The Native Gate. (a) On each one-second audio unit the gate reads a three-way policy from the native tokens of the front model. It keeps listening through leading silence and through an unfinished request, and fires DELEGATE once the request is complete and the probability passes 0.8. (b) The LoRA adapter is active only in the routing pass. Speech is produced by the frozen weights with a separate key-value cache. 
+
+what the answer starts with. A DIRECT or DELEGATE action fires only when its probability reaches 0.8, and every other case falls back to LISTEN . When the gate is unsure, it keeps listening. 
+
+Training only the decision. The adapter is a LoRA (Hu et al., 2022) of rank 8 on the q, v and o
+
+projections of the Thinker, 6.2M parameters or about 0.07% of the model. It is switched on only inside the forward pass that computes Equation (1), and that pass builds its own prefix instead of sharing the key-value cache of the speech pass (Figure 4b). The voice the user hears is therefore produced by exactly the released weights. We train the adapter with group-relative policy optimization (GRPO) (Shao et al., 2024) on speech we authored and synthesized ourselves. We wrote 264 bilingual scenarios, from small talk and tool lookups to task corrections and remarks meant for someone else, rendered them with Qwen3-TTS (Hu et al., 2026) and encoded them with the streaming encoder of Venus-Audio. Each utterance is cut into causal prefixes. A prefix that ends before the request is complete is labeled LISTEN , so a single recording teaches both what to do and when it is safe to do it. For each prefix the gate samples eight actions, a correct action earns +2 and a wrong one −1, and a KL penalty keeps the policy close to where each stage started. Because the reward is on the branch and not on a token, the optimizer raises the chance of answering directly without teaching the model how to begin its answers. A four-stage curriculum adds telephone speech and conversational requests such as asking for a story. On held-out scenario families, the final gate makes 98.8% of first admissions at the right time and in the right branch (162 of 164), and every case from earlier stages stays correct. Appendix B gives the data, the objective and the curriculum. 
+
+Binding the turn. The gate decides when, and a streaming ASR observer, Qwen3-ASR-1.7B (Shi et al., 2026), supplies the words. When the gate fires DELEGATE , the event records the audio sample at which the decision was made, and the runtime attaches the most recent final transcript that started before that sample. The slow brain thus receives what the user actually said, including names, numbers and spelled identifiers, rather than a paraphrase generated by the front model. 
+
+3.2. Decision Brain: Typed Judgments with JEV 
+
+Once a turn is admitted, Jarvis has to work out what it means for the work in flight. Midway through the game night the user says “make it sixty dollars”. At that moment the game is on its third version, 
+
+> 7
+
+Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models             
+
+> Request
+> state input: “For tonight, only sixty dollars is fine.” history: last 12 turns user_profile: [“usual snack budget is $40”, ...] pending_questions: [] question operation (Choice )ANSWER respond, use tools or ask for a detail MEMORY fetch a fact from an earlier session REFINE:T5:1 modify “snack plan with the usual budget” (DELIVERED) CANCEL:T5:1 cancel that task without replacement STATUS:T5:1 report its progress or result REFINE:T2:3 modify “two-player star game” (DELIVERED) CANCEL:T2:3 cancel that task without replacement ... status and resume for every live version STOP_SPEAKING stop the voice, keep all work
+> Typed answer
+> ANSWER MEMORY REFINE:T5:1 CANCEL:T5:1 REFINE:T2:3 STOP_SPEAKING
+> 𝑝 (REFINE:T5:1 )≥0.8, so the runtime supersedes version 1 of the snack plan and starts version 2 with the one-night budget. The game task is not touched.
+
+Figure 5 | A decision request to JEV, simplified from the runtime payload. The runtime writes the options from the live Task Ledger, so the answer is a distribution over operations that the runtime can execute. the snack plan has already been delivered and the answer to the Python follow-up has just been played. Understanding the sentence needs a model. Acting on it changes real tasks, so the model must never produce an operation that the runtime cannot check. JEV meets both needs because it is a typed judgment model rather than a text generator. 
+
+The typed interface. A request to JEV consists of a state and a set of typed questions. The state holds the bound transcript, the last twelve turns, any question the assistant is waiting on, the user profile and the available tools. Each question belongs to one of three primitives. A Choice question lists named options and returns a probability distribution over them. A Noul question returns the probability of yes for a single statement. A Score question returns an expected value on an ordinal scale. None of them returns free text, so every answer is an option the runtime wrote or a number. 
+
+Options come from the ledger. The key design choice is who writes the options. For an admitted turn, the runtime builds them from the current state of the Task Ledger, 
+
+O𝑡 = {ANSWER , MEMORY } ∪ { 𝑎 :𝜏 :𝑣 | 𝑎 ∈ { CANCEL , REFINE , STATUS , RESUME }, (𝜏, 𝑣 ) ∈ L 𝑡 } ∪ S 𝑡 , (2) where L𝑡 contains the live versions of the most recent tasks and S𝑡 adds STOP_SPEAKING while audio is playing. Each task option carries the objective and status of its task in plain words. For “make it sixty dollars” the options include REFINE:snacks:1 and REFINE:game:3 , and JEV returns a probability for each. The runtime applies 
+
+𝑜 ∗ = arg max 
+
+> 𝑜
+
+∈ O 𝑡 
+
+𝑝 (𝑜 | 𝑠 𝑡 ), execute 𝑜 ∗ only if 𝑝 (𝑜 ∗ | 𝑠 𝑡 ) ≥ 𝜃. (3) Because every option names a task and a version, an accepted answer is executable by construction. JEV cannot refer to a task that does not exist, and a choice made against version 2 becomes a no-op if version 3 has appeared in the meantime. When the confidence is below 𝜃 = 0.8, the runtime does not guess. It passes the turn to a worker with full context, which either answers or asks the user one specific question, and every existing task stays as it was. Figure 5 shows a request of this kind. 
+
+One brain for many decisions. The same interface serves every decision in the harness that needs understanding, from routing a turn and choosing its target task to gating memory writes and deciding when to deliver. Table 10 in the appendix lists all of them. Several small questions about one turn go to JEV in a single call and are answered independently. A decision on an admitted turn takes 0.81 s 
+
+8Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models                   
+
+> QUEUED RUNNING COMPLETED DELIVERED NEEDS_INPUT FAILED CANCELLED SUPERSEDED
+> slot free live result full playback receipt asks user error CANCEL REFINE
+> answered new version 𝑣 +1of the same request
+> CANCEL
+> late result for 𝑣
+> is discarded
+> Delivery
+> ✓✓✓✓
+> epoch 3, all heard → DELIVERED
+> ✓✓××
+> “stop” epoch 4 opens, rest dropped task stays COMPLETED
+> ✓✓✓✓
+> replay on request, epoch 5 → DELIVERED
+
+Figure 6 | Life of a task in the Task Ledger. A refinement supersedes the live version and starts a new one, and a result that arrives for a superseded or cancelled version is discarded. COMPLETED 
+
+becomes DELIVERED only when a playback receipt shows that the whole answer was heard in the current generation epoch. Stopping the voice opens a new epoch but leaves the task itself untouched. at the median and the memory-write gate 0.32 s. Speed matters as much as accuracy here, because a cancellation is useful only if it stops the old worker before that worker acts, and Section 5.4 shows that this is exactly where general LLM controllers fall short. Typed options also remove a confusion that free-form routing makes easy. “Cancel my order” in a retail conversation is a domain action that the worker must carry out with the store’s tools, so it is an ANSWER . “Cancel the web page you were writing” stops one of the assistant’s own jobs, so it is a 
+
+CANCEL on that task. The same holds for short replies. A name, a number or a “yes” that answers a pending question continues the current service as an ANSWER rather than being dropped for lack of a new goal. When one utterance holds several requests, as in the first turn of Figure 2, a planner splits it into verbatim spans and each span is interpreted on its own, under the same checks as any other choice (Appendix A). 
+
+3.3. Task Ledger and Workers 
+
+The Task Ledger is the single place where Jarvis records what the user has asked for and what has happened to it. Each task has an identifier, a version and a logical request identifier derived from the utterance that created it. Tasks created by the same utterance share a request group and keep their order, so the three requests in the first turn of Figure 2 remain three tasks that report back in a sensible sequence. A task moves through the eight states of Figure 6. 
+
+Invariants. The ledger enforces four invariants, and together they rule out the first three failure modes of Table 1. 
+
+I1. One live version. When the user asks for a shared score, version 2 of the game becomes version 3 and version 2 moves to SUPERSEDED . At most one version of a request is live at any time, and a repeated utterance creates no duplicate. 
+
+I2. Late results are rejected. A worker result is accepted only if its task version is live. A slow draft of version 2 that finishes after the user asked for version 3 is discarded and logged, and it can never be presented. 
+
+I3. Plans are checked against the conversation. A worker records the conversation snapshot it planned from, and before it executes a planned action the runtime compares that snapshot with the current 
+
+> 9Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models
+
+one. If the user has corrected an order number or withdrawn an authorization in the meantime, the old plan does not run and the worker plans again. 
+
+I4. Delivery needs a receipt. A task becomes DELIVERED only through a complete playback receipt (Section 3.4). Section 5.4 removes the checks behind I2 to I4 one at a time and measures what each prevents. 
+
+Workers. Each task runs in an asynchronous tool loop built on DeepSeek-V4-Flash (DeepSeek-AI, 2026), with up to three workers at once. Tool results are treated as evidence and never as new instructions, a repeated identical call returns the earlier receipt instead of running again, and a worker asks the user for a missing detail instead of guessing. A worker often produces files, such as the page of the browser game. The runtime builds the list of these files only from writes that the file tool has confirmed, never from what the model says it has written, so the assistant cannot tell the user about a file that does not exist. 
+
+3.4. Delivery: From Done to Heard 
+
+A finished result is not yet an answer the user has received. Suppose the weather report starts playing and the user cuts in after three words to change the game. If the system marks the weather as delivered, the user never hears it and the assistant believes it has answered. Delivery keeps these two events apart with two mechanisms. 
+
+Generation epochs. Every time playback is cleared, for example because the user started speaking or said “stop”, the runtime opens a new generation epoch. Every audio chunk and control message carries the epoch in which it was produced, and messages from an older epoch are dropped on arrival. Audio that was already in flight therefore cannot resume after the user has moved on. 
+
+Playback receipts. The client reports what it has actually played as a stream of receipts, each naming the epoch, the chunk, the number of samples played and whether playback was interrupted. For a presentation 𝑟 of task version (𝜏, 𝑣 ),Delivered (𝜏, 𝑣 ) ⇐⇒ ∃ 𝑟 : 𝑒 (𝑟 ) = 𝑒 now ∧ Í𝑐 ∈𝑟 played (𝑐 ) = Í𝑐 ∈𝑟 samples (𝑐 ) ∧ ¬ interrupted (𝑟 ). (4) Only this condition moves a task from COMPLETED to DELIVERED . The interrupted weather report is recorded as partially heard and keeps its result, so the user can ask for it again. Spoken results are voiced by the front model’s own Talker through its private backend channel, so the assistant sounds the same whether it answers directly or reports on background work. 
+
+Stopping is not cancelling. “Stop talking” and “cancel that” mean different things, and Jarvis keeps them apart. Stopping the voice opens a new epoch and holds pending announcements, while every task keeps running and keeps its result. Cancelling invalidates one task version and stops its worker, and nothing else is affected. 
+
+3.5. Memory: Durable Facts Without Drift 
+
+A voice assistant that people use every day should remember what they tell it, but not everything they say. “I usually spend forty dollars” is a fact worth keeping. “Only sixty tonight” is a condition on tonight’s task, and “tell him I’ll call back” was not said to the assistant at all. 
+
+> 10 Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models
+
+Memory keeps two stores per user that persist across sessions. The profile store holds personal facts and preferences, each with a validity period and a link to any record it replaces. The task store holds past tasks with their versions, results and files. Nothing enters the profile unless decision brain agrees, in a Choice question with a threshold of 0.8, that the speaker is explicitly stating a lasting fact about themselves or asking the assistant to remember one. Conditions that belong to a task stay on the task. In Figure 2, “only sixty dollars tonight” refines the snack task while “keep forty as my usual limit” is saved, and a new session opened later still answers that the usual budget is forty dollars. Only an explicit correction can replace a saved record, and the assistant says that something has been saved only after the write has been confirmed. The profile is loaded into every decision, and task records and older facts are retrieved on demand, with decision brain keeping at most three of twelve candidates (Section 5.5). 
+
+## 4. Jarvis-Omni: When Evidence Expires 
+
+Giving the assistant eyes changes the coordination problem in one important way. In audio, the facts behind a decision are mostly in the user’s words, and words do not change after they are spoken. On a screen, facts change on their own. A player asks whether to push forward while a teammate is alive, and two seconds later the teammate is dead. A health bar that was low is full again after a recall. Advice that was right when the question was asked can be wrong by the time it is spoken. Jarvis-Omni is our audio-visual instance of Jarvis, built on Venus-Omni (Ant Group, 2026). It treats visual facts the way Jarvis-Audio treats tasks, as state with a version and a lifetime, and checks them again before anything based on them reaches the user. The harness carries over almost unchanged. Jarvis-Omni uses the same Task Ledger, playback control and typed controller as Jarvis-Audio, so tasks, versions, epochs and receipts behave identically, and the four principles of Section 2.2 apply as they are. Three parts are new, namely a perception layer that records what the system has seen and how long it stays true, a multimodal decision brain that can look at frames, and a gate that also decides when the screen itself deserves a comment. 
+
+4.1. Evidence Timeline and Belief State 
+
+All media enter an Evidence Timeline that keeps screen frames, game audio and the microphone on separate tracks aligned to one clock. Every decision reads a window that ends at the decision time, so no model ever sees a frame from the future. A new match or scene opens a new scene epoch and clears the window, so media from an earlier scene cannot leak into the current one. What the system concludes from these media lives in a Belief State of evidence claims, such as “the teammate on the left is alive” or “my health is low”. Each claim records the observations it rests on, the time until which it is valid and the events that invalidate it, namely a change of scene, a change of camera, a lost source or a correction from the user. A claim may support a current decision only while it is valid and none of these events has occurred. When a response is ready, its claims are checked again. If one has expired, the response is discarded before playback, and if one expires while the response is playing, playback stops at that moment. Figure 7 shows how this unfolds over a few seconds of play. Questions about the past, such as “why did you tell me to retreat?”, are answered from a historical snapshot of the readings behind the advice, framed as what was on screen then, and a claim from a snapshot can never serve as current evidence.            
+
+> 11 Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models
+> Screen Belief State Dialogue
+> teammate dies
+> own health high (valid while HUD unchanged) teammate alive ×
+> enemy seen at B expires teammate dead
+> “Should I push now?”
+> plan: push together ×✓
+> claim expired before playback
+> “Hold, wait for backup.” “Why did you say hold?”
+> answered from the snapshot of 5.7 s, marked as past evidence 0 s 2 s 4 s 6 s 8 s 10 s
+
+Figure 7 | Evidence that expires. Claims read from the screen carry a validity window and are invalidated by events such as a death or a camera change. Advice is checked against the Belief State when it is ready, so a recommendation that rests on an expired claim is dropped and planned again from the new state. A question about earlier advice is answered from a historical snapshot. 
+
+4.2. A Multimodal Decision Brain 
+
+The decision brain of Jarvis-Omni is Jev-Omni, the multimodal member of the JEV family, a 12B typed judgment model built on Gemma 4 (Gemma Team, 2026). It answers the same Choice, Noul and Score questions as JEV, and its inputs may include causal still frames or a short causal audio window. Because the interface is the same, every decision of Jarvis-Audio works in Jarvis-Omni without changes to the runtime. Two new decisions use the images. One reviews whether a frame supports a visual claim and whether that claim is still fresh, and the other chooses the tactical advice that fits the current screen. Game HUDs are dense and small, so Jev-Omni carries light adapters of about 8.5M parameters each for reading the HUD and for telling whether the player’s character is alive. Open-ended descriptions of the screen are proposed by a separate vision-language model, Gemma-4-12B-IT (Gemma Team, 2026) 4, but they must pass this review before they can support anything the assistant says. Not every question needs the full slow brain. “Should I push now?” in the middle of a fight needs an answer within about two seconds. For such questions Jev-Omni reads the latest screenshot and picks the advice that fits it, an independent review confirms that the screen supports the advice, and the front model speaks it. In recorded sessions this fast path starts speaking about 2.2 s after the user finishes the question. Open questions, requests to remember something and questions about earlier rounds go through the full path with workers, tools and in-match memory (Appendix A.2). 
+
+4.3. A Gate That Also Watches 
+
+The gate of Jarvis-Omni follows the recipe of Section 3.1 with a richer causal input. It combines microphone and screen features with the dialogue so far, including the assistant audio that was actually played, and leaves out the transcript of the current utterance. It can also emit a fourth action, 
+
+SCENE , which starts an analysis of the screen without any user request so the assistant can speak up when something important happens. We trained the rank-8 adapter with GRPO on 1,211 episodes built from 49 recorded game sessions. On a fixed test set of 96 episodes, the frozen control head of Venus-Omni makes the right decision in 30 cases and misses an action it should have taken in 66. Our adapter reaches 75 correct with a single missed action, against 67 and 22 for an earlier adapter without dialogue context. Missing almost nothing is what matters most here, because a request that 
+
+> 4
+
+https://huggingface.co/google/gemma-4-12B-it 
+
+> 12 Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models
+
+the gate misses never reaches any later part of the system. In live sessions on the same user recordings, the new adapter also brings the first spoken response forward from 5.05 s to 1.78 s at the median. 
+
+## 5. Experiments 
+
+Our experiments answer three questions. Does the harness by itself make a voice agent better, with everything else held fixed (§5.2)? How does the result compare with the strongest published voice systems (§5.3)? And why does it work, mechanism by mechanism (§5.4 and §5.5)? We close by asking whether the same ideas carry over to vision (§5.6). 
+
+5.1. Setup Benchmarks. 𝜏 -Voice (Ray et al., 2026) runs the customer-service tasks of 𝜏 2-bench (Barres et al., 2025) as full-duplex voice calls with a simulated caller. We use all 278 regular tasks in airline, retail and telecom, and a task counts as solved only when the official reward, which checks the final database state and the required actions, equals 1. Full-Duplex-Bench v3 (Lin et al., 2026) (FDB-v3) plays 100 real recordings of people asking for multi-step tool use with natural disfluencies. Full-Duplex-Bench v2 (Lin et al., 2025a) (FDB-v2) runs 200 multi-turn tasks with an automated examiner at two paces, and we report its task score from 1 to 5 for Correction, Entity tracking and Safety. ContextDialog (Kim et al., 2025) tests whether an assistant recalls earlier parts of a spoken conversation. 
+
+Front models and baselines. Besides Venus-Audio, we run the harness unchanged on MiniCPM-o 4.5 (Cui et al., 2026) and VoiceChat-11B (NVIDIA, 2026). Our main baseline is Qwen Audio Agent (QAA) (QwenAudio Team, 2026), an open voice runtime with a task manager, cancellation and playback receipts, which we run from its pinned upstream code. We also run Gander (Orantqing et al., 2026), MoshiRAG (Chien et al., 2026) and the official harness released with Venus-Audio. Every harness uses the same DeepSeek-V4-Flash back end and budget, and all rows within a comparison share one judge (Appendix C). 
+
+5.2. Does the Harness Matter? 
+
+Comparisons between published systems mix differences in front models, back ends and protocols. Our first experiment removes them. Table 2 keeps the front model, the admission path and the back end fixed and changes only the harness, so every difference comes from what happens to a turn after it is admitted. The harness turns out to matter enormously. On Venus-Audio, Jarvis solves 192 of 278 𝜏 -Voice tasks against 29 for QAA. It passes 51 FDB-v3 recordings under exact matching against 41, a gain of 10 points with a paired bootstrap interval of [3.0, 17 .8], and raises the FDB-v2 task score from 2.57 to 3.36, with an interval of [0.53 , 1.04 ] for the gain. The same picture holds on the other two front models (Figure 8). Jarvis never trails QAA on any benchmark, domain or task category, and on VoiceChat it lifts 𝜏 -Voice from 2 to 33 solved tasks. Systems that keep their own runtimes fall far behind on the two tool-use benchmarks under the same protocol. MoshiRAG retrieves knowledge but cannot execute tools, so it solves no 𝜏 -Voice task, the official Venus harness passes no FDB-v3 recording, and Gander passes 5. On FDB-v2, which needs no tools, their task scores lie between 3.08 and 3.16, still below the 3.36 of Jarvis on Venus-Audio. The gains come from three places. First, fewer requests are lost. With identical admissions on Venus-Audio, QAA produces an audible response in 68 of the 100 FDB-v3 recordings and Jarvis in 97, because the Task Ledger and Delivery make sure 
+
+> 13 Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models
+
+Table 2 | Harnesses compared on the same front model, admission path and back end. 𝜏 -Voice reports solved tasks, FDB-v3 reports passes out of 100 under exact and semantic matching, and FDB-v2 reports the mean task score over 300 task and pace pairs. All rows share one judge. †Released runtime with a DeepSeek-V4-Flash worker in place of its Codex back end. 
+
+> 𝜏
+
+-Voice (solved) FDB-v3 FDB-v2 Front model Harness Airline Retail Telecom Total Exact Semantic Task score Venus-Audio Native harness 17 6 0 23 45 35 3.09 QAA 23 6 0 29 41 59 2.57 
+
+Jarvis 35 77 80 192 51 63 3.36 
+
+MiniCPM-o 4.5 QAA 23 6 0 29 40 56 2.98 
+
+Jarvis 23 6 9 38 50 63 3.28 
+
+VoiceChat-11B QAA 1 1 0 2 26 38 2.44 
+
+Jarvis 23 6 4 33 34 50 2.84 
+
+Other full-duplex systems with their own runtimes 
+
+MoshiRAG Native retrieval 0 0 0 0 0 0 3.08 Gander Native runtime † 23 6 0 29 5 6 3.16 Venus-Audio MiniCPM-o VoiceChat 050 100 150 200  
+
+> τ-Voice tasks solved (of 278)
+> 29
+> 192
+> 29 38
+> 2
+> 33
+
+(a)   
+
+> QAA Jarvis 234
+
+FDB-v2 task score (1 to 5)  
+
+> VoiceChat, Safety VoiceChat, Entity tracking VoiceChat, Correction MiniCPM-o, Safety MiniCPM-o, Entity tracking MiniCPM-o, Correction Venus, Safety Venus, Entity tracking Venus, Correction +0.24 +1.14 +0.98 +0.29 +0.57 +0.05 +0.64 +0.29 +0.26
+
+(b) 
+
+Figure 8 | Jarvis against QAA with the same front model, admission path and back end. (a) 𝜏 -Voice tasks solved out of 278. (b) FDB-v2 task score for every combination of front model and category. Jarvis improves on QAA in all nine. that an admitted request is answered, asked about or reported as failed, and never silently dropped. Second, arguments and answers are more accurate. Argument accuracy and response quality improve on all three front models, since the worker plans with the full policy and decision brain keeps a short reply such as a name or a number attached to the service it belongs to. Third, the gains concentrate on work that changes state. The hardest 𝜏 -Voice tasks must write to the database, such as rebooking a flight or changing an order. QAA solves none of them on any front model, while Jarvis solves 137 on Venus-Audio. None of this costs time. The median task-completion time on FDB-v3 is 12.9 s for Jarvis against 14.2 s for QAA. Table 14 in the appendix gives the full breakdown. 
+
+> 14 Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models
+
+Table 3 | Results on Full-Duplex-Bench v3 (100 recordings). The first four metrics are fractions and the last three are percentages. Bold marks the best value in each column, and – means not reported.                                                                                     
+
+> System Tool F1 ↑Arg. acc. ↑Resp. qual. ↑Pass@1 ↑Take-turn ↑Interrupt ↓Filler ↓
+> Commercial and cascaded systems
+> GPT-Realtime 0.876 0.680 0.792 0.600 96.0 13.5 16.9 Gemini Live 3.1 0.817 0.588 0.718 0.540 78.0 19.2 31.7 Gemini Live 2.5 0.786 0.593 0.554 0.490 92.0 14.1 8.9
+> Cascaded (Whisper, GPT-4o, TTS) 0.803 0.562 0.600 0.450 100.0 33.0 26.9 Grok 0.797 0.542 0.617 0.430 94.0 25.5 44.3 Ultravox v0.7 0.794 0.513 0.510 0.410 96.0 47.9 88.0
+> Open full-duplex models and agents
+> Venus-Audio 0.850 0.542 –0.480 –––Venus-Omni 0.860 0.531 –0.430 –––VoiceChat-11B 0.825 0.422 –0.330 –––Gander 0.759 0.503 0.490 0.400 100.0 8.0 51.6
+> Jarvis-Audio 0.927 0.783 0.850 0.690 100.0 7.0 20.4
+
+With the front model, admission and back end held fixed, the harness alone moves 𝜏 -Voice success on Venus-Audio from 29 to 192 of 278 tasks. Jarvis improves on QAA for all three front models and never falls behind it on any benchmark, domain or category. 
+
+5.3. Comparison with Leading Voice Systems 
+
+Table 3 compares Jarvis-Audio with the systems reported on FDB-v3. Jarvis-Audio reaches a Pass@1 of 69%, nine points above GPT-Realtime and 21 points above the Venus-Audio model it runs on. It also leads on tool selection, argument accuracy and response quality, takes the turn in every recording and interrupts the user in only 7% of them, the lowest rate in the table. The margin grows with difficulty. On hard scenarios Jarvis-Audio passes 56.7% against 43.3% for GPT-Realtime (Table 15 in the appendix). On the public 𝜏 -Voice leaderboard (Sierra Research, 2026) (Table 4), Jarvis-Audio reaches a macro success rate of 69.2%, higher than every realtime speech model on the board, including GPT-Realtime 2 at 42.4% and Grok Voice Think Fast 1.0 at 67.3%, and more than double the cascaded pipeline. The two systems ranked above it, GPT Live 1 and Pine Voice Preview, follow the same fast and slow design but rely on proprietary frontier models in the background. Jarvis-Audio gets close with an open 9B front model and a flash-tier back end, which again suggests that how the two brains are coordinated matters as much as how strong the slow brain is. 
+
+5.4. Why It Works 
+
+A benchmark caller rarely changes a request while the work on it is still running, so we test the mechanisms directly. 
+
+Each ledger check removes a different failure. We built a race suite in which twenty templates with four timing variants each inject a refinement, a cancellation, a correction during planning, a switch to another task or an interruption during playback. Each of the 80 scripts runs three times per configuration against the frozen runtime of Jarvis-Audio with its real tool loop and native speech, 
+
+> 15 Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models
+
+Table 4 | Task success (%) on 𝜏 -Voice (regular tasks). Bold marks the best value among systems without a proprietary reasoning back end. 
+
+System Retail ↑ Airline ↑ Telecom ↑ Macro avg. ↑
+
+Realtime speech models 
+
+GPT-Realtime 1.0 35.96 36.00 19.30 30.42 GPT-Realtime 1.5 44.70 40.00 21.10 35.27 GPT-Realtime 2 47.37 58.00 21.93 42.43 Gemini 2.5 Flash Live 29.80 30.00 17.50 25.77 Gemini 3.1 Flash Live (thinking high) 45.61 64.00 21.93 43.85 Grok Voice Fast 1.0 38.60 36.00 40.40 38.33 Grok Voice Think Fast 1.0 62.28 66.00 73.68 67.32 Grok Voice Think Fast 2.0 59.65 56.00 71.93 62.53 Qwen3.5-Omni-Plus Realtime 46.49 54.00 60.53 53.67 
+
+Cascaded pipeline 
+
+LiveKit (Nova-3, GPT-4.1, Aura) 28.95 48.00 16.67 31.20 
+
+Realtime front end with a proprietary reasoning back end 
+
+GPT Live 1 with GPT-6 Astra 78.95 82.00 84.21 81.72 Pine Voice Preview 70.18 70.00 85.96 75.38 
+
+Jarvis-Audio (open 9B front, DeepSeek-V4-Flash) 67.54 70.00 70.18 69.24 
+
+Table 5 | Consistency under 80 race scripts, each run three times per configuration. The middle columns count runs with each error. A false delivery is a task recorded as delivered although the user never heard all of it. The last column gives the paired gain of the full runtime in consistent runs, with a 95% bootstrap interval clustered by template.                                
+
+> Runtime Consistent runs ↑Stale audio ↓Stale tool effect ↓False delivery ↓Gain of full runtime (pp) Jarvis, full runtime 240 / 240 000–without result validity (I2) 168 / 240 72 00+30 .0[15 .0,45 .0]
+> without plan freshness (I3) 168 / 240 72 72 0+30 .0[15 .0,45 .0]
+> without playback receipts (I4) 204 / 240 0036 +15 .0[3.8,30 .0]
+
+and the script fixes the control decisions so that the runtime is tested on its own. A run is consistent only if no stale audio, stale tool effect or false delivery record occurs and every result that should be delivered is played in full. The full runtime is consistent in all 240 runs (Table 5). Without the result check of invariant I2, an answer from a superseded or cancelled version reaches the speaker in 72 runs. Without the plan check of invariant I3, the outdated plan also executes its tools in the same 72 runs, so the user hears a wrong answer and the wrong action has already been taken. Without playback receipts, 36 runs end with a task marked as delivered that the user never heard in full. No check blocks a legitimate delivery, since all configurations pass the 60 control runs in which the work should continue. 
+
+JEV decides correctly, and in time. The checks act on decisions, and a decision helps only if it arrives in time. A cancellation recognized after the old worker has finished is too late, because the result is already on its way to the speaker. We compare JEV with two general LLMs used as controllers, DeepSeek-V4-Flash and Gemini-3.5-Flash. All three receive the same options and context, and for each we pick on 240 development cases the threshold that accepts the most control operations while 
+
+> 16 Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models
+
+Table 6 | JEV against general LLM controllers with the same options and context. (a) Decisions on 192 test cases, each called three times. In time counts correct decisions that clear the threshold within 1 s, and with fallback also counts the conservative ANSWER fallback within the 3.5 s deadline of the runtime. (b) The measured decisions replayed in the runtime on 64 cases at four worker completion times. A correct binding applies the right operation to the right task and changes no other task, and stopped in time counts cancellations and refinements applied before the old worker finished. 
+
+(a) Decisions on the test set Controller Threshold Median request (s) ↓ In time, 1 s ↑ With fallback, 3.5 s ↑
+
+DeepSeek-V4-Flash 0.95 1.57 0 / 576 465 / 576 (80.7%) Gemini-3.5-Flash 1.00 3.14 0 / 576 456 / 576 (79.2%) 
+
+JEV 0.43 0.30 524 / 576 (91.0%) 544 / 576 (94.4%) (b) Measured decisions replayed in the runtime Controller Correct binding ↑ Stopped in time ↑ Stale audio ↓ Unchanged tasks kept ↑
+
+DeepSeek-V4-Flash 220 / 256 77 / 224 36 32 / 32 Gemini-3.5-Flash 160 / 256 9 / 224 96 32 / 32 
+
+JEV 252 / 256 150 / 224 4 32 / 32 0.5 1 2 3.5 10          
+
+> decision deadline (s)
+> 020 40 60 80 100
+> test cases (%)
+> (a) accepted in time
+> 0.5 123.5 10
+> decision deadline (s)
+> 020 40 60 80 100
+> (b) correct with safe fallback
+> 0.25 0.75 1.5 3
+> old worker finishes after (s)
+> 020 40 60 80 100
+> control cases (%)
+> (c) obsolete work stopped
+> JEV DeepSeek-V4-Flash Gemini-3.5-Flash
+
+Figure 9 | Timely control. (a) Correct decisions that clear each controller’s threshold within a given deadline. (b) Correct decisions when the conservative fallback is counted. (c) Share of cancellations and refinements that stop the old worker before it finishes, as a function of when it would finish. Dotted lines mark the 1 s window and the 3.5 s deadline of the runtime. keeping wrong controls at no more than 1%. The test set holds 192 new bilingual cases from 24 scenario families, including cases where a domain action must be told apart from a harness control, and every controller sees each case three times. JEV returns a correct and confident decision within one second in 91% of the 576 test calls (Table 6a). Neither LLM controller does so even once, because their median requests take 1.57 s and 3.14 s against 0.30 s for JEV. Even at the 3.5 s deadline with the conservative fallback counted, JEV is correct in 94.4% of the calls against about 80% for both, and none of the control operations it accepted was wrong. Speed matters because the runtime acts on it. When we replay the measured decisions in the real runtime with the old worker finishing between 0.25 and 3 s after the turn, JEV binds the right 
+
+> 17 Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models
+
+Table 7 | Spoken conversational memory on ContextDialog (80 fixed questions, Venus-Audio). Scores are on a 1 to 5 scale after a uniform ASR audit of the played answers. Evidence is the mean number of tokens passed to the answering model.               
+
+> Harness and memory Mean score ↑Score ≥4↑Evidence tokens
+> QAA, default Markdown memory with automatic injection 1.45 6 / 80 55
+> Jarvis , JEV selection 4.19 61 / 80 700
+> Jarvis , hybrid dense and sparse retrieval 4.41 65 / 80 1013
+
+Table 8 | Visual input in the complete interaction path of Jarvis-Omni. A correct answer must be accepted by two blind automated reviews of the played audio and the recorded screen, and every question stays in the denominator. Silence counts controls in which the assistant correctly stays quiet. Intervals are 95% bootstrap intervals clustered by upload.                    
+
+> Cohort Uploads With screen ↑Without screen Gain (pp) Silence kept ↑
+> First, full 16 71 / 300 (23.7%) 3 / 300 (1.0%) +22 .7[18 .8,25 .6]60 / 60 Second, compact 12 new 30 / 120 (25.0%) 3 / 120 (2.5%) +22 .5[14 .2,30 .8]24 / 24
+
+operation to the right task in 252 of 256 replays and stops the obsolete worker in time in 150 of 224 cases (Table 6b). The two LLM controllers stop it in 77 and 9 cases, and stale speech reaches the speaker in 36 and 96 of their replays against 4 for JEV. Figure 9(c) shows where the difference comes from. When the old worker finishes 0.75 s after the turn, JEV still stops 79% of the obsolete work and neither LLM controller stops any. 
+
+Each ledger check removes a different failure, and together they keep the runtime consistent in all 240 race runs. JEV supplies the decisions these checks act on, and it supplies them in time. It is correct and confident within one second in 91% of the test cases, which no general LLM controller achieves, and in the runtime it stops about twice as much obsolete work as the better of them. 
+
+5.5. Memory 
+
+We ask 80 fixed questions about 20 complete ContextDialog conversations, feed the history as real audio and score the answer that was actually played. Both memory back ends of Jarvis score close to 3 points higher than the default memory of QAA (Table 7), with a conversation-clustered interval of [2.43 , 3.05 ] for the gain of JEV selection. The difference lies in what is stored. QAA compresses the conversation into short notes and passes only 55 tokens of evidence, which loses the details the questions ask about, while Jarvis keeps what both speakers said. The two back ends differ in how much evidence they pass on. JEV selection keeps only the records it judges relevant, while the hybrid retriever passes on more of what it finds. On the 45 questions where JEV keeps some of the records, it scores 4.69 against 4.36 for the hybrid retriever, because a short and focused context is easier to answer from. Its overall mean is lower because on eight questions it discarded every record and left the answering model with no evidence. 
+
+5.6. Does It Carry Over to Vision? The answers rest on the screen. We ran Jarvis-Omni end to end on recorded game sessions, with the real browser, speech recognition, visual processing and native speech output. Each recording comes with six conditions, such as two different screens for the same question, a change in the game 
+
+> 18 Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models
+
+state and a silent control, and the ablation removes only the screen frames that enter the runtime. An answer counts as correct only if two blind reviews of the played audio and the recorded screen both accept it, and questions answered late or not at all stay in the denominator. In two independent cohorts, removing the screen drops correct answers from 23.7% to 1.0% and from 25.0% to 2.5%, gains of 22.7 and 22.5 points (Table 8). Almost every correct answer therefore rests on visual evidence, and both configurations stay quiet in every silent control. 
+
+Expired evidence stays off the speaker. An answer that was right when it was admitted can still expire while it waits in the speech queue or while it plays. We played admitted utterances through the real speech scheduler and browser audio player, with their evidence set to expire either before or during playback. Without the validity check, 12.3 s of expired audio reaches the user when the evidence expires in the queue and 9.9 s when it expires during playback. With the check, these fall to zero and to 0.125 ms, three samples in total, while utterances whose evidence stays valid play in full. The rule that keeps a stale task result off the speaker in Jarvis-Audio thus carries over to visual evidence, all the way to the sound the user hears. 
+
+> The answers of Jarvis-Omni rest on the screen. Removing it costs about 22 points of correct answers in two independent cohorts, and silent matches stay silent either way. The validity rule follows the evidence through the speech queue into playback, so expired advice is not spoken.
+
+## 6. Jarvis in Action 
+
+Benchmarks test parts of the problem one at a time. The sessions in Figure 10 show the whole system at work. 
+
+Daily assistance. At the end of the game night, the web client of Figure 10(a) shows seven task cards with the version of each result, the cancelled welcome sign set apart and a note that the $60 budget applies to tonight only. When the same user opens a new session later and asks about defaults, Jarvis answers that forty dollars is the usual snack budget and that light themes are the saved preference for games. 
+
+Playing alongside the user. In Plants vs. Zombies, Jarvis-Audio discusses strategy, keeps 150 sun in reserve because the user asked it to, and speaks up on its own when a lane comes under pressure (“Lane 1 is under pressure. Use the cherry bomb here?”). The user takes over and later hands control back, and the 5.3-minute session ends in a victory. In the voxel sandbox Luanti (Luanti Contributors, 2026) with the VoxeLibre game (VoxeLibre Contributors, 2026), it equips a sword, fights a husk and pauses its remaining actions when the user grabs the controls in the middle of the fight. Every move in both games goes through a revocable grant tied to the current game state, and every reported outcome, from each of the 23 plantings in Plants vs. Zombies to a harvested carrot, is a receipt from the game engine rather than a claim by the model. 
+
+Game companion. Jarvis-Omni watches recorded CS2 and League of Legends matches and talks about them. Asked what weapon a player was holding a moment ago, it answers from the earlier frame. Told to watch quietly and speak up at a highlight, it waits and then reacts to the victory screen with “That round was a great win”. When the user asks for relaxed chat instead of constant tactics and asks it to remember that, it confirms the preference and switches to casual conversation. 
+
+> 19 Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models
+
+(a) The game-night session at its end. Each card carries its task version, and the welcome sign is the only cancelled task. 
+
+(b) Plants vs. Zombies. “Lane 1 is under pressure. Use the cherry bomb here?” The user can take over and hand back control at any time. 
+
+(c) VoxeLibre. Actions run under a revocable grant. 
+
+(d) CS2. “Nice! Three headshots in fifteen seconds”, said on its own initiative. 
+
+(e) League of Legends. Asked about taking the top tower: “Hold off, you only have 320 HP”. Tactical advice in about 2.2 s. 
+
+Figure 10 | Jarvis in use. (a) to (c) run Jarvis-Audio and (d) and (e) run Jarvis-Omni. 
+
+## 7. Related Work 
+
+Full-duplex spoken dialogue. Spoken dialogue has moved from turn-based pipelines to models that listen and speak at once, from dGSLM (Nguyen et al., 2023) and SyncLLM (Veluri et al., 2024) to Moshi (Défossez et al., 2024), Freeze-Omni (Wang et al., 2024), MiniCPM-o 4.5 (Cui et al., 2026), Seeduplex (ByteDance Seed Team, 2026b), BayLing-Duplex (Fang et al., 2026) and Realtime-Venus (Ant Group, 2026), with omni models extending the idea to video (ByteDance Seed Team, 2026a; Qwen Team, 2026; Xu et al., 2025). Benchmarks have moved from turn-taking (Lin et al., 2025b) to instruction following (Lin et al., 2025a) and tool use (Lin et al., 2026; Ray et al., 2026). These models settle when to speak, and Jarvis builds on them to decide what to do with an utterance once the system acts on it. 
+
+Fast and slow voice agents. Many recent systems pair a realtime model with a stronger background model (Huang et al., 2026; OpenAI, 2026; Thinking Machines Lab, 2026; Wu et al., 2025). Realtime-Venus delegates through a native token (Ant Group, 2026), Qwen Audio Agent (QwenAudio Team, 2026) offers a runtime with a task manager and playback receipts, Gander (Orantqing et al., 2026) lets the front model emit task calls to a Brain, and MoshiRAG (Chien et al., 2026) retrieves knowledge while Moshi keeps talking. Jarvis shares the split but differs in where coordination is decided. A dedicated decision brain selects among operations bound to task versions, and the hand-off is learned on the front model’s native control branch instead of being prompted. 
+
+> 20 Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models
+
+Dialogue state, typed decisions and memory. Task-oriented dialogue has long tracked explicit slot states (Budzianowski et al., 2018; Wu et al., 2019). Jarvis tracks asynchronous tasks with versions and delivery status instead, updated while the work is still running. Tool-using models (Patil et al., 2024; Schick et al., 2023; Yao et al., 2023) and LLM judges (Zheng et al., 2023) show that models can choose actions and grade outputs, and JEV turns this into distributions over runtime-supplied options that are easy to threshold and audit. Agent memory ranges from retrieval (Lewis et al., 2020) to self-managed stores (Packer et al., 2023; Zhong et al., 2024), and spoken history adds speech never meant for the assistant (Kim et al., 2025; Xie et al., 2026). Earlier agents named JARVIS orchestrate tools (Shen et al., 2023) or play Minecraft (Wang et al., 2023), but neither coordinates background work during a live conversation. 
+
+## 8. Conclusion 
+
+When an interactive model talks while a slow brain works in the background, each new turn can change what that work should do. Jarvis gives this coordination a brain of its own, in which models make the judgments and code checks each one against the latest state of every task. With the front model and back end held fixed, this change alone brings large gains on every benchmark and front model we tested, and the design carries over to vision with little change. We expect the same split to help assistants in glasses, cars and robots keep talking naturally while they act. 
+
+## References 
+
+Ant Group. Realtime-Venus: A full-duplex interaction system with asynchronous delegation. arXiv preprint arXiv:2609.13814 , 2026. Victor Barres, Honghua Dong, Soham Ray, Xujie Si, and Karthik Narasimhan. 𝜏 2-bench: Evaluating conversational agents in a dual-control environment. arXiv preprint arXiv:2506.07982 , 2025. Paweł Budzianowski, Tsung-Hsien Wen, Bo-Hsiang Tseng, Iñigo Casanueva, Stefan Ultes, Osman Ramadan, and Milica Gašić. MultiWOZ – a large-scale multi-domain Wizard-of-Oz dataset for task-oriented dialogue modelling. In Proceedings of the 2018 Conference on Empirical Methods in Natural Language Processing , 2018. ByteDance Seed Team. SeedRealtime audio-visual full-duplex LLM released: Toward omni-modal natural interaction. https://seed.bytedance.com/en/blog/seedrealtime-audio-visual-full-duplex-llm-released-toward-omni-modal-natural-interaction ,August 2026a. ByteDance Seed Team. Seeduplex: Native full-duplex speech LLM. 
+
+https://research.doubao.com/en/seeduplex , 2026b. ByteDance Seed. Chung-Ming Chien, Manu Orsini, Eugene Kharitonov, Neil Zeghidour, Karen Livescu, and Alexandre Défossez. MoshiRAG: Asynchronous knowledge retrieval for full-duplex speech language models. 
+
+arXiv preprint arXiv:2604.12928 , 2026. Junbo Cui, Bokai Xu, Chongyi Wang, Tianyu Yu, Weiyue Sun, Yingjing Xu, Tianran Wang, Zhihui He, Wenshuo Ma, Tianchi Cai, et al. MiniCPM-o 4.5: Towards real-time full-duplex omni-modal interaction. arXiv preprint arXiv:2604.27393 , 2026. DeepSeek-AI. DeepSeek-V4: Towards highly efficient million-token context intelligence. arXiv preprint arXiv:2606.19348 , 2026. 
+
+> 21 Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models
+
+Alexandre Défossez, Laurent Mazaré, Manu Orsini, Amélie Royer, Patrick Pérez, Hervé Jégou, Edouard Grave, and Neil Zeghidour. Moshi: a speech-text foundation model for real-time dialogue. 
+
+arXiv preprint arXiv:2410.00037 , 2024. Qingkai Fang, Shoutao Guo, and Yang Feng. BayLing-Duplex: Native full-duplex speech dialogue with a single autoregressive LLM. arXiv preprint arXiv:2606.14528 , 2026. Gemma Team. Gemma 4 technical report. arXiv preprint arXiv:2607.02770 , 2026. Google DeepMind. Gemini Live API overview. 
+
+https://ai.google.dev/gemini-api/docs/live-api , 2026. Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. LoRA: Low-rank adaptation of large language models. In International Conference on Learning Representations , 2022. Hangrui Hu, Xinfa Zhu, Ting He, Dake Guo, Bin Zhang, Xiong Wang, Zhifang Guo, Ziyue Jiang, et al. Qwen3-TTS technical report. arXiv preprint arXiv:2601.15621 , 2026. Muye Huang, Lingling Zhang, Xingyu Yu, Lei Shi, Zhanyu Ma, Jun Xu, Jiuchong Gao, Jinghua Hao, Renqing He, and Jun Liu. DuplexOmni: Real-time listening, seeing, thinking, and speaking for full-duplex interaction. arXiv preprint arXiv:2606.09186 , 2026. Daniel Kahneman. Thinking, Fast and Slow . Farrar, Straus and Giroux, 2011. Heeseung Kim, Che Hyun Lee, Sangkwon Park, Jiheum Yeom, Nohil Park, Sangwon Yu, and Sungroh Yoon. Does your voice assistant remember? analyzing conversational context recall and utilization in voice interaction models. arXiv preprint arXiv:2502.19759 , 2025. Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich Küttler, Mike Lewis, Wen-tau Yih, Tim Rocktäschel, et al. Retrieval-augmented generation for knowledge-intensive NLP tasks. In Advances in Neural Information Processing Systems ,volume 33, pages 9459–9474, 2020. Guan-Ting Lin, Shih-Yun Shan Kuan, Jiatong Shi, Kai-Wei Chang, Siddhant Arora, Shinji Watanabe, and Hung-yi Lee. Full-Duplex-Bench-v2: A multi-turn evaluation framework for duplex dialogue systems with an automated examiner. arXiv preprint arXiv:2510.07838 , 2025a. Guan-Ting Lin, Jiachen Lian, Tingle Li, Qirui Wang, Gopala Anumanchipalli, Alexander H. Liu, and Hung-yi Lee. Full-Duplex-Bench: A benchmark to evaluate full-duplex spoken dialogue models on turn-taking capabilities. arXiv preprint arXiv:2503.04721 , 2025b. Guan-Ting Lin, Chen Chen, Zhehuai Chen, and Hung-yi Lee. Full-Duplex-Bench-v3: Benchmarking tool use for full-duplex voice agents under real-world disfluency. arXiv preprint arXiv:2604.04847 ,2026. Luanti Contributors. Luanti: An open-source voxel game engine. https://www.luanti.org ,2026. Tu Anh Nguyen, Eugene Kharitonov, Jade Copet, Yossi Adi, Wei-Ning Hsu, Ali Elkahky, Paden Tomasello, Robin Algayres, Benoît Sagot, Abdelrahman Mohamed, and Emmanuel Dupoux. Generative spoken dialogue language modeling. Transactions of the Association for Computational Linguistics , 11:250–266, 2023. 
+
+> 22 Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models
+
+NVIDIA. Parakeet-TDT-0.6B-v2. https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2 ,2025. NVIDIA. NemotronLabs VoiceChat-11B. 
+
+https://huggingface.co/nvidia/NVIDIA-NemotronLabs-VoiceChat-11B , 2026. OpenAI. Introducing gpt-realtime and Realtime API updates for production voice agents. 
+
+https://openai.com/index/introducing-gpt-realtime/ , 2025. OpenAI. GPT-Live system card. https://deploymentsafety.openai.com/gpt-live , July 2026. Orantqing, Shengpeng Ji, Junlong Tong, Jialong Zuo, Dongjie Fu, Di Cao, Yangzhuo Li, Shangda Wu, Franz, Evan, Theron Veyra, Changhao Pan, Jingyu Lu, Dongchao Yang, Zhifei Xie, Yang Tan, Xiaoyu Shen, Xiaoda Yang, Wenfu Wang, Teddy Sun, Steve Yves, and Zhou Zhao. Multimodal duplex interaction agent. arXiv preprint arXiv:2609.08977 , 2026. Charles Packer, Sarah Wooders, Kevin Lin, Vivian Fang, Shishir G Patber, Ion Stoica, and Joseph E Gonzalez. MemGPT: Towards LLMs as operating systems. arXiv preprint arXiv:2310.08560 , 2023. Shishir G Patil, Tianjun Zhang, Xin Wang, and Joseph E Gonzalez. Gorilla: Large language model connected with massive APIs. Advances in Neural Information Processing Systems , 37: 126544–126565, 2024. Qwen Team. Qwen3.5-Omni technical report. arXiv preprint arXiv:2604.15804 , 2026. QwenAudio Team. Qwen Audio Agent: A realtime voice runtime for AI agents. 
+
+https://github.com/QwenAudio/qwen-audio-agent , 2026. GitHub repository. Soham Ray, Keshav Dhandhania, Victor Barres, and Karthik Narasimhan. 𝜏 -Voice: Benchmarking full-duplex voice agents on real-world domains. arXiv preprint arXiv:2603.13686 , 2026. Timo Schick, Jane Dwivedi-Yu, Roberto Dessì, Roberta Raileanu, Maria Lomeli, Eric Hambro, Luke Zettlemoyer, Nicola Cancedda, and Thomas Scialom. Toolformer: Language models can teach themselves to use tools. In Advances in Neural Information Processing Systems , 2023. Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, YK Li, Yang Wu, et al. DeepSeekMath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300 , 2024. Yongliang Shen, Kaitao Song, Xu Tan, Dongsheng Li, Weiming Lu, and Yueting Zhuang. HuggingGPT: Solving AI tasks with ChatGPT and its friends in hugging face. In Advances in Neural Information Processing Systems , 2023. Xian Shi, Xiong Wang, Zhifang Guo, Yongqi Wang, Pei Zhang, Xinyu Zhang, Zishan Guo, Hongkun Hao, et al. Qwen3-ASR technical report. arXiv preprint arXiv:2601.21337 , 2026. Sierra Research. 𝜏 -bench leaderboard: Voice submissions. 
+
+https://github.com/sierra-research/tau2-bench/tree/main/web/leaderboard ,2026. Silero. Silero VAD: pre-trained enterprise-grade voice activity detector (VAD), number detector and language classifier. https://github.com/snakers4/silero-vad , 2024. 
+
+> 23 Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models
+
+Thinking Machines Lab. Interaction models: A scalable approach to human-ai collaboration. 
+
+Thinking Machines Lab: Connectionism , May 2026. doi: 10.64434/tml.20260511. https://thinkingmachines.ai/blog/interaction-models/. Bandhav Veluri, Benjamin N. Peloquin, Bokai Yu, Hongyu Gong, and Shyamnath Gollakota. Beyond turn-based interfaces: Synchronous LLMs as full-duplex dialogue agents. In Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing , 2024. VoxeLibre Contributors. VoxeLibre: A survival sandbox game for Luanti. 
+
+https://content.luanti.org/packages/wuzzy/mineclone2/ , 2026. Xiong Wang, Yangze Li, Chaoyou Fu, Yunhang Shen, Lei Xie, Ke Li, Xing Sun, and Long Ma. Freeze-Omni: A smart and low latency speech-to-speech dialogue model with frozen LLM. arXiv preprint arXiv:2411.00774 , 2024. Zihao Wang, Shaofei Cai, Anji Liu, Yonggang Jin, Jinbing Hou, Bowei Zhang, Haowei Lin, Zhaofeng He, Zilong Zheng, Yaodong Yang, Xiaojian Ma, and Yitao Liang. JARVIS-1: Open-world multi-task agents with memory-augmented multimodal language models. arXiv preprint arXiv:2311.05997 ,2023. Chien-Sheng Wu, Andrea Madotto, Ehsan Hosseini-Asl, Caiming Xiong, Richard Socher, and Pascale Fung. Transferable multi-domain state generator for task-oriented dialogue systems. In Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics , 2019. Donghang Wu, Haoyang Zhang, Jun Chen, Hexin Liu, Eng Siong Chng, Fei Tian, Xuerui Yang, Xiangyu Zhang, Daxin Jiang, Gang Yu, et al. Mind-paced speaking: A dual-brain approach to real-time reasoning in spoken language models. arXiv preprint arXiv:2510.09592 , 2025. Zhifei Xie, Jiaqi Lang, Ze An, Yifan Zhao, Dongchao Yang, Kai Li, Ziyang Ma, Mingbao Lin, Chunyan Miao, and Shuicheng Yan. VoiceMem: Streaming dual-brain memory for real-time interaction. 
+
+arXiv preprint arXiv:2608.26005 , 2026. Jin Xu, Zhifang Guo, Hangrui Hu, Yunfei Chu, Xiong Wang, Jinzheng He, Yuxuan Wang, Xian Shi, Ting He, Xinfa Zhu, et al. Qwen3-Omni technical report. arXiv preprint arXiv:2509.17765 , 2025. Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik R Narasimhan, and Yuan Cao. ReAct: Synergizing reasoning and acting in language models. In The eleventh international conference on learning representations , 2023. Lianmin Zheng, Wei-Lin Chiang, Ying Sheng, Siyuan Zhuang, Zhanghao Wu, Yonghao Zhuang, Zi Lin, Zhuohan Li, Dacheng Li, Eric Xing, et al. Judging LLM-as-a-judge with MT-Bench and Chatbot Arena. Advances in neural information processing systems , 36:46595–46623, 2023. Wanjun Zhong, Lianghong Guo, Qiqi Gao, He Ye, and Yanlin Wang. MemoryBank: Enhancing large language models with long-term memory. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 38, pages 19724–19731, 2024. 
+
+> 24 Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models
+
+## A. Implementation Details 
+
+This section collects the details of Jarvis that the main text leaves out. Table 9 compares the two instances, and Table 10 lists every decision handed to JEV. 
+
+Table 9 | The two instances of Jarvis. Rows in the shared block use the same implementation in both. 
+
+Jarvis-Audio Jarvis-Omni 
+
+Front model Realtime-Venus-Audio, 9B (Ant Group, 2026) Venus-Omni (Ant Group, 2026) Native Gate Causal audio prefixes, three actions Causal audio and screen features with dialogue context, adds a SCENE action for proactive turns Decision Brain JEV, text Jev-Omni, 12B, text and images Perception state ASR observer ASR observer, Evidence Timeline and Belief State Memory Profile and task records Adds in-match events and game knowledge 
+
+Shared implementation 
+
+JEV controller, Task Ledger, workers, Delivery and playback control Main evidence 𝜏 -Voice, Full-Duplex-Bench v2 and v3, ContextDialog, race and control studies, daily use, PvZ, Luanti Gate test set, visual and playback ablations, live CS2 and League of Legends sessions 
+
+A.1. Jarvis-Audio Gate and binding. The LoRA adapter of the Native Gate has rank 8 and scale 16 and consists of 216 tensors. The routing pass builds its own prefix, and every pass that produces text or speech runs with the adapter switched off. The endpointing of the ASR observer uses an ensemble of three Silero VAD (Silero, 2024) instances and declares the end of an utterance after 1.1 s of silence. A DELEGATE 
+
+event is bound to the most recent final transcript that started before the decision sample. Two adapter profiles share this design. A general profile serves daily use and all benchmarks, and a game profile serves sessions in which a game is explicitly connected. 
+
+Decision requests. When JEV classifies a turn as a batch, a planner splits it into contiguous spans copied verbatim from the transcript, and each span is interpreted on its own. Every planned operation passes the same check as a JEV choice. Its action must be one that the runtime offers, a refinement or cancellation must name an existing task, and the version must still be live when it is applied. 
+
+Ledger and workers. A task moves through eight states, and three of them, CANCELLED , SUPER-SEDED and FAILED , are terminal. When the only change since a worker planned is newly heard but unconfirmed speech, a bounded check asks whether that speech is related to the task, and the plan proceeds only on a clear “unrelated” with no further change during the check. Clearing the history writes a time fence into the ledger, so an asynchronous write that started before the reset cannot bring an old task back afterwards. A worker receives the objective, the relevant history and memory, the public policy and the tool schemas of the domain. A result names its task and version, a spoken answer, the supporting evidence and any artifacts, and a request for a missing detail moves the task to NEEDS_INPUT .
+
+> 25 Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models
+
+Table 10 | Decisions that Jarvis hands to JEV. All of them use the typed interface, and none returns free text. The threshold is the confidence below which the runtime falls back to a safe default or asks for a second review. 
+
+Decision Options written by the runtime Type Threshold 
+
+Turns and tasks 
+
+Turn route answer fast, memory, worker, clarify, control, ignore, wait Choice 0.75 Early preparation on partial speech wait, prefetch memory, prefetch worker Choice 0.75 Operation on an admitted turn answer, memory, cancel, refine, status or resume on each live task version Choice 0.80 Task control status, refine, replace, cancel or resume on each task version, stop speaking Choice 0.80 Batch interpretation new work, refine, cancel, status, overview, memory, save, stop speech, ignore Choice 0.78 Target of an operation each live task by objective, or none Choice 0.80 
+
+Memory and delivery 
+
+Durable memory write yes or no, whether the speaker states a lasting fact about themselves Choice 0.80 Memory selection use or skip, for each retrieved record Choice –Relevance of a record probability that a record bears on the request Noul –Delivery timing deliver now or defer Choice –
+
+Games and screens 
+
+Game authorization execute, advise, hand back to the human, unclear Choice 0.85 Visual fact review (Jarvis-Omni) probability that the frame supports a claim and that it is still fresh Noul 0.80 Tactical advice (Jarvis-Omni) tactical advice and social replies for the current game Choice 0.50 
+
+Delivery and memory. A routing decision that belonged to an older generation epoch is released back to the gate. A later request to hear a result again creates a fresh presentation in the current epoch. Each profile record has a kind, its text, the entities it mentions, the events it came from, a validity period, a status that is either active or superseded and an optional link to the record it replaces. An edited file is kept as a new revision in the task store. Clearing the history writes a fence, so an extraction that was still running cannot restore the cleared facts. 
+
+A.2. Jarvis-Omni Perception and decisions. The Evidence Timeline aligns its media tracks with a monotonic clock whose drift is estimated continuously. Some facts must come from the screen alone. A low-health reading, for example, is taken only from the HUD and never from the user saying “I’m low”. Jev-Omni makes every judgment in Jarvis-Omni, from routing turns and binding them to tasks to reviewing visual claims and choosing tactical advice (Table 10). It has a 256-way decision head and reads causal still frames and short audio windows. For the small and dense HUDs of games it adds light LoRA modules of about 8.5M parameters each, which read the HUD, keep champion identities consistent and detect whether the controlled character is alive. Open-ended visual descriptions are proposed by Gemma-4-12B-IT (Gemma Team, 2026) and must pass a separate review before the assistant relies on them. 
+
+> 26 Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models
+
+Gate. The scene-aware gate is a rank-8 LoRA with 6,193,152 parameters, and the speech weights stay frozen. Its dialogue context includes earlier admitted user turns, the assistant audio that was actually played, the user profile and the task state. The adapter was trained with GRPO on the three native actions for two rounds of 3,000 steps, using 1,211 episodes built from 49 CS2 and League of Legends recordings and six synthetic speakers, split into 934 training, 181 development and 96 test episodes. Labels come from a teacher model with a blind second review. Table 11 gives the result on the test set. In live sessions on the same 36 user recordings, all 18 replies are heard with the new adapter, against 13 with the previous one. 
+
+Table 11 | The scene-aware gate of Jarvis-Omni on the fixed test set of 96 episodes, with 30 listening, 33 direct and 33 delegated targets. Early means acting before the reference time.               
+
+> Control head Correct ↑Missed ↓Early
+> Frozen Venus-Omni 30 66 0Previous adapter 67 22 1
+> Contextual GRPO adapter 75 113
+
+Memory on screen. Jarvis-Omni extends Memory with two layers. An in-match event memory records what happened during play, such as a kill, a suggestion or a correction, scoped to the user, the game, the match, the scene epoch and the round. Every event states whether it was observed, inferred or reported by the user, and whether it came from the screen or the microphone. Only an explicit correction from the user can supersede an event. A game-knowledge layer stores facts about a game version, each with a source URL and a revision. Events from earlier matches remain available but are labeled as belonging to another session, and a local preference such as “stay quiet this round” never becomes a lasting one. Recalled memory can be cited only as a past event, and recalled text can never re-enter the Evidence Timeline as if it had been seen. 
+
+## B. Training the Native Gate 
+
+All training of the Native Gate uses data we authored and synthesized ourselves. 
+
+Scenarios. We wrote 264 Chinese and English scenarios (142 and 122) that cover what a voice assistant hears in daily use. They include everyday questions and small talk, lookups that need tools, requests to read memory, changes and cancellations of running tasks, background speech, remarks addressed to other people, and discussion of games versus requests to act in them. Each scenario has a label from a written rubric, DIRECT for 76, DELEGATE for 156 and LISTEN for 32, and a context of no game, a PvZ session or a voxel sandbox (160, 52 and 52). Later rounds added three kinds of material. Continuity scenarios cover 38 families of turns that only make sense with what came before, such as names, spelled identifiers, addresses, quantities, budgets and confirmations. Telephony 
+
+variants pass the speech through 8 kHz resampling, G.711 𝜇 -law coding and colored noise at 15 dB and 9 dB. Conversational requests in 24 families, such as asking for a story, a joke, an explanation or some encouragement, teach the gate that a long answer is not the same as a task. Table 12 lists every data layer. 
+
+Speech, prefixes and splits. Every scenario is rendered with Qwen3-TTS (Hu et al., 2026) in zero-shot mode from reference speakers and encoded by the streaming encoder of Venus-Audio. Prefixes that end in the silence before the utterance or in the middle of it are labeled LISTEN , and prefixes 
+
+> 27 Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models
+
+that end after it carry the rubric label. The final stage uses 654 episodes, 478 for training and 176 for development, which expand into 4,111 new causal prefixes and 1,056 replayed from earlier stages. 
+
+Table 12 | Data layers of the Native Gate of Jarvis-Audio. Later layers reuse earlier recordings under new channel conditions or contexts. 
+
+Layer Size and split Content 
+
+Authored scenarios 264, 144 train, 40 dev, 80 held out Questions, small talk, tool needs, memory reads, task changes, background speech, game talk and game actions, in Chinese and English Game round 154, 82 train, 16 dev, 56 held out Discussing a position, explaining it, autho-rizing an action and taking control back Continuity 38 families, 76 episodes Names, spelled identifiers, addresses, quanti-ties, budgets, edits, cancellations and confir-mations, clean and over a telephone channel Telephony 246 episodes, 166 train, 80 dev Quiet line and colored noise at 15 dB and 9 dB after 8 kHz resampling and 𝜇 -law cod-ing Expanded telephony 510 episodes, 382 train, 128 dev 174 source scenarios under three channel conditions Conversational requests 24 families, 144 episodes Stories, jokes, explanations, encouragement, side remarks and requests to wait, in three audio variants and two contexts Final stage 654 episodes, 478 train, 176 dev Expanded telephony plus conversational re-quests, 618 used by the general profile 
+
+Objective. We optimize the policy of Equation (1) with GRPO (Shao et al., 2024). For each prefix 
+
+𝑥 we sample 𝐺 = 8 actions from a behavior distribution that mixes the current policy with a small uniform share, 
+
+𝑞 𝜃 (𝑎 | 𝑥 ) = 0.8 𝜋 𝜃 (𝑎 | 𝑥 ) + 0.2/3. (5) A correct action earns a reward of +2 and a wrong one −1, and rewards are normalized within the group, 𝐴 𝑖 = (𝑟 𝑖 − ¯𝑟 )/( std (𝑟 ) + 10 −6). The loss combines a clipped policy-gradient term with a KL penalty toward the adapter at the start of the stage and a small entropy bonus, 
+
+L( 𝜃 ) = − 𝔼 𝑖 
+
+h
+
+min  𝜌 𝑖 𝐴 𝑖 , clip (𝜌 𝑖 , 0.8, 1.2) 𝐴 𝑖 
+
+i
+
++ 𝛽 𝐷 KL 
+
+ 𝜋 𝜃 ∥ 𝜋 ref 
+
+ − 𝜆 𝐻 (𝜋 𝜃 ), (6) with 𝜌 𝑖 = 𝑞 𝜃 (𝑎 𝑖 | 𝑥 )/ 𝑞 old (𝑎 𝑖 | 𝑥 ), 𝛽 = 0.03 and 𝜆 = 0.002. There is no value network and no token-level supervised loss. The KL anchor keeps the native distribution close to where each stage started, which protects behavior the data does not cover, and rewards on actions make trade-offs such as how early the gate may act easy to adjust. Table 13 lists the settings for both instances. 
+
+Curriculum and selection. Training proceeds in four stages, each starting from the adapter of the previous one. The first stage learns causal timing on the authored scenarios. The second adds telephony, the third extends the scenario pool, and the fourth adds conversational requests. Every batch holds two prefixes from the new material and two replayed from the old, and half of the LISTEN 
+
+slots go to complete speech that is not addressed to the assistant, which is the hardest kind of negative. The final stage runs 800 steps and takes 870 s. Checkpoints are evaluated every 100 steps, and a checkpoint is eligible only if its accuracy on the development set of the earlier stage does not drop. The game profile is chosen by interpolating between the adapters of the first two stages. 
+
+> 28 Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models
+
+Table 13 | Training settings of the Native Gate for both instances. 
+
+Setting Jarvis-Audio, final stage Jarvis-Omni 
+
+Adapter LoRA on q, v, o, rank 8, scale 16 same Trainable parameters 6,193,152 6,193,152 Frozen weights all base weights base, encoders and speech Actions LISTEN , DIRECT , DELEGATE same three Sampled actions per prefix 8 8Reward +2 correct, −1 wrong correct versus wrong Uniform exploration share 0.2 0KL reference and coefficient stage-initial adapter, 0.03 frozen base, 0.003 Entropy coefficient 0.002 –Sampling and evaluation temperature 2.0 and 1.0 8.0 and 1.0 Learning rate 5 × 10 −6, AdamW, weight decay 0.01 1 × 10 −5
+
+Prefixes per step 4, two new and two replayed 3Training prefixes 4,111 new and 1,056 replayed 14,361 Steps 800 two rounds of 3,000 Selection earlier dev must not drop step 2,400 
+
+Results. Figure 11 shows the final stage. Accuracy on the new development set rises from 149 of 164 to 162 of 164 (90.9% to 98.8%), while the earlier development set stays at 40 of 40 throughout. Before this stage the gate sent 11 of 78 conversational requests to the slow brain, mostly requests for stories, jokes and encouragement that sound like work. After it, all 78 are answered directly. All 48 tasks are still delegated. Correct actions fire 0.16 s after the end of the request at the median. 0 200 400 600 800 
+
+training step 
+
+> 85 90 95 100
+> correct first admission (%)
+
+98.8% 
+
+90.9% 
+
+(a)    
+
+> new dev (164 prefixes) earlier dev (40) LIS DIR DEL
+
+predicted 
+
+> LIS DIR DEL
+> target
+
+34 1 30 67 11 0 0 48 
+
+(b) before the stage   
+
+> LIS DIR DEL
+
+predicted 
+
+36 1 10 78 00 0 48 
+
+after the stage 
+
+Figure 11 | Final training stage of the Native Gate. (a) Correct first admissions on the development sets, evaluated every 100 steps. (b) Confusion matrices on the new development set before and after the stage. Rows are targets and columns are predictions. 
+
+## C. Evaluation Protocol 
+
+Benchmarks. The 278 regular 𝜏 -Voice tasks comprise 50 in airline, 114 in retail and 114 in telecom. FDB-v3 scores tool selection, argument accuracy, response quality and Pass@1, together with turn-taking behavior. For ContextDialog we fix 80 questions in advance, all four questions of 20 complete 
+
+> 29 Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models
+
+conversations from both official splits. 
+
+Front models and admission. MiniCPM-o 4.5 has no native function head, so a neutral controller admits requests after the final transcript. VoiceChat-11B has a native function head and a channel for tool results, and its own head decides when to call a tool. In every paired comparison the two harnesses share the same admission path. On Venus-Audio both use the trained Native Gate, and on the other two models both use the admission mechanism just described. Every harness uses a budget of 16,384 output tokens per task in addition to 12 tool rounds and 120 s. 
+
+Simulated users and judges. All benchmarks run locally with their official task sets, tools, environ-ments and reward or scoring code. The simulated caller of 𝜏 -Voice is driven by DeepSeek-V4-Flash and voiced by Qwen3-TTS under the official policies, noise conditions and 200 ms tick, and the examiner of FDB-v2 combines DeepSeek-V4-Flash, Parakeet-TDT (NVIDIA, 2025) and Qwen3-TTS. Judges use the official prompts and rubrics. Every system we run meets the same callers, examiners and judges, and audio reaches it as real-time PCM. 
+
+Baselines. QAA runs from its upstream code with its own gateway, task manager, backend runtime, announcements, cancellation and playback receipts. Our adapter supplies the duplex transport and a DeepSeek back end. Gander runs with its released weights, its lean orchestration mode and an official Whisper large-v3 recognizer, and a DeepSeek worker provider replaces its Codex back end with the same budget as the other harnesses. MoshiRAG runs on its native retrieval path. The official Venus harness runs with a DeepSeek executor. 
+
+## D. Additional Results 
+
+Where the paired gains come from. Table 14 breaks the paired FDB-v3 results down. With the same admissions on Venus-Audio, QAA produces an audible response in 68 of the 100 recordings and Jarvis in 97. On VoiceChat argument accuracy rises from 0.470 to 0.583. On 𝜏 -Voice, the hardest tasks require a write to the database, and QAA and Gander solve none of them. On FDB-v2 the largest gains appear in Entity tracking (1.14 points on Venus-Audio) and Safety (0.98 points). On Venus-Audio the mean reward rises by 0.62 on retail and 0.70 on telecom, with paired bootstrap intervals of [0.54 , 0.71 ] and [0.61 , 0.78 ].
+
+Table 14 | FDB-v3 quality and completion time with the same front model. Take-turn counts recordings with an audible response. Completion time is the official task-completion latency in seconds, mean with the median in parentheses.                                        
+
+> Front model Harness Take-turn ↑Tool F1 ↑Arg. acc. ↑Resp. qual. ↑Completion (s)
+> Venus-Audio QAA 68 0.794 0.657 0.529 14.3 (14.2)
+> Jarvis 97 0.923 0.740 0.753 15.0 (12.9) MiniCPM-o 4.5 QAA 92 0.788 0.638 0.511 13.1 (13.1)
+> Jarvis 99 0.881 0.720 0.626 14.0 (16.2) VoiceChat-11B QAA 96 0.772 0.470 0.396 22.6 (15.7)
+> Jarvis 97 0.758 0.583 0.443 17.2 (17.4)
+> 30 Jarvis: Coordination Deserves a Brain of Its Own in Agentic Interactive Models
+
+FDB-v3 by difficulty and disfluency. Table 15 breaks down the published comparison. Jarvis-Audio passes 56.7% of the hard scenarios against 43.3% for GPT-Realtime and 64.7% of the recordings with self-corrections against 58.8%. 
+
+Table 15 | FDB-v3 Pass@1 (%) by domain, difficulty and type of disfluency. Bold marks the best value in each column. 
+
+Domain Difficulty Disfluency System Ecom. Fin. Hous. Travel Easy Med. Hard Filler Pause Hesit. False st. Self-corr. GPT-Realtime 55.2 96.0 30.8 60.0 75.0 58.8 43.3 62.1 55.6 70.0 66.7 58.8 Gemini Live 2.5 48.3 76.0 23.1 50.0 66.7 50.0 26.7 62.1 44.4 60.0 41.7 47.1 Gemini Live 3.1 44.8 92.0 26.9 55.0 69.4 58.8 30.0 58.6 50.0 60.0 58.3 35.3 Grok 41.4 76.0 11.5 45.0 58.3 47.1 20.0 48.3 33.3 50.0 58.3 29.4 Ultravox 34.5 68.0 19.2 45.0 55.6 38.2 26.7 41.4 33.3 50.0 25.0 35.3 Cascaded 41.4 80.0 19.2 40.0 63.9 44.1 23.3 44.8 44.4 60.0 50.0 17.6 
+
+Jarvis-Audio 79.3 84.0 42.3 70.0 83.3 64.7 56.7 75.9 72.2 70.0 58.3 64.7 
+
+Responsiveness. Figure 12(b) shows the stages of Jarvis-Audio. JEV settles an admitted turn in 0.81 s at the median and the memory-write gate in 0.32 s, and a worker starts 0.86 s after admission. Most of the remaining time goes into the work itself, 4.6 s at the median for the tool loop and 2.7 s from a speech request to the first generated audio, while the fast brain keeps listening. With MiniCPM-o as the front end, Jarvis starts speaking 3.1 s after the end of an FDB-v3 request at the median, slightly earlier than QAA on the same model at 3.5 s. Figure 12(a) breaks down the fast path of Jarvis-Omni. 0 1 2     
+
+> median time (s)
+> speech end to final ASR ASR to decision start typed decision and review ready to first voice end to end (median) 2.15 s 2.23 s
+> (a)
+> CS2 LoL 0.3 1310
+> seconds, median and p90 (log scale)
+> worker run (tools included) speech request to first audio admission to worker start JEV operation on admitted turn JEV memory-write gate 0.32 s (p90 0.9) 0.81 s (p90 1.9) 0.86 s (p90 2.0) 2.71 s (p90 3.6) 4.64 s (p90 14.1)
+> (b)
+
+Figure 12 | Where the time goes. (a) The fast path of Jarvis-Omni in recorded CS2 and League of Legends sessions, with stage medians and the end-to-end median from the end of the user’s speech to the first voiced word. (b) Stages of the slow brain of Jarvis-Audio over 42 benchmark sessions.

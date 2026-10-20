@@ -1,0 +1,302 @@
+Title: PhonoVoxtLM: Exploring Single-Codebook Phonological Tokens for Speech Understanding and Generation
+
+URL Source: https://arxiv.org/pdf/2610.18469v1
+
+Published Time: Wed, 14 Oct 2026 05:04:28 GMT
+
+Number of Pages: 11
+
+Markdown Content:
+# PhonoVoxtLM: Exploring Single-Codebook Phonological Tokens for Speech Understanding and Generation 
+
+Mingrui Liang 
+
+Johns Hopkins University 
+
+mliang17@jh.edu 
+
+Kentaro Onda 
+
+The University of Tokyo 
+
+Shinji Watanabe 
+
+Carnegie Mellon University 
+
+swatanab@andrew.cmu.edu 
+
+Abstract 
+
+We investigate how speech token representa-tions can support both understanding and gen-eration within a unified speech language model. We present PhonoVoxtLM, built on the exist-ing VoxtLM framework using phonological to-kens designed to retain linguistic content and prosodic information. The existing tokenizer is jointly trained for speech recognition and resynthesis. Its single-codebook units serve as both speech inputs and generation targets, with-out additional speech-token prediction mod-ules. Experiments show improvements over HuBERT-based baselines across understand-ing and generation under different training-data scales. Further comparisons with WavLM-based tokens reveal trade-offs between recogni-tion and synthesis, highlighting the importance of evaluating shared representations across both capabilities. We further extend the framework to spoken question answering through fine-tuning with replay. The adapted model im-proves answering performance over similarly adapted HuBERT baselines while retaining ad-vantages on the original speech tasks. Our findings support single-codebook representa-tions designed for both content and prosody as a practical choice for unified multitask speech modeling. 
+
+1 Introduction 
+
+Recent advances in text language models have es-tablished autoregressive modeling as an effective framework for diverse NLP tasks (Radford et al., 2019; Brown et al., 2020), motivating efforts to unify speech understanding and generation (Zhang et al., 2023; Maiti et al., 2024; Nguyen et al., 2025). Discrete speech tokens enable speech and text to be modeled within a shared architecture. When the same speech representation serves as both input and generation target, it must accommodate the in-formational demands of both capabilities (Mousavi et al., 2025; Yang et al., 2024b; Zhang et al., 2024). Content Token  Acoustic Token 
+
+> (a) One information emphasis
+
+LM C 
+
+> A
+> C
+> A
+> (b) Extra prediction module
+> C
+
+LM  APredictor   
+
+> One input type, extra generation stage
+> Task-dependent trade-offs
+> C
+> (c) Multiple token types
+> CA
+
+LM  C A 
+
+> Separate tokens for complementary information
+> (d) PhonoVoxtLM: one codebook
+> p
+
+LM 
+
+> Content + prosody, no extra token predictor
+> p
+
+LM 
+
+> Or
+
+Figure 1: Speech-token modeling designs: (a) content-or acoustic-oriented tokens; (b) an extra token predic-tor; (c) multiple token types; and (d) phonological to-kens designed to retain content and prosody in a single codebook. C/A denote content-oriented/acoustic tokens. Text paths and waveform decoders are omitted. 
+
+Existing systems address these demands through different representation and modeling choices. VALL-E uses acoustic codec tokens for synthe-sis (Wang et al., 2023), whereas GSLM mod-els content-oriented units for text-free speech generation (Lakhotia et al., 2021) (Figure 1(a)). Such representations emphasize different aspects of speech and may not serve understanding and generation equally well. Other systems introduce complementary mechanisms: Dual-SpeechLM uses AcousticGPT to predict acous-tic tokens from understanding-oriented represen-tations (Wang et al., 2026) (Figure 1(b)), while SpiRit-LM Expressive combines phonetic, pitch, and style tokens (Nguyen et al., 2025) (Figure 1(c)). These alternatives motivate our question: how ef-1arXiv:2610.18469v1 [eess.AS] 13 Oct 2026 fectively can a single-codebook representation sup-port both understanding and generation within a shared autoregressive framework? We study this question with PhonoVoxtLM (Fig-ure 1(d)), built on VoxtLM’s unified framework for ASR, TTS, and speech and text continuation (Maiti et al., 2024). We replace its HuBERT units with tokens produced by the existing Phonological To-kenizer (Onda et al., 2026), which combines ASR and speech resynthesis objectives through differ-entiable k-means to retain linguistic content and prosodic information. The resulting units serve as both speech inputs and generation targets, re-taining VoxtLM’s architecture without additional token prediction modules. Our comparisons ex-amine codebook size, speech encoder choice, and training-data scale to assess the benefits and trade-offs of this representation. We further extend the framework to spoken question answering (SQA), testing question-conditioned understanding beyond the original tasks. We adapt the model with replay and evaluate both SQA performance and original-task retention. To facilitate reproducibility, we im-plement our training and inference pipelines on ESPnet recipes (Watanabe et al., 2018). Our core contributions are as follows: • We systematically evaluate phonological to-kens as a shared input–output representation, finding improvements over 1K and 2K Hu-BERT baselines across understanding and gen-eration under two data settings. • We identify a trade-off relative to WavLM-large k-means units: phonological tokens im-prove synthesis, while the WavLM baselines achieve better recognition and speech discrim-ination. • We extend the shared interface to SQA and demonstrate gains over similarly adapted Hu-BERT baselines while retaining advantages on the original speech tasks. 
+
+2 Related Work 
+
+2.1 Speech Tokenization 
+
+Speech tokenizers convert continuous speech into discrete units and are commonly categorized as acoustic or semantic (Borsos et al., 2023; Parker et al., 2025; Yang et al., 2024a). Acoustic tokeniz-ers emphasize signal reconstruction, preserving de-tailed acoustic information for generation (Zeghi-dour et al., 2021; Défossez et al., 2022; Yang et al., 2023a). However, these objectives do not necessar-ily yield representations well suited to speech un-derstanding (Shi et al., 2024b; Chang et al., 2024). In contrast, semantic tokenizers emphasize linguis-tic content, typically by discretizing self-supervised speech features (Hsu et al., 2021; Chen et al., 2022) through clustering (Borsos et al., 2023; Zhang et al., 2023; Shi et al., 2024a) or learned vector quantiza-tion (Huang et al., 2024). Another approach intro-duces quantization bottlenecks into ASR models (Du et al., 2024; Zeng et al., 2024). Recent work explores representations that ac-commodate both linguistic and acoustic informa-tion, including multi-codebook designs (Zhang et al., 2024; Défossez et al., 2024; Yang et al., 2025) and ReasoningCodec (Yang et al., 2026). The Phonological Tokenizer (Onda et al., 2026) combines ASR and speech resynthesis objectives through differentiable k-means and is designed to retain linguistic content and prosodic information in a single codebook. We adopt this existing phono-logical tokenizer and evaluate its units as a shared input–output representation within VoxtLM, focus-ing on their effects on both understanding and gen-eration. 
+
+2.2 Speech Language Models 
+
+Discrete-token speech language models formulate speech modeling as autoregressive sequence pre-diction (Borsos et al., 2023; Wang et al., 2023; Kharitonov et al., 2023; Yang et al., 2023b). Sev-eral systems use representations with a particular informational emphasis in task-focused settings. VALL-E (Wang et al., 2023) models acoustic codec tokens for text-to-speech synthesis, whereas GSLM (Lakhotia et al., 2021) models discrete units de-rived from self-supervised speech representations for text-free speech generation. These approaches demonstrate the effectiveness of discrete speech modeling, but their representations are not neces-sarily equally suited to the demands of both under-standing and generation. To accommodate these differing demands, other systems introduce specialized prediction components or combine complementary token types. DualSpeechLM (Wang et al., 2026) uses understanding-oriented tokens as language-model inputs and introduces AcousticGPT to predict acoustic tokens for generation. Alternatively, SpiRit-LM Expressive (Nguyen et al., 2025) sup-plements phonetic units with pitch and style tokens, 2Input representation  Unified autoregressive modeling  Output reconstruction                          
+
+> Phonological Tokenizer
+> SSL encoder
+> Differentiable k-means
+> Input speech
+> 73 18 509 1274 Speech units
+> Unit-to-symbol mapping
+> SentencePiece
+> Unigram tokenizer
+> Input text
+> the story begins
+> Joint speech-text vocabulary
+> Speech subwords + text subwords + control tokens
+> s₁ s₂ s₃ …_the _story _ing …<gS> <gT> <sS>
+> OPT-initialized
+> Decoder-only
+> Language Model
+> <sS> s₁ s₂ <gT> _the
+> Task-formatted token sequence
+> _the _story
+> Text subwords
+> SentencePiece
+> decoding the story continues
+> Output text
+> s₁ s₂ s₃
+> Speech subwords
+> SentencePiece
+> decoding
+> Symbol-to-unit
+> mapping
+> 73 18 509
+> Speech units
+> Output
+> speech
+> Speech Text Task markers
+> Speech token
+> decoder
+
+Figure 2: Overview of PhonoVoxtLM within the VoxtLM framework. A frozen Phonological Tokenizer extracts discrete speech units, which are mapped to symbols and processed by a SentencePiece unigram tokenizer shared with text. Task-formatted sequences are modeled by one OPT-based decoder-only language model. Generated text is detokenized directly; generated speech subwords are decoded and mapped back to speech units before waveform synthesis with HiFi-GAN. 
+
+while UniAudio 2.0 (Yang et al., 2026) models reasoning and reconstruction tokens for audio un-derstanding and generation. We build on VoxtLM’s shared speech input–output framework (Maiti et al., 2024). We evaluate single-codebook phonological tokens within this architecture, without introduc-ing additional speech-token prediction modules or complementary speech-token streams. 
+
+3 Method 
+
+We build on the unified autoregressive framework of VoxtLM (Maiti et al., 2024) and investigate the use of phonological tokens as a shared speech rep-resentation for model inputs and generation tar-gets. As illustrated in Figure 2, a frozen Phonolog-ical Tokenizer converts speech into discrete units, which are incorporated into a joint speech–text vocabulary through subword modeling. A single OPT-initialized decoder-only language model pre-dicts sequences over this vocabulary. We retain the original text language modeling, speech language modeling, automatic speech recognition (ASR), and text-to-speech synthesis (TTS) tasks, and ex-tend the framework to spoken question answering (SQA) using the same sequence interface. 
+
+3.1 Shared Phonological Speech Representation 
+
+Given a waveform X, a speech tokenizer Tϕ pro-duces a sequence of discrete units: 
+
+D = Tϕ(X) = ( d1, . . . , d N ),di ∈ { 0, . . . , K − 1}. (1) We adopt the pretrained Phonological Tokenizer of Onda et al. (2026), which combines ASR and speech resynthesis objectives through differen-tiable k-means to encourage the retention of lin-guistic content and prosodic information. Our im-plementation uses its fine-tuned WavLM-large en-coder, extracting features from layer 21 and quan-tizing them with the released K = 2 ,000 cluster centroids. Both the encoder and centroids remain frozen during language-model training and SQA adaptation. To integrate speech units with text, we follow VoxtLM and map each discrete speech-unit in-dex di to a unique character in the CJK Uni-fied Ideographs block, with Unicode code point 
+
+0x4E00 + di. This one-to-one mapping m is re-versible and allows speech units to be processed by SentencePiece alongside text. We then train a single SentencePiece unigram tokenizer U (Kudo and Richardson, 2018) on sequences containing mapped speech units and text from the ASR and TTS training data. This produces a joint subword vocabulary containing speech symbols and their 3subsequences, text subwords, and task-control to-kens. SentencePiece is trained before the lan-guage model and kept fixed thereafter. We de-note the resulting speech subword sequence by 
+
+S = U (m(D)) and the tokenized text by T . The 2,000-entry speech codebook is distinct from the joint subword vocabulary: the former defines the shared discrete speech units, while the latter defines the prediction space of the language model. 
+
+3.2 Unified Autoregressive Multitask Modeling 
+
+We initialize the backbone of our decoder-only Transformer with pretrained OPT weights (Zhang et al., 2022), following VoxtLM, which reports im-proved performance with pretrained initialization compared to training from scratch (Maiti et al., 2024). All tasks share the same language-model parameters and joint output vocabulary. Accord-ingly, four control tokens specify the conditioning and output modalities. We abbreviate the speech and text condition markers as ⟨sS ⟩ and ⟨sT ⟩, and the speech and text generation markers as ⟨gS ⟩ and 
+
+⟨gT ⟩. Table 1 summarizes the sequence formats. Let V denote the joint speech–text vocabulary, including task-control and end-of-sequence tokens. For a task-specific prefix C = ( c1, . . . , c M ) ∈ V M
+
+and target Y = ( y1, . . . , y L) ∈ V L, where yL is the end-of-sequence token, the model factorizes the conditional probability as 
+
+pθ(Y | C) = 
+
+> L
+
+Y
+
+> t=1
+
+pθ(yt | C, y <t ). (2) Training uses teacher forcing and label-smoothed cross-entropy over target positions. The un-smoothed, token-normalized objective for one ex-ample is 
+
+LAR = − 1
+
+L
+
+> L
+
+X
+
+> t=1
+
+log pθ(yt | C, y <t ). (3) The prefix, including its generation marker, pro-vides context but does not contribute to the loss. For TextLM and SpeechLM, the training prefix contains only the corresponding generation marker. At inference time, an observed text or speech prefix can additionally condition continuation. 
+
+Output reconstruction. For text outputs, Sen-tencePiece decoding converts predicted subwords back into text. For speech outputs, it expands pre-dicted speech subwords into a symbol sequence, af-ter which m−1 recovers the underlying speech-unit sequence. A unit-conditioned HiFi-GAN vocoder (Kong et al., 2020) synthesizes waveforms from these units. We train a separate vocoder for each speech tokenizer using the same LJSpeech (Ito and Johnson, 2017) data and training configura-tion. Each vocoder remains fixed across language-model training settings and SQA adaptation. Thus, speech inputs and generation targets share the same codebook, without an additional language model or prediction branch for converting between speech-token types. 
+
+3.3 Extension to Spoken Question Answering 
+
+We formulate SQA as pθ(A | S, Q ) using the sequence format in Table 1, with supervision re-stricted to the answer and end-of-sequence to-kens. LibriSQA Parts I and II share this answer-generation objective: multiple-choice examples use the correct answer text as the target and omit can-didate options from the input. We fine-tune the four-task checkpoint on SQA mixed with replay examples from ASR, TTS, TextLM, and SpeechLM, retaining their original sequence formats. Only the shared language model is updated; the speech tokenizer and SentencePiece model remain fixed. No new task-control tokens or prediction modules are introduced. 
+
+4 Experimental Setup 
+
+4.1 Experimental Design 
+
+We organize our experiments around an OPT-350M model trained on the balanced mixture DBal . We examine data scaling by increasing unpaired speech and text data to obtain D3M , while keeping the backbone and paired training data fixed. We also extend the balanced-data model to SQA through fine-tuning with replay of the original tasks, evalu-ating both SQA performance and retention of the original capabilities. 
+
+4.2 Data 
+
+We use LibriLight (Kahn et al., 2020) for speech-only modeling, the LibriSpeech (Panayotov et al., 2015) language-modeling text corpus for text-only modeling, the 960-hour LibriSpeech training set for ASR, and the LibriTTS (Zen et al., 2019) and VCTK (Yamagishi et al., 2019) training data for TTS. The balanced mixture DBal is constructed from 300K speech-only utterances sampled from LibriLight, 300K text-only examples sampled from the LibriSpeech language-modeling corpus, 281K 4Task Training Inference Condition Prediction TextLM ⟨generate-text ⟩, T ⟨generate-text ⟩, T pre ˆT                    
+
+> SpeechLM ⟨generate-speech ⟩, S ⟨generate-speech ⟩, S pre ˆS
+> ASR ⟨start-speech ⟩, S, ⟨generate-text ⟩, T ⟨start-speech ⟩, S test ,⟨generate-text ⟩ˆT
+> TTS ⟨start-text ⟩, T, ⟨generate-speech ⟩, S ⟨start-text ⟩, T test ,⟨generate-speech ⟩ˆS
+> SQA ⟨start-speech ⟩, S, ⟨start-text ⟩,Q, ⟨generate-text ⟩, A
+> ⟨start-speech ⟩, S test ,⟨start-text ⟩,Qtest ,⟨generate-text ⟩ˆA
+
+Table 1: Sequence formats for training and inference. S and T denote speech and text subword sequences, and Q
+
+and A denote questions and answers. For TextLM and SpeechLM, inference conditions on an observed prefix ( Tpre 
+
+or Spre ) and predicts its continuation. Training loss is computed only after the generation marker. End-of-sequence tokens are omitted. 
+
+paired examples from LibriSpeech for ASR, and 399K paired examples from LibriTTS and VCTK for TTS. In D3M , each unpaired component is in-creased to 3M examples, while the paired data and development and test splits remain unchanged. For SQA adaptation, we combine LibriSQA Parts I and II (Zhao et al., 2024) using the train-ing format described in Section 3.3, reserving a common set of speakers for development across both parts. The resulting SQA training set contains approximately 204K examples. We mix these with 65K replay examples from the original tasks: 25K ASR, 25K TextLM, 10K TTS, and 5K SpeechLM examples. This yields approximately 269K train-ing examples, with SQA and replay contributing 5.7M and 5.1M supervised target tokens, respec-tively, achieving an approximately balanced token distribution. 
+
+4.3 Models and Training 
+
+We compare our phonological-token models with baselines using k-means units extracted from the sixth layer of HuBERT-base. Our primary baseline follows the 1,000-unit codebook setting evaluated in VoxtLM. Since the Phonological Tokenizer uses a 2,000-unit codebook, we additionally include 2,000-unit HuBERT baselines to assess whether the observed gains can be explained by the larger codebook alone. Both HuBERT baselines are evalu-ated under the balanced and expanded-data settings and after SQA adaptation. Corresponding systems use the same backbone size and task-data config-uration. Our comparisons evaluate the complete speech tokenization pipelines, which differ in their encoders and training objectives. Furthermore, we include WavLM-large k-means baselines with 1,000 and 2,000 units, extracting features from the 21st layer, as in the Phonologi-cal Tokenizer. These experiment use OPT-350M and DBal with the same language-model training settings. All models use a 10K SentencePiece unigram vocabulary and an OPT-350M-initialized backbone. For the original four-task training, we use Adam with a peak learning rate of 3×10 −4, 2,500 warmup updates, and weight decay of 10 −6. Training uses mixed precision, gradient accumulation over 20 minibatches, gradient clipping at 1.0, and label smoothing of 0.1. Checkpoints are selected by development-set target-token accuracy. For SQA adaptation, we reduce the peak learn-ing rate to 10 −4 and use 300 warmup updates. We select the checkpoint with the highest development-set answer-token accuracy and apply early stopping based on development loss with a patience of four validation epochs. The speech tokenizer and Sen-tencePiece model remain fixed during adaptation. 
+
+4.4 Evaluation Language modeling and recognition. We evalu-ate TextLM and SpeechLM using perplexity (PPL), and lexical and syntactic discrimination using the sWUGGY and sBLIMP development sets (Dunbar et al., 2022). The discrimination pairs are ranked by summed token log-likelihood, without length normalization. SpeechLM is evaluated on speech inputs, while TextLM uses the corresponding text. The discrimination scores measure the percentage of pairs for which the model prefers the valid word or grammatically acceptable sentence. Because the joint SentencePiece tokenizer is trained separately for each speech tokenization system, token-level PPL is not directly comparable across systems. For ASR, we report word error rate (WER) separately 5Setting Speech tokens TextLM SpeechLM ASR TTS PPL ↓ sWUGGY ↑ sBLIMP ↑ PPL ↓ sWUGGY ↑ sBLIMP ↑ WER ↓ CER ↓ UTMOS ↑ SBS ↑ F0 corr ↑DBal HuBERT-1K 27.26 82.61 68.41 42.67 61.43 54.35 7.1/17.8 2.51 3.87 0.813 0.167 HuBERT-2K 23.78 82.52 68.97 31.02 59.79 54.60 7.4/17.5 1.94 3.87 0.812 0.227 Phonological 26.17 82.16 68.83 36.76 66.98 57.31 4.2 /8.6 1.61 3.98 0.821 0.282                                                                      
+
+> DBal HuBERT-1K 30.28 82.87 67.86 49.70 61.25 54.51 9.0/21.2 1.79 3.86 0.811 0.221 + SQA adaptation HuBERT-2K 26.70 82.27 68.92 34.30 59.29 54.47 8.5/20.2 3.14 3.83 0.807 0.210 Phonological 29.90 82.23 68.86 43.20 66.39 57.03 5.4 /9.6 1.50 3.93 0.815 0.275
+> D3M HuBERT-1K 19.52 84.22 74.08 34.06 64.78 56.25 6.9/16.6 2.46 3.80 0.807 0.199 HuBERT-2K 17.98 84.16 74.32 25.32 63.42 55.62 7.1/17.7 2.35 3.78 0.803 0.186 Phonological 19.00 84.43 74.63 29.60 69.12 58.81 4.3 /8.3 2.26 4.01 0.813 0.278
+
+Table 2: Original-task results using OPT-350M. The first two blocks compare balanced-data models before and after SQA fine-tuning with replay; the third uses expanded unpaired training data. HuBERT-1K and HuBERT-2K use 1,000- and 2,000-unit codebooks, respectively; Phonological uses 2,000 units. ASR WER is reported as test-clean/test-other. Discrimination scores and error rates are percentages. SBS denotes SpeechBERTScore; F0 corr denotes mean F0 correlation. Arrows indicate the preferred direction. Within each block, the best values are bold, except for PPL. 
+
+on LibriSpeech test-clean and test-other. 
+
+Speech synthesis. We evaluate TTS on a fixed random subset of 100 test utterances. With the help of VERSA (Shi et al., 2025), we report character error rate (CER) from automatic transcription of synthesized speech using Whisper large-v3 (Rad-ford et al., 2022), UTMOS for predicted perceptual quality (Saeki et al., 2022), SpeechBERTScore for similarity to reference speech (Saeki et al., 2024), and mean F0 correlation between synthesized and reference speech. Because synthesized and refer-ence speech differ in speaker identity, we inter-pret F0 correlation as a comparative measure under matched evaluation conditions, rather than a direct measure of speaker-matched prosody preservation. Decoding starts with beam search of width five and no-repeat 8-gram blocking. Outputs that reach the generation-length limit are decoded again using greedy search, followed, if necessary, by nucleus sampling with p = 0 .9 and temperature 1.0. 
+
+Spoken question answering. For LibriSQA Part I, we evaluate free-form answer generation on a fixed random subset of 500 test examples using BLEU-4, ROUGE-L F1, and BERTScore F1 with baseline rescaling (Papineni et al., 2002; Lin, 2004; Zhang et al., 2019). We use a decoding length penalty of 0.3, selected on development data. We also report a transcript-as-answer baseline, which returns the reference transcript without answering the question. For Part II, we report multiple-choice accuracy by scoring each candidate answer as a continua-tion of the speech-and-question prefix. Our main score subtracts the answer log-likelihood obtained without speech: 
+
+s(Aj ; S, Q ) = log pθ(Aj | S, Q )
+
+− log pθ(Aj | ∅ , Q ). (4) Here, ∅ denotes an empty speech segment with the other prompt elements retained. We select the candidate with the highest score. Candidate log-likelihoods sum over answer tokens, excluding the end-of-sequence token. Finally, we re-evaluate the original four tasks after SQA adaptation to assess changes in their performance. 
+
+5 Results and Analysis 
+
+5.1 Performance on the Original Four Tasks 
+
+Table 2 shows that phonological tokens improve both speech understanding and generation over the HuBERT baselines within the same VoxtLM framework. In the balanced-data setting, gains span speech discrimination, recognition, and all four TTS metrics. For example, ASR WER de-creases from 7.1%/17.8% with HuBERT-1K to 4.2%/8.6%, and F0 correlation increases from 0.167 to 0.282. This pattern supports the value of improving the shared speech representation without adding speech-token prediction modules, although it does not isolate the contribution of prosodic in-formation. 
+
+Controlling for codebook size. Increasing the HuBERT codebook from 1K to 2K improves TTS CER but lowers speech sWUGGY under both data settings. Phonological tokens outperform the size-matched HuBERT-2K baseline in recognition, 6Speech tokens TextLM SpeechLM ASR TTS PPL ↓ sWUGGY ↑ sBLIMP ↑ PPL ↓ sWUGGY ↑ sBLIMP ↑ WER ↓ CER ↓ UTMOS ↑ SBS ↑ F0 corr ↑                                 
+
+> WavLM-1K 28.66 82.34 68.92 33.85 68.12 58.07 3.7/6.5 1.63 3.70 0.806 0.144 WavLM-2K 26.79 81.73 69.51 22.01 68.28 58.30 3.8/6.8 3.03 3.62 0.795 0.159 Phonological 26.17 82.16 68.83 36.76 66.98 57.31 4.2/8.6 1.61 3.98 0.821 0.282
+
+Table 3: Comparison with WavLM-based k-means units using OPT-350M and DBal . WavLM-1K and WavLM-2K use 1,000-unit and 2,000-unit codebooks; Phonological uses 2,000 units. WER is reported as test-clean/test-other. Discrimination scores and error rates are percentages. SBS denotes SpeechBERTScore; F0 corr denotes mean F0 correlation. Arrows indicate the preferred direction. Best values are bold except for PPL. 
+
+speech discrimination, and synthesis, indicating that codebook size alone does not explain the joint improvements. 
+
+Effects on text modeling. Text discrimination remains broadly comparable, suggesting that the speech gains do not come with a consistent loss in text discrimination. We report PPL for com-pleteness but do not compare it across tokenizers because their tokenizations differ. 
+
+5.2 Data Scaling 
+
+The advantages of phonological tokens over both HuBERT baselines persist under D3M (Table 2). Gains remain consistent across recognition, speech discrimination, and all four TTS metrics, suggest-ing that the benefits of the shared representation are not confined to the balanced-data setting. However, scaling unpaired data yields uneven gains across tasks. For the phonological model, text and speech discrimination improve, whereas recog-nition changes little and synthesis metrics show mixed effects. In particular, TTS CER increases from 1.61% to 2.26%, despite a small improvement in UTMOS. Thus, the representation retains its rela-tive advantages, but additional unpaired data do not uniformly improve understanding and generation. 
+
+5.3 Understanding–Generation Trade-offs 
+
+Table 3 reveals a trade-off between understanding and generation when phonological tokens are com-pared with WavLM-large k-means units extracted from the same layer. The WavLM baselines achieve higher speech discrimination scores and lower ASR WER, while phonological tokens perform better on all four TTS metrics. The synthesis advantage is most evident in predicted quality and reference pitch correlation. Phonological tokens achieve a UTMOS of 3.98 and F0 correlation of 0.282, compared with 3.62– 3.70 and 0.144–0.159 for the WavLM baselines. The CER of PhnonVoxtLM is close to WavLM-1K and lower than WavLM-2K. These results highlight why a shared representation should be evaluated across both capabilities: the units with stronger recognition and discrimination scores do not nec-essarily provide stronger synthesis. Phonological tokens offer a useful balance, improving synthesis while retaining competitive understanding perfor-mance. 
+
+5.4 Spoken Question Answering 
+
+SQA adaptation extends the shared token interface to question-conditioned answer generation without additional prediction modules, using the sequence format in Table 1. Table 4 shows improvements in both answer generation and selection; for the phonological model, Part II accuracy rises from 35.73% to 46.76%. Among similarly adapted models, phonological tokens achieve higher BLEU-4 and BERTScore F1 than HuBERT-1K, with nearly identical ROUGE-L F1, and exceed HuBERT-2K on all three generation metrics. Using the calibrated score in Equation 4, Part II accuracy is higher by 1.66 and 1.99 percent-age points, respectively. The adapted model also exceeds the transcript-as-answer baseline on all Part I metrics, producing answers better matched to the references than simply returning the tran-script. These results extend the evidence for the shared representation beyond recognition and dis-crimination to spoken question answering. 
+
+5.5 Retention of the Original Tasks 
+
+SQA adaptation with replay affects the original tasks unevenly (the first two blocks of Table 2). For the phonological model, recognition and speech discrimination decline, and TextLM PPL increases. For example, ASR WER rises from 4.2%/8.6% to 5.4%/9.6%. TTS CER improves, while UTMOS, SpeechBERTScore, and F0 correlation decrease slightly. Nevertheless, the adapted model remains ahead 7Part I: answer generation Part II Speech tokens SQA fine-tuning BLEU-4 ↑ ROUGE-L F1 ↑ BERTScore F1 ↑ Accuracy ↑                                  
+
+> HuBERT-1K No 21.30 41.10 46.50 36.80
+> HuBERT-2K No 21.90 41.60 47.40 34.80 Phonological No 22.82 42.28 49.14 35.73 HuBERT-1K Yes 29.50 49.00 55.40 45.10 HuBERT-2K Yes 27.78 47.48 54.08 44.77 Phonological Yes 30.75 49.01 55.64 46.76
+> Transcript-as-answer baseline 23.71 43.54 51.29 —
+
+Table 4: LibriSQA results from OPT-350M models trained on balanced data. Part I uses the fixed 500-example test subset. BLEU-4, ROUGE-L F1, and rescaled BERTScore F1 are multiplied by 100 for reporting. Part II accuracy (%) uses the No-Audio-Calibrated Answer Score for candidate selection. Best values are bold separately within the three models before and after SQA fine-tuning.                                          
+
+> Model Params SpeechLM ASR sWUGGY ↑sBLIMP ↑WER ↓
+> GSLM-k200 172M —53.0 —AudioLM 900M 71.5 64.7 —VoxtLM-k200 1.3B 66.1 56.7 4.6/12.1 + MLS 1.3B 65.6 57.1 2.7/6.5 TWIST 1.3B 72.7 57.0 —SpiRit-LM Base 7B 71.4 63.2 21.9/29.2 + ASR + TTS 7B 71.8 62.4 6.0/11.0
+> PhonoVoxtLM a350M 69.1 58.8 4.3/8.3
+> PhonoVoxtLM b350M 66.4 57.0 5.4/9.6
+
+Table 5: Comparison of our models against prior work. GSLM, AudioLM, VoxtLM, TWIST and SpiRit-LM results are reported in Lakhotia et al. (2021), Borsos et al. (2023), Maiti et al. (2024), Hassid et al. (2023) and Nguyen et al. (2025), respectively. SpiRit-LM ASR uses 10-shot prompting. ASR WER is reported as Lib-riSpeech test-clean/test-other. Training data and evalua-tion protocols differ across studies. aTrained on D3M .
+
+> b
+
+Trained on DBal , then fine-tuned on SQA with replay. 
+
+of both adapted HuBERT baselines on recognition, speech discrimination, and all four TTS metrics. The representation therefore retains its comparative advantages after adaptation, although the model does not fully preserve its pre-adaptation perfor-mance. 
+
+5.6 Comparison with Prior Work 
+
+Table 5 places PhonoVoxtLM in the context of prior systems, although training data and evalu-ation protocols differ. Our 350M model trained on D3M achieves higher reported speech discrimi-nation scores and lower ASR WER than the 1.3B VoxtLM-k200 without additional MLS data. Al-though other systems lead on individual metrics, PhonoVoxtLM achieves a competitive balance be-tween speech modeling and recognition with a rel-atively small language-model backbone. 
+
+6 Conclusion 
+
+We investigated phonological tokens as a shared input–output representation within the existing VoxtLM framework. Across balanced and expanded-data settings, these tokens improve speech recognition, discrimination, and synthe-sis over HuBERT baselines. Comparisons with WavLM-based units reveal a trade-off: phono-logical tokens provide stronger synthesis, while WavLM units perform better in recognition and speech discrimination. After SQA adaptation, the phonological model also outperforms similarly adapted HuBERT baselines while retaining advan-tages on the original speech tasks. Together, these findings support single-codebook phonological to-kens as a practical shared representation for under-standing and generation, without additional speech-token prediction modules. 
+
+Limitations 
+
+Our experiments compare complete speech repre-sentation pipelines. The WavLM baselines match the encoder architecture and feature-extraction layer, but do not isolate individual tokenizer train-ing objectives. F0 correlation provides evidence about reference pitch matching, but does not estab-lish the causal contribution of prosodic informa-tion to downstream performance or assess prosody comprehensively. Our evaluation is also limited to English, primarily read speech, with spoken ques-tion answering assessed only on LibriSQA. Further studies are needed to examine generalization to other languages and conversational settings. Be-sides, our experiments use a single language-model size; generalization to larger backbones remains to be evaluated. Finally, speech synthesis is eval-uated using automatic metrics; human listening 8tests would provide complementary evidence on perceived naturalness and prosodic quality. 
+
+Acknowledgments 
+
+We thank the Center for Language and Speech Pro-cessing (CLSP) at Johns Hopkins University for providing the computational resources used in our experiments. 
+
+References 
+
+Zalán Borsos, Raphaël Marinier, Damien Vincent, Eugene Kharitonov, Olivier Pietquin, Matt Shar-ifi, Dominik Roblek, Olivier Teboul, David Grang-ier, Marco Tagliasacchi, et al. 2023. Audiolm: a language modeling approach to audio generation. 
+
+IEEE/ACM transactions on audio, speech, and lan-guage processing , 31:2523–2533. Tom Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared D Kaplan, Prafulla Dhariwal, Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, et al. 2020. Language models are few-shot learners. Advances in neural information processing systems , 33:1877–1901. Xuankai Chang, Brian Yan, Kwanghee Choi, Jee-Weon Jung, Yichen Lu, Soumi Maiti, Roshan Sharma, Jia-tong Shi, Jinchuan Tian, Shinji Watanabe, et al. 2024. Exploring speech recognition, translation, and under-standing with discrete speech units: A comparative study. In ICASSP 2024-2024 IEEE International Conference on Acoustics, Speech and Signal Process-ing (ICASSP) , pages 11481–11485. IEEE. Sanyuan Chen, Chengyi Wang, Zhengyang Chen, Yu Wu, Shujie Liu, Zhuo Chen, Jinyu Li, Naoyuki Kanda, Takuya Yoshioka, Xiong Xiao, et al. 2022. WavLM: Large-scale self-supervised pre-training for full stack speech processing. IEEE Journal of Se-lected Topics in Signal Processing , 16(6):1505–1518. Alexandre Défossez, Jade Copet, Gabriel Synnaeve, and Yossi Adi. 2022. High fidelity neural audio compres-sion. arXiv preprint arXiv:2210.13438 .Alexandre Défossez, Laurent Mazaré, Manu Orsini, Amélie Royer, Patrick Pérez, Hervé Jégou, Edouard Grave, and Neil Zeghidour. 2024. Moshi: a speech-text foundation model for real-time dialogue. arXiv preprint arXiv:2410.00037 .Zhihao Du, Qian Chen, Shiliang Zhang, Kai Hu, Heng Lu, Yexin Yang, Hangrui Hu, Siqi Zheng, Yue Gu, Ziyang Ma, et al. 2024. Cosyvoice: A scal-able multilingual zero-shot text-to-speech synthesizer based on supervised semantic tokens. arXiv preprint arXiv:2407.05407 .Ewan Dunbar, Nicolas Hamilakis, and Emmanuel Dupoux. 2022. Self-supervised language learning from raw audio: Lessons from the zero resource speech challenge. IEEE Journal of Selected Topics in Signal Processing , 16(6):1211–1226. Michael Hassid, Tal Remez, Tu Anh Nguyen, Itai Gat, Alexis Conneau, Felix Kreuk, Jade Copet, Alexan-dre Defossez, Gabriel Synnaeve, Emmanuel Dupoux, et al. 2023. Textually pretrained speech language models. Advances in Neural Information Processing Systems , 36:63483–63501. Wei-Ning Hsu, Benjamin Bolte, Yao-Hung Hubert Tsai, Kushal Lakhotia, Ruslan Salakhutdinov, and Abdel-rahman Mohamed. 2021. Hubert: Self-supervised speech representation learning by masked prediction of hidden units. IEEE/ACM transactions on audio, speech, and language processing , 29:3451–3460. Zhichao Huang, Chutong Meng, and Tom Ko. 2024. Repcodec: A speech representation codec for speech tokenization. In Proceedings of the 62nd Annual Meeting of the Association for Computational Lin-guistics (Volume 1: Long Papers) , pages 5777–5790. Keith Ito and Linda Johnson. 2017. The lj speech dataset. https://keithito.com/ LJ-Speech-Dataset/ .Jacob Kahn, Morgane Riviere, Weiyi Zheng, Evgeny Kharitonov, Qiantong Xu, Pierre-Emmanuel Mazaré, Julien Karadayi, Vitaliy Liptchinsky, Ronan Col-lobert, Christian Fuegen, et al. 2020. Libri-light: A benchmark for asr with limited or no supervision. In ICASSP 2020-2020 IEEE international conference on acoustics, speech and signal processing (ICASSP) ,pages 7669–7673. IEEE. Eugene Kharitonov, Damien Vincent, Zalán Borsos, Raphaël Marinier, Sertan Girgin, Olivier Pietquin, Matt Sharifi, Marco Tagliasacchi, and Neil Zeghi-dour. 2023. Speak, read and prompt: High-fidelity text-to-speech with minimal supervision. Transac-tions of the Association for Computational Linguis-tics , 11:1703–1718. Jungil Kong, Jaehyeon Kim, and Jaekyoung Bae. 2020. HiFi-GAN: Generative adversarial networks for ef-ficient and high fidelity speech synthesis. Advances in neural information processing systems , 33:17022– 17033. Taku Kudo and John Richardson. 2018. Sentencepiece: A simple and language independent subword tok-enizer and detokenizer for neural text processing. In Proceedings of the 2018 conference on empiri-cal methods in natural language processing: System demonstrations , pages 66–71. Kushal Lakhotia, Eugene Kharitonov, Wei-Ning Hsu, Yossi Adi, Adam Polyak, Benjamin Bolte, Tu-Anh Nguyen, Jade Copet, Alexei Baevski, Abdelrahman Mohamed, et al. 2021. On generative spoken lan-guage modeling from raw audio. Transactions of the Association for Computational Linguistics , 9:1336– 1354. 
+
+9Chin-Yew Lin. 2004. Rouge: A package for automatic evaluation of summaries. In Text summarization branches out , pages 74–81. Soumi Maiti, Yifan Peng, Shukjae Choi, Jee-weon Jung, Xuankai Chang, and Shinji Watanabe. 2024. Voxtlm: Unified decoder-only models for consoli-dating speech recognition, synthesis and speech, text continuation tasks. In ICASSP 2024-2024 IEEE Inter-national Conference on Acoustics, Speech and Signal Processing (ICASSP) , pages 13326–13330. IEEE. Pooneh Mousavi, Gallil Maimon, Adel Moumen, Dar-ius Petermann, Jiatong Shi, Haibin Wu, Haici Yang, Anastasia Kuznetsova, Artem Ploujnikov, Ricard Marxer, et al. 2025. Discrete audio tokens: More than a survey! arXiv preprint arXiv:2506.10274 .Tu Anh Nguyen, Benjamin Muller, Bokai Yu, Marta R Costa-Jussa, Maha Elbayad, Sravya Popuri, Christophe Ropers, Paul-Ambroise Duquenne, Robin Algayres, Ruslan Mavlyutov, et al. 2025. Spirit-lm: Interleaved spoken and written language model. 
+
+Transactions of the Association for Computational Linguistics , 13:30–52. Kentaro Onda, Hayato Futami, Yosuke Kashiwagi, Emiru Tsunoo, and Shinji Watanabe. 2026. Phono-logical tokenizer: Prosody-aware phonetic token via multi-objective fine-tuning with differentiable k-means. In ICASSP 2026-2026 IEEE International Conference on Acoustics, Speech and Signal Process-ing (ICASSP) , pages 17817–17821. IEEE. Vassil Panayotov, Guoguo Chen, Daniel Povey, and Sanjeev Khudanpur. 2015. LibriSpeech: an asr cor-pus based on public domain audio books. In 2015 IEEE international conference on acoustics, speech and signal processing (ICASSP) , pages 5206–5210. IEEE. Kishore Papineni, Salim Roukos, Todd Ward, and Wei-Jing Zhu. 2002. Bleu: a method for automatic evalu-ation of machine translation. In Proceedings of the 40th annual meeting of the Association for Computa-tional Linguistics , pages 311–318. Julian Parker, Anton Smirnov, Jordi Pons, CJ Carr, Zack Zukowski, Zach Evans, and Xubo Liu. 2025. Scal-ing transformers for low-bitrate high-quality speech coding. In International Conference on Learning Representations , volume 2025, pages 51997–52021. Alec Radford, Jong Wook Kim, Tao Xu, Greg Brock-man, Christine McLeavey, and Ilya Sutskever. 2022. Robust speech recognition via large-scale weak su-pervision. arXiv preprint .Alec Radford, Jeffrey Wu, Rewon Child, David Luan, Dario Amodei, Ilya Sutskever, et al. 2019. Language models are unsupervised multitask learners. OpenAI blog , 1(8):9. Takaaki Saeki, Soumi Maiti, Shinnosuke Takamichi, Shinji Watanabe, and Hiroshi Saruwatari. 2024. Speechbertscore: Reference-aware automatic eval-uation of speech generation leveraging nlp evaluation metrics. arXiv preprint arXiv:2401.16812 .Takaaki Saeki, Detai Xin, Wataru Nakata, Tomoki Koriyama, Shinnosuke Takamichi, and Hiroshi Saruwatari. 2022. Utmos: Utokyo-sarulab sys-tem for voicemos challenge 2022. arXiv preprint arXiv:2204.02152 .Jiatong Shi, Hirofumi Inaguma, Xutai Ma, Ilia Ku-likov, and Anna Sun. 2024a. Multi-resolution hubert: Multi-resolution speech self-supervised learning with masked unit prediction. In International Conference on Learning Representations , volume 2024, pages 25421–25457. Jiatong Shi, Hye jin Shim, Jinchuan Tian, Siddhant Arora, Haibin Wu, Darius Petermann, Jia Qi Yip, You Zhang, Yuxun Tang, Wangyou Zhang, Dareen Safar Alharthi, Yichen Huang, Koichi Saito, Jionghao Han, Yiwen Zhao, Chris Donahue, and Shinji Watanabe. 2025. VERSA: A versatile evaluation toolkit for speech, audio, and music. In 2025 Annual Confer-ence of the North American Chapter of the Associa-tion for Computational Linguistics – System Demon-stration Track .Jiatong Shi, Jinchuan Tian, Yihan Wu, Jee-Weon Jung, Jia Qi Yip, Yoshiki Masuyama, William Chen, Yun-ing Wu, Yuxun Tang, Massa Baali, Dareen Alharthi, Dong Zhang, Ruifan Deng, Tejes Srivastava, Haibin Wu, Alexander Liu, Bhiksha Raj, Qin Jin, Ruihua Song, and Shinji Watanabe. 2024b. Espnet-codec: Comprehensive training and evaluation of neural codecs for audio, music, and speech. In 2024 IEEE Spoken Language Technology Workshop (SLT) , pages 562–569. Chengyi Wang, Sanyuan Chen, Yu Wu, Ziqiang Zhang, Long Zhou, Shujie Liu, Zhuo Chen, Yanqing Liu, Huaming Wang, Jinyu Li, et al. 2023. Neural codec language models are zero-shot text to speech synthe-sizers. arXiv preprint arXiv:2301.02111 .Yuanyuan Wang, Dongchao Yang, Yiwen Shao, Hangt-ing Chen, Jiankun Zhao, Zhiyong Wu, Helen Meng, and Xixin Wu. 2026. Dualspeechlm: Towards uni-fied speech understanding and generation via dual speech token modeling with large language models. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 40, pages 33728–33736. Shinji Watanabe, Takaaki Hori, Shigeki Karita, Tomoki Hayashi, Jiro Nishitoba, Yuya Unno, Nelson En-rique Yalta Soplin, Jahn Heymann, Matthew Wiesner, Nanxin Chen, Adithya Renduchintala, and Tsubasa Ochiai. 2018. ESPnet: End-to-end speech process-ing toolkit. In Proceedings of Interspeech , pages 2207–2211. Junichi Yamagishi, Christophe Veaux, and Kirsten Mac-Donald. 2019. CSTR VCTK corpus: English multi-speaker corpus for CSTR voice cloning toolkit (ver-sion 0.92). University of Edinburgh, The Centre for Speech Technology Research. 
+
+10 Dongchao Yang, Haohan Guo, Yuanyuan Wang, Rongjie Huang, Xiang Li, Xu Tan, Xixin Wu, and Helen Meng. 2024a. Uniaudio 1.5: Large language model-driven audio codec is a few-shot audio task learner. Advances in Neural Information Processing Systems , 37:56802–56827. Dongchao Yang, Songxiang Liu, Haohan Guo, Jiankun Zhao, Yuanyuan Wang, Helin Wang, Zeqian Ju, Xubo Liu, Xueyuan Chen, Xu Tan, et al. 2025. Alm-tokenizer: A low-bitrate and semantic-rich audio codec tokenizer for audio language modeling. arXiv preprint arXiv:2504.10344 .Dongchao Yang, Songxiang Liu, Rongjie Huang, Jinchuan Tian, Chao Weng, and Yuexian Zou. 2023a. Hifi-codec: Group-residual vector quanti-zation for high fidelity audio codec. arXiv preprint arXiv:2305.02765 .Dongchao Yang, Jinchuan Tian, Xu Tan, Rongjie Huang, Songxiang Liu, Xuankai Chang, Jiatong Shi, Sheng Zhao, Jiang Bian, Zhou Zhao, et al. 2023b. Uniaudio: An audio foundation model toward universal audio generation. arXiv preprint arXiv:2310.00704 .Dongchao Yang, Yuanyuan Wang, Dading Chong, Songxiang Liu, Xixin Wu, and Helen Meng. 2026. Uniaudio 2.0: A unified audio language model with text-aligned factorized audio tokenization. arXiv preprint arXiv:2602.04683 .Yifan Yang, Feiyu Shen, Chenpeng Du, Ziyang Ma, Kai Yu, Daniel Povey, and Xie Chen. 2024b. Towards universal speech discrete tokens: A case study for asr and tts. In ICASSP 2024-2024 IEEE Interna-tional Conference on Acoustics, Speech and Signal Processing (ICASSP) , pages 10401–10405. IEEE. Neil Zeghidour, Alejandro Luebs, Ahmed Omran, Jan Skoglund, and Marco Tagliasacchi. 2021. Soundstream: An end-to-end neural audio codec. 
+
+IEEE/ACM Transactions on Audio, Speech, and Lan-guage Processing , 30:495–507. Heiga Zen, Viet Dang, Rob Clark, Yu Zhang, Ron J Weiss, Ye Jia, Zhifeng Chen, and Yonghui Wu. 2019. Libritts: A corpus derived from librispeech for text-to-speech. arXiv preprint arXiv:1904.02882 .Aohan Zeng, Zhengxiao Du, Mingdao Liu, Kedong Wang, Shengmin Jiang, Lei Zhao, Yuxiao Dong, and Jie Tang. 2024. Glm-4-voice: Towards intelligent and human-like end-to-end spoken chatbot. arXiv preprint arXiv:2412.02612 .Dong Zhang, Shimin Li, Xin Zhang, Jun Zhan, Pengyu Wang, Yaqian Zhou, and Xipeng Qiu. 2023. Speechgpt: Empowering large language models with intrinsic cross-modal conversational abilities. In 
+
+Findings of the Association for Computational Lin-guistics: EMNLP 2023 , pages 15757–15773. Susan Zhang, Stephen Roller, Naman Goyal, Mikel Artetxe, Moya Chen, Shuohui Chen, Christopher De-wan, Mona Diab, Xian Li, Xi Victoria Lin, Todor Mi-haylov, Myle Ott, Sam Shleifer, Kurt Shuster, Daniel Simig, Punit Singh Koura, Anjali Sridhar, Tianlu Wang, and Luke Zettlemoyer. 2022. OPT: Open pre-trained transformer language models. Preprint ,arXiv:2205.01068. Tianyi Zhang, Varsha Kishore, Felix Wu, Kilian Q Weinberger, and Yoav Artzi. 2019. Bertscore: Eval-uating text generation with bert. arXiv preprint arXiv:1904.09675 .Xin Zhang, Dong Zhang, Shimin Li, Yaqian Zhou, and Xipeng Qiu. 2024. Speechtokenizer: Unified speech tokenizer for speech large language models. Preprint ,arXiv:2308.16692. Zihan Zhao, Yiyang Jiang, Heyang Liu, Yu Wang, and Yanfeng Wang. 2024. LibriSQA: A novel dataset and framework for spoken question answering with large language models. IEEE Transactions on Artificial Intelligence , 6(11):2884–2895. 
+
+11
